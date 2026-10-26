@@ -26,6 +26,7 @@ create table officehub_private.email_settings (
   -- Empty means all verified internal user addresses; use one test address first.
   allowed_recipient_emails text[] not null default '{}'
 );
+alter table officehub_private.email_settings enable row level security;
 insert into officehub_private.email_settings(id) values (true);
 
 create table public.officehub_email_outbox (
@@ -425,6 +426,7 @@ begin
     or has_function_privilege('authenticated','public.officehub_email_claim()','EXECUTE')
     or has_schema_privilege('authenticated','officehub_private','USAGE') then raise exception 'Queue privileges exposed'; end if;
   if not (select relrowsecurity from pg_class where oid='public.officehub_email_outbox'::regclass) then raise exception 'RLS disabled'; end if;
+  if not (select relrowsecurity from pg_class where oid='officehub_private.email_settings'::regclass) then raise exception 'Settings RLS disabled'; end if;
   if exists(select 1 from public.officehub_email_claim()) then raise exception 'Paused queue claimed'; end if;
   update officehub_private.email_settings set delivery_enabled=true;
   update public.officehub_email_outbox set available_at=now()-interval '1 second';

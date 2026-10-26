@@ -24,6 +24,7 @@ create table officehub_private.email_settings (
   -- Empty means all verified internal user addresses; use one test address first.
   allowed_recipient_emails text[] not null default '{}'
 );
+alter table officehub_private.email_settings enable row level security;
 insert into officehub_private.email_settings(id) values (true);
 
 create table public.officehub_email_outbox (
