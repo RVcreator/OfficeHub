@@ -1,3 +1,4 @@
+import { isNotificationForUser } from '../services/notificationDelivery';
 import React, { useState, useEffect, useRef } from 'react';
 import { UserAvatar } from './UserAvatar';
 import {
@@ -93,16 +94,7 @@ export const Header: React.FC<HeaderProps> = ({
     };
   }, []);
 
-  const userNotifications = notifications.filter(n => {
-    if (n.targetUserId === 'all' || !n.targetUserId) return true;
-    if (n.targetUserId === currentUser.id) return true;
-    if (currentUser.email && n.targetUserId.toLowerCase() === currentUser.email.toLowerCase()) return true;
-    if (currentUser.name && n.targetUserId.toLowerCase() === currentUser.name.toLowerCase()) return true;
-    if (Array.isArray(n.emailRecipients) && currentUser.email && n.emailRecipients.some(e => e.toLowerCase() === currentUser.email.toLowerCase())) return true;
-    if (n.metadata?.targetUserName && currentUser.name && n.metadata.targetUserName.toLowerCase() === currentUser.name.toLowerCase()) return true;
-    if (n.metadata?.targetUserEmail && currentUser.email && n.metadata.targetUserEmail.toLowerCase() === currentUser.email.toLowerCase()) return true;
-    return false;
-  });
+  const userNotifications = notifications.filter(n => isNotificationForUser(n, currentUser));
   const unreadNotifCount = userNotifications.filter(n => !n.read).length;
   const myPendingTasks = tasks.filter(t => (t.assignedToId === currentUser.id || (Array.isArray(t.assignedToIds) && t.assignedToIds.includes(currentUser.id))) && t.status !== 'Done');
 
