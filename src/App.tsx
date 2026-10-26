@@ -47,47 +47,39 @@ export default function App() {
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [selectedMeetingId, setSelectedMeetingId] = useState<string | null>(null);
   const [selectedApprovalId, setSelectedApprovalId] = useState<string | null>(null);
+  const [authChecking, setAuthChecking] = useState(true);
 
-  // Supabase auth callbacks run under an exclusive lock. Defer database work.
+  // Release Supabase's auth lock before resolving profiles or refreshing data.
   useEffect(() => {
     const deferred = createDeferredAuthHandler<AuthChangeEvent, Session | null>(async (event, session, isCurrent) => {
-      if (event === 'SIGNED_OUT') {
-        await actions.logoutUser(false);
-        return;
+      try {
+        if (event === 'SIGNED_OUT') {
+          await actions.logoutUser(false);
+          return;
+        }
+        if (!session?.user) return;
+        const resolvedUser = await actions.syncAuthenticatedUserProfile(session.user);
+        if (!isCurrent()) return;
+        const mustChange = actions.shouldForcePasswordChange(session.user, resolvedUser, {
+          isRecoveryEvent: event === 'PASSWORD_RECOVERY',
+          isSessionRestore: event !== 'PASSWORD_RECOVERY',
+        });
+        actions.loginUser(resolvedUser, mustChange, session.access_token);
+      } finally {
+        if (isCurrent()) setAuthChecking(false);
       }
-      if (!session?.user) return;
-      const email = session.user.email?.toLowerCase();
-      if (!email) return;
-      const staffList = await actions.getStaff();
-      if (!isCurrent()) return;
-      const mustChange = event === 'PASSWORD_RECOVERY' || Boolean(session.user.app_metadata?.must_change_password);
-      let matched = staffList.find(s => s.id === session.user.id || s.email.toLowerCase() === email);
-      if (!matched) {
-        matched = {
-          id: session.user.id,
-          name: session.user.user_metadata?.name || email.split('@')[0],
-          email,
-          role: session.user.app_metadata?.role || 'Staff Member',
-          organisation: session.user.app_metadata?.organisation || 'WIPAHS',
-          department: session.user.app_metadata?.department || 'General',
-          status: 'Online',
-          avatar: '', phone: '', activityScore: 0, tasksCount: 0,
-          lastActive: 'Just now', mustChangePassword: mustChange,
-          app_metadata: session.user.app_metadata,
-        };
-      }
-      // Restoring a session must not create/overwrite a database profile.
-      if (isCurrent()) actions.loginUser({ ...matched, app_metadata: session.user.app_metadata, mustChangePassword: mustChange }, mustChange, session.access_token);
-    }, () => console.warn('OfficeHub could not restore the current session. Please sign in again.'));
+    }, () => {
+      setAuthChecking(false);
+      console.warn('OfficeHub could not restore the current session. Please sign in again.');
+    });
     const { data: { subscription } } = supabase.auth.onAuthStateChange(deferred.handle);
-    // INITIAL_SESSION from Supabase also restores an existing browser session.
     return () => {
       deferred.dispose();
       subscription.unsubscribe();
     };
   }, []);
 
-  if (loading) {
+  if (loading || authChecking) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50">
         <div className="text-[#00ad1d] font-bold text-lg">Loading WIPAHS OfficeHub...</div>
@@ -96,7 +88,7 @@ export default function App() {
   }
 
   // 1. Check if user is authenticated
-  if (!authSession.isAuthenticated) {
+  if (!authSession.isAuthenticated || !currentUser || currentUser.id === 'usr-default') {
     return (
       <LoginScreen
         onLoginSuccess={(user, mustChange, token) => {
@@ -106,13 +98,8 @@ export default function App() {
     );
   }
 
-  // 2. Check if logged-in user must change password on first login
-  // Per specification: must_change_password lives in app_metadata
-  const mustChangePassword = Boolean(
-    authSession.mustChangePassword ||
-    currentUser.mustChangePassword ||
-    currentUser.app_metadata?.must_change_password
-  );
+  // 2. Check if logged-in user must change password on first login / password recovery
+  const mustChangePassword = Boolean(authSession.mustChangePassword);
 
   if (mustChangePassword) {
     return (

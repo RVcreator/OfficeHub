@@ -131,6 +131,11 @@ export function recoverTruncatedJsonArray<T = any>(raw: string | undefined | nul
 // 1. Staff / Profiles
 // -------------------------------------------------------------------------
 export function mapStaffRow(row: any): StaffUser {
+  const appMeta = row.app_metadata || {};
+  const mustChangeFromMeta =
+    appMeta.must_change_password === true &&
+    !appMeta.password_changed_at;
+
   return {
     id: row.id,
     name: row.name || 'Unknown Staff',
@@ -156,10 +161,10 @@ export function mapStaffRow(row: any): StaffUser {
     leaveStartDate: row.leave_start_date || undefined,
     leaveEndDate: row.leave_end_date || undefined,
     backupContactName: row.backup_contact_name || undefined,
-    mustChangePassword: Boolean(row.must_change_password),
+    mustChangePassword: mustChangeFromMeta,
     temporaryPassword: row.temporary_password || undefined,
-    deactivated: Boolean(row.deactivated),
-    app_metadata: row.app_metadata || {},
+    deactivated: Boolean(row.deactivated || appMeta.deactivated),
+    app_metadata: appMeta,
   };
 }
 
@@ -190,8 +195,12 @@ export function mapStaffToRow(staff: Partial<StaffUser>): Record<string, any> {
   if (staff.leaveEndDate !== undefined) row.leave_end_date = staff.leaveEndDate;
   if (staff.mustChangePassword !== undefined) row.must_change_password = staff.mustChangePassword;
   if (staff.temporaryPassword !== undefined) row.temporary_password = staff.temporaryPassword;
-  if (staff.deactivated !== undefined) row.deactivated = staff.deactivated;
-  if (staff.app_metadata !== undefined) row.app_metadata = staff.app_metadata;
+  if (staff.app_metadata !== undefined || staff.deactivated !== undefined) {
+    row.app_metadata = {
+      ...(staff.app_metadata || {}),
+      ...(staff.deactivated !== undefined ? { deactivated: staff.deactivated } : {}),
+    };
+  }
   return row;
 }
 

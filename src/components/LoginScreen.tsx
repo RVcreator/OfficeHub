@@ -55,61 +55,10 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
 
       if (supabaseResult.data && supabaseResult.data.user) {
         const sbUser = supabaseResult.data.user;
-        const mustChange = Boolean(sbUser.app_metadata?.must_change_password);
-
-        const staffList = await portalStore.getStaff();
-        let matchedStaff = staffList.find(s => s.email.toLowerCase() === cleanEmail || s.id === sbUser.id);
-
-        if (!matchedStaff) {
-          // Direct query to public.profiles table by user ID or email
-          try {
-            const { supabase } = await import('../services/supabaseClient');
-            const { mapStaffRow } = await import('../services/supabaseMappers');
-            const { data: dbProfile } = await supabase
-              .from('profiles')
-              .select('*')
-              .or(`id.eq.${sbUser.id},email.ilike.${cleanEmail}`)
-              .maybeSingle();
-
-            if (dbProfile) {
-              matchedStaff = mapStaffRow(dbProfile);
-            }
-          } catch (dbFetchErr) {
-            console.warn('Direct profile fetch note:', dbFetchErr);
-          }
-        }
-
-        if (!matchedStaff) {
-          const detectedDept = (sbUser.app_metadata?.department as string) ||
-            (sbUser.user_metadata?.department as string) ||
-            (cleanEmail.includes('marketing') ? 'Marketing' :
-             cleanEmail.includes('it') ? 'IT' :
-             cleanEmail.includes('finance') ? 'Finance' : 'General');
-
-          matchedStaff = {
-            id: sbUser.id || `usr-${Date.now()}`,
-            name: (sbUser.user_metadata?.name as string) || cleanEmail.split('@')[0],
-            email: cleanEmail,
-            role: (sbUser.app_metadata?.role as string) || 'Staff Member',
-            organisation: (sbUser.app_metadata?.organisation as string) || 'WIPAHS',
-            department: detectedDept,
-            status: 'Online',
-            avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
-            phone: '+255 778 123 456',
-            activityScore: 85,
-            tasksCount: 0,
-            lastActive: 'Just now',
-            mustChangePassword: mustChange,
-            app_metadata: sbUser.app_metadata
-          };
-          await portalStore.addStaffMember(matchedStaff);
-        } else {
-          matchedStaff = {
-            ...matchedStaff,
-            mustChangePassword: mustChange,
-            app_metadata: sbUser.app_metadata
-          };
-        }
+        const matchedStaff = await portalStore.syncAuthenticatedUserProfile(sbUser);
+        const mustChange = portalStore.shouldForcePasswordChange(sbUser, matchedStaff, {
+          enteredPassword: password,
+        });
 
         portalStore.logAudit('auth_sign_in_supabase', `${matchedStaff.name} signed in successfully via Supabase Auth`, 'emerald');
         setIsLoading(false);

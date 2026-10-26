@@ -175,11 +175,17 @@ export function setRealtimeBridge(bridge: RealtimeBridge) {
   activeBridge = bridge;
 }
 
+function isBridgeAuthenticated(): boolean {
+  if (!activeBridge) return false;
+  const uid = activeBridge.getState().currentUser?.id;
+  return Boolean(uid && uid !== 'usr-default');
+}
+
 /**
  * Trigger an immediate, non-blocking sync for meetings
  */
 export async function triggerLiveMeetingSync() {
-  if (!activeBridge) return;
+  if (!activeBridge || !isBridgeAuthenticated()) return;
   try {
     const now = Date.now();
     if (now - lastMeetingCheckTime < 1000) return;
@@ -228,7 +234,7 @@ export async function triggerLiveMeetingSync() {
  * Trigger an immediate, non-blocking sync for messages
  */
 export async function triggerLiveMessageSync() {
-  if (!activeBridge) return;
+  if (!activeBridge || !isBridgeAuthenticated()) return;
   try {
     const now = Date.now();
     if (now - lastMessageCheckTime < 1000) return;
@@ -579,7 +585,7 @@ function setupRealtimeChannel() {
  * Trigger an immediate, non-blocking sync for notifications
  */
 export async function triggerLiveNotificationSync() {
-  if (!activeBridge || !activeBridge.getNotifications) return;
+  if (!activeBridge || !activeBridge.getNotifications || !isBridgeAuthenticated()) return;
   try {
     const uid = activeBridge.getState().currentUser?.id;
     const freshNotifs = await activeBridge.getNotifications(uid);
@@ -619,7 +625,7 @@ function startLiveSyncPoller() {
   // Fast pulse every 3 seconds for messages, 6 seconds for meetings and notifications, 15 seconds for notices/tasks
   let tick = 0;
   pollingIntervalId = setInterval(async () => {
-    if (!activeBridge || !isStarted) return;
+    if (!activeBridge || !isStarted || !isBridgeAuthenticated()) return;
     tick++;
 
     // Every 3 seconds: poll for new messages
