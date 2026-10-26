@@ -70,6 +70,13 @@ import {
   mapDispatchedEmailRow,
   mapDispatchedEmailToRow,
   toUuidOrNull,
+  TASK_SELECT_COLUMNS,
+  NOTICE_SELECT_COLUMNS,
+  MEETING_ATTENDEE_SELECT_COLUMNS,
+  MESSAGE_SELECT_COLUMNS,
+  NOTIFICATION_SELECT_COLUMNS,
+  sanitizeDenormalizedAvatar,
+  recoverTruncatedJsonArray,
 } from './supabaseMappers';
 import { sendTeamsWebhookNotification, generateTeamsMeetingPayload } from './teamsSharePointService';
 import { playNotificationSound } from '../utils/sound';
@@ -200,6 +207,29 @@ export function getSavedCurrentUserProfile(): Partial<StaffUser> | null {
     if (raw) return JSON.parse(raw);
   } catch {}
   return null;
+}
+
+function stripOversizedAvatarForStorage<T extends Partial<StaffUser>>(user: T): Partial<StaffUser> {
+  if (user.avatar && user.avatar.startsWith('data:') && user.avatar.length > 65536) {
+    const { avatar: _omitted, ...rest } = user;
+    return rest;
+  }
+  return user;
+}
+
+export function saveCurrentUserProfileToLocalStorage(user: StaffUser): void {
+  try {
+    localStorage.setItem('wipahs_current_user_profile', JSON.stringify(stripOversizedAvatarForStorage(user)));
+  } catch {}
+}
+
+export function saveStaffToLocalStorage(staffList: StaffUser[]): void {
+  try {
+    localStorage.setItem(
+      'wipahs_registered_staff',
+      JSON.stringify(staffList.map((s) => stripOversizedAvatarForStorage(s)))
+    );
+  } catch {}
 }
 
 export function getActiveHeartbeats(): Record<string, { timestamp: number; status?: UserPresenceStatus }> {
@@ -613,6 +643,8 @@ export const saveLocalDismissedNotificationIds = (userId: string, ids: string[])
 
 export const isNetworkOrTransientError = (err: any): boolean => {
   if (!err) return false;
+  const rawMessage = typeof err === 'string' ? err : `${err.message || ''}`;
+  const trimmedMsg = rawMessage.trim();
   const msg = typeof err === 'string'
     ? err
     : `${err.message || ''} ${err.details || ''} ${err.hint || ''}`;
@@ -621,6 +653,8 @@ export const isNetworkOrTransientError = (err: any): boolean => {
   return (
     code === '57014' ||
     code === 'PGRST301' ||
+    trimmedMsg.startsWith('[') ||
+    lowerMsg.includes('unexpected end of json') ||
     lowerMsg.includes('failed to fetch') ||
     lowerMsg.includes('networkerror') ||
     lowerMsg.includes('network request failed') ||
@@ -633,6 +667,28 @@ export const isNetworkOrTransientError = (err: any): boolean => {
   );
 };
 
+function resolveStaffAvatar(
+  userId?: string | null,
+  userName?: string | null,
+  staffList: StaffUser[] = storeState.staff
+): string {
+  if (userId) {
+    const byId = staffList.find((s) => s.id === userId);
+    if (byId?.avatar) return byId.avatar;
+    if (storeState.currentUser?.id === userId && storeState.currentUser.avatar) {
+      return storeState.currentUser.avatar;
+    }
+  }
+  if (userName) {
+    const clean = userName.toLowerCase().trim();
+    if (clean && clean !== 'staff member') {
+      const byName = staffList.find((s) => s.name?.toLowerCase().trim() === clean);
+      if (byName?.avatar) return byName.avatar;
+    }
+  }
+  return '';
+}
+
 export const portalStore = {
   // -----------------------------------------------------------------------
   // Getters (Async Supabase Queries)
@@ -640,15 +696,23 @@ export const portalStore = {
   getTasks: async (limit: number = 50, offset: number = 0): Promise<Task[]> => {
     try {
       let [tasksRes, subtasksRes] = await Promise.all([
-        supabase.from('tasks').select('*').order('created_at', { ascending: false }).range(offset, offset + limit - 1),
+        supabase
+          .from('tasks')
+          .select(TASK_SELECT_COLUMNS)
+          .order('created_at', { ascending: false })
+          .range(offset, offset + limit - 1),
         supabase.from('task_subtasks').select('*').limit(1000),
       ]);
 
-      // If a transient network glitch occurred, retry fetching tasks once after a brief pause
+      // If a transient network glitch or stream cutoff occurred, retry fetching tasks once
       if (tasksRes.error && isNetworkOrTransientError(tasksRes.error)) {
-        await new Promise((r) => setTimeout(r, 400));
+        await new Promise((r) => setTimeout(r, 300));
         try {
-          const retryRes = await supabase.from('tasks').select('*').order('created_at', { ascending: false }).limit(200);
+          const retryRes = await supabase
+            .from('tasks')
+            .select(TASK_SELECT_COLUMNS)
+            .order('created_at', { ascending: false })
+            .range(offset, offset + limit - 1);
           if (!retryRes.error) {
             tasksRes = retryRes;
           }
@@ -656,27 +720,23 @@ export const portalStore = {
       }
 
       if (tasksRes.error) {
-        // Defensive check: If the "error" message is a JSON string of task objects, parse and treat as data.
+        // Defensive recovery: if PostgREST returned a complete or mid-stream truncated JSON array in error.message, recover complete objects
         if (typeof tasksRes.error.message === 'string') {
-          try {
-            const parsedError = JSON.parse(tasksRes.error.message);
-            if (Array.isArray(parsedError)) {
-              console.warn('Supabase getTasks returned data in error message, patching.');
-              tasksRes.data = parsedError as any;
-              tasksRes.error = null as any;
-            }
-          } catch (e) {
-            // Not JSON, proceed with logging the error
+          const recoveredRows = recoverTruncatedJsonArray(tasksRes.error.message);
+          if (recoveredRows && recoveredRows.length > 0) {
+            console.warn(`Supabase getTasks recovered ${recoveredRows.length} task(s) from partial stream.`);
+            tasksRes.data = recoveredRows as any;
+            tasksRes.error = null as any;
           }
         }
-        
+
         if (tasksRes.error) {
-           if (isNetworkOrTransientError(tasksRes.error)) {
-             console.warn('Supabase getTasks transient network/timeout condition, using cached tasks:', tasksRes.error.message || tasksRes.error.code);
-           } else {
-             console.error('Supabase getTasks error:', JSON.stringify(tasksRes.error, null, 2));
-           }
-           return storeState.tasks;
+          if (isNetworkOrTransientError(tasksRes.error)) {
+            console.warn('Supabase getTasks transient network/timeout condition, using cached tasks.');
+          } else {
+            console.error('Supabase getTasks error:', tasksRes.error.message || tasksRes.error.code);
+          }
+          return storeState.tasks;
         }
       }
 
@@ -786,6 +846,10 @@ export const portalStore = {
           }
         }
 
+        if (!mapped.assignedToAvatar) {
+          mapped.assignedToAvatar = resolveStaffAvatar(mapped.assignedToId, mapped.assignedToName, staffList);
+        }
+
         // Prevent stale DB reads from overwriting active in-flight task status mutations
         const pendingStatus = getPendingTaskStatus(mapped.id);
         if (pendingStatus) {
@@ -810,7 +874,7 @@ export const portalStore = {
   getNotices: async (limit: number = 50, offset: number = 0): Promise<Notice[]> => {
     try {
       const [noticesRes, acksRes] = await Promise.all([
-        supabase.from('notices').select('*').order('pinned', { ascending: false }).range(offset, offset + limit - 1),
+        supabase.from('notices').select(NOTICE_SELECT_COLUMNS).order('pinned', { ascending: false }).range(offset, offset + limit - 1),
         supabase.from('notice_acknowledgements').select('*').limit(500),
       ]);
 
@@ -849,7 +913,7 @@ export const portalStore = {
         supabase.from('project_impact_metrics').select('*'),
         supabase.from('project_activity_log').select('*'),
         supabase.from('project_expenses').select('*').order('created_at', { ascending: false }),
-        supabase.from('project_members').select('project_id, user_id, profiles(id, name, role, avatar, email)'),
+        supabase.from('project_members').select('project_id, user_id, profiles(id, name, role, email)'),
       ]);
 
       if (projRes.error) {
@@ -941,7 +1005,7 @@ export const portalStore = {
             id: profile.id,
             name: profile.name,
             role: profile.role,
-            avatar: profile.avatar,
+            avatar: resolveStaffAvatar(profile.id, profile.name) || undefined,
             email: profile.email,
           });
         }
@@ -1038,7 +1102,7 @@ export const portalStore = {
     try {
       const [meetRes, attRes] = await Promise.all([
         supabase.from('meetings').select('*').order('date', { ascending: false }).range(offset, offset + limit - 1),
-        supabase.from('meeting_attendees').select('*').limit(500),
+        supabase.from('meeting_attendees').select(MEETING_ATTENDEE_SELECT_COLUMNS).limit(500),
       ]);
 
       if (meetRes.error) {
@@ -1053,7 +1117,11 @@ export const portalStore = {
       const attByMeeting: Record<string, any[]> = {};
       (attRes.data || []).forEach((row) => {
         if (!attByMeeting[row.meeting_id]) attByMeeting[row.meeting_id] = [];
-        attByMeeting[row.meeting_id].push(mapMeetingAttendeeRow(row));
+        const mappedAtt = mapMeetingAttendeeRow(row);
+        if (!mappedAtt.avatar) {
+          mappedAtt.avatar = resolveStaffAvatar(mappedAtt.userId, mappedAtt.name) || undefined;
+        }
+        attByMeeting[row.meeting_id].push(mappedAtt);
       });
 
       const rawMeetings = (meetRes.data || []).map((row) => mapMeetingRow(row, attByMeeting[row.id] || []));
@@ -1105,8 +1173,11 @@ export const portalStore = {
       } catch {}
 
       const combinedMap = new Map<string, StaffUser>();
-      dbProfiles.forEach(s => combinedMap.set(s.id, s));
-      localStaff.forEach(s => combinedMap.set(s.id, s));
+      dbProfiles.forEach((s) => combinedMap.set(s.id, s));
+      localStaff.forEach((s) => {
+        const existing = combinedMap.get(s.id);
+        combinedMap.set(s.id, existing ? { ...existing, ...s, avatar: s.avatar || existing.avatar } : s);
+      });
 
       const finalStaff = Array.from(combinedMap.values()).filter(s => !s.deactivated);
 
@@ -1448,7 +1519,7 @@ export const portalStore = {
 
   getMessages: async (conversationId?: string): Promise<ChatMessage[]> => {
     try {
-      let query = supabase.from('messages').select('*').order('timestamp', { ascending: true });
+      let query = supabase.from('messages').select(MESSAGE_SELECT_COLUMNS).order('timestamp', { ascending: true });
       if (conversationId) {
         query = query.eq('conversation_id', conversationId);
       }
@@ -1461,7 +1532,14 @@ export const portalStore = {
         }
         return storeState.messages;
       }
-      return (data || []).map(mapMessageRow);
+      return (data || []).map((row) => {
+        const msg = mapMessageRow(row);
+        const resolvedAvatar = resolveStaffAvatar(msg.senderId, msg.senderName);
+        if (resolvedAvatar) {
+          msg.senderAvatar = resolvedAvatar;
+        }
+        return msg;
+      });
     } catch (err) {
       if (isNetworkOrTransientError(err)) {
         console.warn('getMessages: Network or transient exception, using cached messages.');
@@ -1477,13 +1555,19 @@ export const portalStore = {
       const targetUid = userId || storeState.currentUser.id;
       
       // 1. Fetch notifications
-      let query = supabase.from('notifications').select('*').order('created_at', { ascending: false });
+      let query = supabase.from('notifications').select(NOTIFICATION_SELECT_COLUMNS).order('created_at', { ascending: false });
       if (targetUid) {
         query = query.or(`target_user_id.eq.${targetUid},target_user_id.eq.all`);
       }
       const { data, error } = await query;
       if (error) throw error;
-      const dbNotifs = (data || []).map(mapNotificationRow);
+      const dbNotifs = (data || []).map((row) => {
+        const notif = mapNotificationRow(row);
+        if (!notif.actorAvatar) {
+          notif.actorAvatar = resolveStaffAvatar(notif.actorId, notif.actorName) || undefined;
+        }
+        return notif;
+      });
 
       // 2. Fetch dismissals for this user
       const { data: dismissals } = await supabase
@@ -1563,7 +1647,7 @@ export const portalStore = {
       };
 
       const row = mapTaskToRow(taskToInsert);
-      const { data, error } = await supabase.from('tasks').insert(row).select('*').single();
+      const { data, error } = await supabase.from('tasks').insert(row).select(TASK_SELECT_COLUMNS).single();
       if (error) {
         console.error('Supabase addTask error:', error.message);
         throw new Error(error.message);
@@ -1584,14 +1668,18 @@ export const portalStore = {
         }
       }
 
+      const resolvedAssignedId = taskToInsert.assignedToId || (data as any)?.assigned_to_id || '';
+      const resolvedAssignedName = taskToInsert.assignedToName || (data as any)?.assigned_to_name || '';
       const newTask: Task = {
         ...mapTaskRow(data, subtasksList),
-        id: taskToInsert.id || data?.id || id,
-        createdById: taskToInsert.createdById || data?.created_by_id || createdById,
-        createdByName: taskToInsert.createdByName || data?.created_by_name || createdByName,
-        assignedToId: taskToInsert.assignedToId || data?.assigned_to_id || '',
-        assignedToName: taskToInsert.assignedToName || data?.assigned_to_name || '',
-        assignedToIds: (taskToInsert.assignedToIds && taskToInsert.assignedToIds.length > 0) ? taskToInsert.assignedToIds : (data?.assigned_to_ids || []),
+        id: taskToInsert.id || (data as any)?.id || id,
+        createdById: taskToInsert.createdById || (data as any)?.created_by_id || createdById,
+        createdByName: taskToInsert.createdByName || (data as any)?.created_by_name || createdByName,
+        assignedToId: resolvedAssignedId,
+        assignedToName: resolvedAssignedName,
+        assignedToAvatar:
+          taskToInsert.assignedToAvatar || resolveStaffAvatar(resolvedAssignedId, resolvedAssignedName),
+        assignedToIds: (taskToInsert.assignedToIds && taskToInsert.assignedToIds.length > 0) ? taskToInsert.assignedToIds : ((data as any)?.assigned_to_ids || []),
         assignedToNames: taskToInsert.assignedToNames || [],
         assignedDepartments: taskToInsert.assignedDepartments || [],
         assignedOrganisations: taskToInsert.assignedOrganisations || [],
@@ -1756,7 +1844,7 @@ export const portalStore = {
         Boolean(updates.assignedToIds && updates.assignedToIds.some((id) => !existingTask?.assignedToIds?.includes(id)));
 
       const rowUpdates = mapTaskToRow(updates);
-      const { data, error } = await supabase.from('tasks').update(rowUpdates).eq('id', taskId).select('*').maybeSingle();
+      const { data, error } = await supabase.from('tasks').update(rowUpdates).eq('id', taskId).select(TASK_SELECT_COLUMNS).maybeSingle();
       if (error && !error.message.includes('coerce') && !error.message.includes('PGRST116')) {
         console.warn('Supabase updateTask warning:', error.message);
       }
@@ -1767,6 +1855,7 @@ export const portalStore = {
           return {
             ...t,
             ...mappedRow,
+            assignedToAvatar: updates.assignedToAvatar || t.assignedToAvatar || mappedRow.assignedToAvatar || '',
             createdById: mappedRow.createdById || t.createdById,
             createdByName: mappedRow.createdByName || t.createdByName,
             ...updates,
@@ -1813,7 +1902,7 @@ export const portalStore = {
   updateTaskStatus: async (taskId: string, newStatus: Task['status']): Promise<void> => {
     let targetTask = storeState.tasks.find((t) => t.id === taskId);
     if (!targetTask) {
-      const { data: dbTask } = await supabase.from('tasks').select('*').eq('id', taskId).maybeSingle();
+      const { data: dbTask } = await supabase.from('tasks').select(TASK_SELECT_COLUMNS).eq('id', taskId).maybeSingle();
       if (dbTask) {
         targetTask = mapTaskRow(dbTask);
       }
@@ -1843,7 +1932,7 @@ export const portalStore = {
         .from('tasks')
         .update(updates)
         .eq('id', taskId)
-        .select('*');
+        .select(TASK_SELECT_COLUMNS);
 
       if (error && !error.message.includes('coerce') && !error.message.includes('PGRST116')) {
         console.error('Supabase updateTaskStatus error:', error.message);
@@ -1860,7 +1949,7 @@ export const portalStore = {
         throw new Error('Task could not be found or updated in Supabase.');
       }
 
-      const confirmedRow = data[0];
+      const confirmedRow = data[0] as any;
       // 2. Authoritative update of local store state ONLY after confirmed database write
       const mappedRow = mapTaskRow(confirmedRow, targetTask.subtasks);
       setTableData(
@@ -1870,6 +1959,7 @@ export const portalStore = {
             return {
               ...t,
               ...mappedRow,
+              assignedToAvatar: t.assignedToAvatar || mappedRow.assignedToAvatar || '',
               status: newStatus,
               pendingRating: newStatus === 'Done' ? !isPersonal : false,
             };
@@ -1927,8 +2017,8 @@ export const portalStore = {
       await supabase.from('task_ratings').delete().eq('task_id', taskId);
       await supabase.from('task_subtasks').delete().eq('task_id', taskId);
 
-      // 2. Delete the task and request returned rows with .select()
-      const { data, error } = await supabase.from('tasks').delete().eq('id', taskId).select();
+      // 2. Delete the task and request returned id with .select('id')
+      const { data, error } = await supabase.from('tasks').delete().eq('id', taskId).select('id');
       if (error) {
         console.error('Supabase deleteTask error:', error.message);
         throw new Error(error.message);
@@ -2041,7 +2131,7 @@ export const portalStore = {
           pending_rating: false,
         })
         .eq('id', taskId)
-        .select('*')
+        .select(TASK_SELECT_COLUMNS)
         .single();
 
       if (error) {
@@ -2052,9 +2142,11 @@ export const portalStore = {
       // Update tasks state directly
       setTableData('tasks', storeState.tasks.map((t) => {
         if (t.id === taskId) {
+          const mappedRow = mapTaskRow(data, t.subtasks);
           return {
             ...t,
-            ...mapTaskRow(data, t.subtasks),
+            ...mappedRow,
+            assignedToAvatar: t.assignedToAvatar || mappedRow.assignedToAvatar || '',
             rating: ratingPayload,
             pendingRating: false,
           };
@@ -2184,7 +2276,7 @@ export const portalStore = {
       };
 
       const row = mapNoticeToRow(newNotice);
-      const { data, error } = await supabase.from('notices').insert(row).select('*').single();
+      const { data, error } = await supabase.from('notices').insert(row).select(NOTICE_SELECT_COLUMNS).single();
       if (error) {
         console.error('Supabase addNotice error:', error.message);
         throw new Error(error.message);
@@ -2263,7 +2355,7 @@ export const portalStore = {
         .from('notices')
         .update({ pinned: newPinned })
         .eq('id', noticeId)
-        .select('*')
+        .select(NOTICE_SELECT_COLUMNS)
         .single();
 
       if (error) {
@@ -3265,7 +3357,7 @@ export const portalStore = {
               name: a.name,
               email: a.email,
               status: a.status || 'Pending',
-              avatar: a.avatar || null,
+              avatar: sanitizeDenormalizedAvatar(a.avatar),
             }));
           if (attRows.length > 0) {
             await supabase.from('meeting_attendees').insert(attRows);
@@ -3760,11 +3852,7 @@ export const portalStore = {
       ];
       setTableData('staff', updatedStaff);
 
-      try {
-        localStorage.setItem('wipahs_registered_staff', JSON.stringify(updatedStaff));
-      } catch {
-        // ignore
-      }
+      saveStaffToLocalStorage(updatedStaff);
 
       return createdUser;
     } catch (err: any) {
@@ -3784,19 +3872,15 @@ export const portalStore = {
       );
       setTableData('staff', updatedStaff);
 
-      // 2. Persist to localStorage
-      try {
-        localStorage.setItem('wipahs_registered_staff', JSON.stringify(updatedStaff));
-      } catch {}
+      // 2. Persist to localStorage without oversized Base64 blobs
+      saveStaffToLocalStorage(updatedStaff);
 
       // 3. If updating current logged-in user, sync currentUser state
       const curr = storeState.currentUser;
       if (curr && (curr.id === id || (targetUser?.email && curr.email?.toLowerCase() === targetUser.email.toLowerCase()))) {
         const updatedCurr = { ...curr, ...updates };
         setTableData('currentUser', updatedCurr);
-        try {
-          localStorage.setItem('wipahs_current_user_profile', JSON.stringify(updatedCurr));
-        } catch {}
+        saveCurrentUserProfileToLocalStorage(updatedCurr);
       }
 
       // 4. Safely attempt Supabase update in background without throwing
@@ -3825,11 +3909,7 @@ export const portalStore = {
       );
       setTableData('staff', remainingStaff);
 
-      try {
-        localStorage.setItem('wipahs_registered_staff', JSON.stringify(remainingStaff));
-      } catch (lsErr) {
-        console.warn('LocalStorage save error:', lsErr);
-      }
+      saveStaffToLocalStorage(remainingStaff);
 
       // Soft delete: set deactivated = true in Supabase profiles
       try {
@@ -3891,9 +3971,7 @@ export const portalStore = {
       if (userId === storeState.currentUser.id) {
         const updatedUser = { ...storeState.currentUser, status };
         setTableData('currentUser', updatedUser);
-        try {
-          localStorage.setItem('wipahs_current_user_profile', JSON.stringify(updatedUser));
-        } catch {}
+        saveCurrentUserProfileToLocalStorage(updatedUser);
         recordUserHeartbeat(updatedUser, status);
       }
 
@@ -4252,9 +4330,7 @@ export const portalStore = {
           s.department.toLowerCase() === targetDept.name.toLowerCase() ? { ...s, department: 'General' } : s
         );
         setTableData('staff', updatedStaff);
-        try {
-          localStorage.setItem('wipahs_registered_staff', JSON.stringify(updatedStaff));
-        } catch {}
+        saveStaffToLocalStorage(updatedStaff);
       }
 
       // Safely attempt Supabase delete in background
@@ -4380,8 +4456,8 @@ export const portalStore = {
   sendMessage: async (message: ChatMessage): Promise<void> => {
     try {
       const row = mapMessageToRow(message);
-      const { data } = await supabase.from('messages').insert(row).select('*').single();
-      const insertedMsg = data ? mapMessageRow(data) : message;
+      const { data } = await supabase.from('messages').insert(row).select(MESSAGE_SELECT_COLUMNS).single();
+      const insertedMsg = data ? { ...mapMessageRow(data), senderAvatar: message.senderAvatar } : message;
       setTableData('messages', [...storeState.messages, insertedMsg]);
 
       await supabase
@@ -4456,12 +4532,18 @@ export const portalStore = {
         const { data: insertedNotifs, error: notifErr } = await supabase
           .from('notifications')
           .insert(notifRows)
-          .select('*');
+          .select(NOTIFICATION_SELECT_COLUMNS);
 
         if (notifErr) {
           console.warn('Supabase new_message notifications insert warning:', notifErr.message);
         } else if (insertedNotifs && insertedNotifs.length > 0) {
-          const mapped = insertedNotifs.map(mapNotificationRow);
+          const mapped = insertedNotifs.map((r) => {
+            const n = mapNotificationRow(r);
+            if (!n.actorAvatar) {
+              n.actorAvatar = resolveStaffAvatar(n.actorId, n.actorName) || undefined;
+            }
+            return n;
+          });
           const relevant = mapped.filter((n) => n.targetUserId === storeState.currentUser?.id || n.targetUserId === 'all');
           if (relevant.length > 0) {
             setTableData('notifications', [...relevant, ...storeState.notifications]);
@@ -4504,11 +4586,14 @@ export const portalStore = {
       const row = mapNotificationToRow(newNotif);
       let insertedNotif = newNotif;
       try {
-        const { data, error } = await supabase.from('notifications').insert(row).select('*').single();
+        const { data, error } = await supabase.from('notifications').insert(row).select(NOTIFICATION_SELECT_COLUMNS).single();
         if (error) {
           console.warn('Supabase notifications insert status:', error.message);
         } else if (data) {
-          insertedNotif = mapNotificationRow(data);
+          insertedNotif = {
+            ...mapNotificationRow(data),
+            actorAvatar: newNotif.actorAvatar || resolveStaffAvatar(newNotif.actorId, newNotif.actorName) || undefined,
+          };
         }
       } catch (sbErr) {
         console.warn('Supabase notifications insert exception:', sbErr);
@@ -4912,9 +4997,7 @@ export const portalStore = {
     setTableData('currentUser', updatedUser);
 
     // 2. Persist currentUser in localStorage so birthday & profile survive refreshes!
-    try {
-      localStorage.setItem('wipahs_current_user_profile', JSON.stringify(updatedUser));
-    } catch {}
+    saveCurrentUserProfileToLocalStorage(updatedUser);
 
     // 3. Keep storeState.staff in sync so currentUser's birthday and details appear on calendar and directories!
     const staffList = [...storeState.staff];
@@ -4927,9 +5010,7 @@ export const portalStore = {
       staffList.unshift(updatedUser);
     }
     setTableData('staff', staffList);
-    try {
-      localStorage.setItem('wipahs_registered_staff', JSON.stringify(staffList));
-    } catch {}
+    saveStaffToLocalStorage(staffList);
 
     // 4. Record heartbeat
     recordUserHeartbeat(updatedUser, updatedUser.status);

@@ -157,13 +157,48 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setProfileData({ ...profileData, avatar: reader.result as string });
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const rawDataUrl = reader.result as string;
+      if (!rawDataUrl) return;
+
+      const img = new Image();
+      img.onload = () => {
+        try {
+          const maxDim = 256;
+          let { width, height } = img;
+          if (width > maxDim || height > maxDim) {
+            if (width >= height) {
+              height = Math.round((height * maxDim) / width);
+              width = maxDim;
+            } else {
+              width = Math.round((width * maxDim) / height);
+              height = maxDim;
+            }
+          }
+          const canvas = document.createElement('canvas');
+          canvas.width = Math.max(1, width);
+          canvas.height = Math.max(1, height);
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+            const compressed = canvas.toDataURL('image/jpeg', 0.82);
+            setProfileData((prev) => ({ ...prev, avatar: compressed }));
+            return;
+          }
+        } catch {
+          // Fall back to original data URL if canvas compression fails
+        }
+        setProfileData((prev) => ({ ...prev, avatar: rawDataUrl }));
       };
-      reader.readAsDataURL(file);
-    }
+      img.onerror = () => {
+        setProfileData((prev) => ({ ...prev, avatar: rawDataUrl }));
+      };
+      img.src = rawDataUrl;
+    };
+    reader.readAsDataURL(file);
   };
 
   const handleResetData = () => {

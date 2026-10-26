@@ -14,6 +14,7 @@ import {
   mapNoticeRow,
   mapTaskRow,
   mapConversationRow,
+  MESSAGE_SELECT_COLUMNS,
 } from './supabaseMappers';
 import { playNotificationSound } from '../utils/sound';
 import { ChatMessage, Meeting, Notice, Task, ChatConversation, AppNotification, Approval } from '../types';
@@ -235,7 +236,7 @@ export async function triggerLiveMessageSync() {
 
     const { data: rows, error } = await supabase
       .from('messages')
-      .select('*')
+      .select(MESSAGE_SELECT_COLUMNS)
       .order('timestamp', { ascending: false })
       .limit(30);
 

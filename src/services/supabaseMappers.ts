@@ -39,6 +39,94 @@ export function toUuidOrNull(str: string | undefined | null): string | null {
   return isValidUuid(str) ? (str as string) : null;
 }
 
+// Explicit column lists that exclude oversized denormalized Base64 avatar columns
+// so PostgREST responses never time out or truncate mid-stream.
+export const TASK_SELECT_COLUMNS =
+  'id, title, description, status, priority, department, organisation, assigned_to_id, assigned_to_name, assigned_to_ids, created_by_id, created_by_name, due_date, project_id, sharepoint_doc_id, pending_rating, rating, completed_at, cancelled_at, created_at';
+
+export const NOTICE_SELECT_COLUMNS =
+  'id, title, content, author_id, author_name, author_role, department, organisation, priority, created_at, pinned, expires_at';
+
+export const MEETING_ATTENDEE_SELECT_COLUMNS =
+  'meeting_id, user_id, name, email, status, proposed_date, proposed_time, proposed_end_time, proposal_note, note, comment, responded_at';
+
+export const MESSAGE_SELECT_COLUMNS =
+  'id, conversation_id, sender_id, sender_name, text, timestamp, reply_to_id, reactions';
+
+export const NOTIFICATION_SELECT_COLUMNS =
+  'id, title, message, type, meeting_id, target_user_id, created_at, read, actor_id, actor_name, priority, pushed_to_microsoft_teams, email_triggered, email_recipients, email_sent_at, email_subject, metadata';
+
+/**
+ * Prevents multi-megabyte raw Base64 data URLs from being copied into denormalized
+ * avatar columns on tasks, messages, notifications, and meeting_attendees.
+ */
+export function sanitizeDenormalizedAvatar(avatar: string | undefined | null): string | null {
+  if (!avatar) return null;
+  if (avatar.startsWith('data:') && avatar.length > 8192) {
+    return null;
+  }
+  return avatar;
+}
+
+/**
+ * Parses a JSON array string, or recovers all complete top-level JSON objects
+ * if a PostgREST HTTP 200 stream was cut off mid-response.
+ */
+export function recoverTruncatedJsonArray<T = any>(raw: string | undefined | null): T[] | null {
+  if (typeof raw !== 'string') return null;
+  const trimmed = raw.trim();
+  if (!trimmed.startsWith('[')) return null;
+
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (Array.isArray(parsed)) return parsed;
+  } catch {
+    // Proceed to salvage complete top-level objects before the truncation point
+  }
+
+  const recovered: T[] = [];
+  let inString = false;
+  let escaped = false;
+  let depth = 0;
+  let objStart = -1;
+
+  for (let i = 1; i < trimmed.length; i++) {
+    const ch = trimmed[i];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (ch === '\\') {
+        escaped = true;
+      } else if (ch === '"') {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (ch === '"') {
+      inString = true;
+    } else if (ch === '{') {
+      if (depth === 0) objStart = i;
+      depth++;
+    } else if (ch === '}') {
+      if (depth > 0) {
+        depth--;
+        if (depth === 0 && objStart !== -1) {
+          const slice = trimmed.slice(objStart, i + 1);
+          try {
+            recovered.push(JSON.parse(slice));
+          } catch {
+            // Ignore malformed fragment
+          }
+          objStart = -1;
+        }
+      }
+    }
+  }
+
+  return recovered.length > 0 ? recovered : null;
+}
+
 // -------------------------------------------------------------------------
 // 1. Staff / Profiles
 // -------------------------------------------------------------------------
@@ -183,6 +271,8 @@ export function mapTaskRow(row: any, subtasks: Subtask[] = []): Task {
     assignmentType: resolvedAssignmentType,
     pendingRating: isPersonal ? false : Boolean(row.pending_rating),
     rating: row.rating || undefined,
+    completedAt: row.completed_at || undefined,
+    cancelledAt: row.cancelled_at || undefined,
   };
 }
 
@@ -197,7 +287,7 @@ export function mapTaskToRow(task: Partial<Task>): Record<string, any> {
   if (task.organisation !== undefined) row.organisation = task.organisation;
   if (task.assignedToId !== undefined) row.assigned_to_id = toUuidOrNull(task.assignedToId);
   if (task.assignedToName !== undefined) row.assigned_to_name = task.assignedToName;
-  if (task.assignedToAvatar !== undefined) row.assigned_to_avatar = task.assignedToAvatar;
+  if (task.assignedToAvatar !== undefined) row.assigned_to_avatar = sanitizeDenormalizedAvatar(task.assignedToAvatar);
   if (task.assignedToIds !== undefined) row.assigned_to_ids = task.assignedToIds;
   if (task.createdById !== undefined) row.created_by_id = toUuidOrNull(task.createdById);
   if (task.createdByName !== undefined) row.created_by_name = task.createdByName;
@@ -683,7 +773,7 @@ export function mapMessageToRow(msg: Partial<ChatMessage>): Record<string, any> 
   if (msg.conversationId !== undefined) row.conversation_id = msg.conversationId;
   if (msg.senderId !== undefined) row.sender_id = toUuidOrNull(msg.senderId);
   if (msg.senderName !== undefined) row.sender_name = msg.senderName;
-  if (msg.senderAvatar !== undefined) row.sender_avatar = msg.senderAvatar;
+  if (msg.senderAvatar !== undefined) row.sender_avatar = sanitizeDenormalizedAvatar(msg.senderAvatar);
   if (msg.text !== undefined) row.text = msg.text;
   if (msg.timestamp !== undefined) row.timestamp = msg.timestamp;
   if (msg.reactions !== undefined) row.reactions = msg.reactions;
@@ -728,7 +818,7 @@ export function mapNotificationToRow(notif: Partial<AppNotification>): Record<st
   if (notif.read !== undefined) row.read = notif.read;
   if (notif.actorId !== undefined) row.actor_id = toUuidOrNull(notif.actorId);
   row.actor_name = notif.actorName || 'Staff Member';
-  if (notif.actorAvatar !== undefined) row.actor_avatar = notif.actorAvatar;
+  if (notif.actorAvatar !== undefined) row.actor_avatar = sanitizeDenormalizedAvatar(notif.actorAvatar);
   if (notif.priority !== undefined) row.priority = notif.priority;
   if (notif.pushedToMicrosoftTeams !== undefined) row.pushed_to_microsoft_teams = notif.pushedToMicrosoftTeams;
   if (notif.emailTriggered !== undefined) row.email_triggered = notif.emailTriggered;
