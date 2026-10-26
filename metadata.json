@@ -1,0 +1,8 @@
+{
+  "name": "Remix  WIPAHS Office-Hub",
+  "description": "High-performance operations portal for WIPAHS with Tasks, Notices, Projects, Meetings, Real-time Presence, Microsoft Teams notifications, and SharePoint document collaboration.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
