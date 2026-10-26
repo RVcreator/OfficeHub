@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   BellRing,
   Trash2,
@@ -25,10 +25,18 @@ import { AppNotification, DispatchedEmail } from '../types';
 import { isPersonalTask } from '../utils/taskUtils';
 import { UserAvatar } from './UserAvatar';
 
+const emailStatusLabel: Record<DispatchedEmail['status'], string> = {
+  queued: 'Queued', processing: 'Preparing', sending: 'Sending', retry: 'Retry scheduled',
+  accepted: 'Accepted by Microsoft', failed: 'Failed', review: 'Needs review',
+  cancelled: 'Cancelled', unverified: 'Unverified legacy record',
+};
+
+
 export const TeamsNotificationsView: React.FC<{
   onSelectTask?: (taskId: string) => void;
 }> = ({ onSelectTask }) => {
-  const { notifications, currentUser, actions, tasks, dispatchedEmails = [] } = usePortalStore();
+  const { notifications, currentUser, actions, tasks } = usePortalStore();
+  const [dispatchedEmails, setDispatchedEmails] = useState<DispatchedEmail[]>([]);
 
   const [activeTab, setActiveTab] = useState<'notifications' | 'emails'>('notifications');
   const [searchQuery, setSearchQuery] = useState('');
@@ -36,6 +44,22 @@ export const TeamsNotificationsView: React.FC<{
   const [filterPriority, setFilterPriority] = useState<string>('All');
   const [selectedEmail, setSelectedEmail] = useState<DispatchedEmail | null>(null);
   const [testSentMessage, setTestSentMessage] = useState<string | null>(null);
+
+  // Polling only reads durable delivery status. It never creates or sends a job.
+  useEffect(() => {
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout>;
+    setDispatchedEmails([]);
+    const refresh = async () => {
+      const rows = await actions.getDispatchedEmails();
+      if (!stopped) {
+        setDispatchedEmails(rows);
+        timer = setTimeout(refresh, 15000);
+      }
+    };
+    if (activeTab === 'emails' && currentUser.id) void refresh();
+    return () => { stopped = true; clearTimeout(timer); };
+  }, [activeTab, currentUser.id, actions]);
 
   // Filter notifications for current user or broadcast ('all')
   const userNotifications = notifications.filter(n => {
@@ -78,8 +102,8 @@ export const TeamsNotificationsView: React.FC<{
 
   const handleSendTestAlert = () => {
     const testNotif = actions.addNotification({
-      title: 'Verification Test: Instant Sound & Email Alert Dispatch',
-      message: `Operational alert broadcast test triggered at ${new Date().toLocaleTimeString()} EAT. Both audio chime and official email delivery were triggered for ${currentUser.name}.`,
+      title: 'Notification sound test',
+      message: `In-app notification test for ${currentUser.name}.`,
       type: 'general',
       targetUserId: currentUser.id,
       priority: 'Urgent',
@@ -89,7 +113,7 @@ export const TeamsNotificationsView: React.FC<{
       pushedToMicrosoftTeams: true,
     });
 
-    setTestSentMessage(`Alert triggered! Sound played and email sent to ${currentUser.email}`);
+    setTestSentMessage('In-app notification test triggered. Check email status in the outbox for supported events.');
     setTimeout(() => setTestSentMessage(null), 4000);
   };
 
@@ -140,7 +164,7 @@ export const TeamsNotificationsView: React.FC<{
             Official Operational Notifications & Email Broadcasts
           </h1>
           <p className="text-xs text-slate-500 mt-0.5">
-            Every update triggers both an audio chime alert in-portal and an official email broadcast so no staff member misses an update.
+            Review portal alerts and the email status of supported tasks, meetings, notices and approvals.
           </p>
         </div>
 
@@ -148,10 +172,10 @@ export const TeamsNotificationsView: React.FC<{
           <button
             onClick={handleSendTestAlert}
             className="px-3 py-1.5 rounded-md bg-[#00ad1d] hover:bg-[#008f18] text-white font-semibold text-xs flex items-center gap-1.5 shadow-2xs transition active:scale-95 cursor-pointer"
-            title="Trigger an alert right now to test sound chime and email generation"
+            title="Test an in-app notification and sound"
           >
             <Send className="w-3.5 h-3.5" />
-            <span>Test Sound & Email</span>
+            <span>Test Notification</span>
           </button>
 
           {activeTab === 'notifications' ? (
@@ -345,7 +369,7 @@ export const TeamsNotificationsView: React.FC<{
                       {/* Delivery & Dispatch Indicators */}
                       <div className="flex items-center gap-2.5 flex-wrap pt-1.5 text-[10px]">
                         <span className="text-slate-400">
-                          By <b>{notif.actorName || 'System'}</b> • {timeStr}
+                          By <b>{notif.actorName || 'System'}</b> â€¢ {timeStr}
                         </span>
 
                         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-50 text-emerald-800 font-semibold border border-emerald-200">
@@ -355,19 +379,10 @@ export const TeamsNotificationsView: React.FC<{
 
                         <span
                           className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-sky-50 text-sky-800 font-semibold border border-sky-200"
-                          title={
-                            notif.emailRecipients && notif.emailRecipients.length > 0
-                              ? `Email dispatched to: ${notif.emailRecipients.join(', ')}`
-                              : 'Official email dispatched to recipient'
-                          }
+                          title="Open the email outbox to check actual queue and submission status"
                         >
                           <Mail className="w-3 h-3 text-sky-600" />
-                          <span>Email Dispatched</span>
-                          {notif.emailRecipients && notif.emailRecipients.length > 0 && (
-                            <span className="text-sky-600 truncate max-w-[150px]">
-                              ({notif.emailRecipients[0]})
-                            </span>
-                          )}
+                          <span>Check email outbox</span>
                         </span>
 
                         {notif.pushedToMicrosoftTeams && (
@@ -389,7 +404,7 @@ export const TeamsNotificationsView: React.FC<{
                         }}
                         className="px-3 py-1 bg-amber-500 hover:bg-amber-600 text-white rounded text-xs font-bold shadow-2xs transition flex items-center gap-1 cursor-pointer"
                       >
-                        <span>★</span>
+                        <span>â˜…</span>
                         <span>Rate Task</span>
                       </button>
                     )}
@@ -433,12 +448,13 @@ export const TeamsNotificationsView: React.FC<{
             <div className="bg-white rounded-md border border-slate-200 p-12 text-center text-slate-400 text-xs space-y-2">
               <Mail className="w-8 h-8 mx-auto text-slate-300" />
               <p className="font-semibold text-slate-700">No dispatched emails recorded</p>
-              <p className="text-slate-400">Trigger any operational notification to dispatch emails automatically.</p>
+              <p className="text-slate-400">Email status appears here for supported OfficeHub events after email notifications are enabled.</p>
             </div>
           ) : (
             filteredEmails.map((email) => {
               const timeStr = email.timestamp
                 ? new Date(email.timestamp).toLocaleString('en-GB', {
+                    timeZone: 'Africa/Dar_es_Salaam',
                     day: 'numeric',
                     month: 'short',
                     year: 'numeric',
@@ -458,8 +474,8 @@ export const TeamsNotificationsView: React.FC<{
                         {email.subject}
                       </span>
                       <span className="px-2 py-0.5 rounded bg-emerald-50 text-emerald-800 text-[10px] font-bold border border-emerald-200 flex items-center gap-1">
-                        <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                        <span>Delivered</span>
+                        <Mail className="w-3 h-3" />
+                        <span>{emailStatusLabel[email.status]}</span>
                       </span>
                       {email.priority === 'Urgent' && (
                         <span className="px-2 py-0.5 rounded bg-rose-100 text-rose-800 text-[10px] font-bold">
@@ -470,9 +486,9 @@ export const TeamsNotificationsView: React.FC<{
 
                     <div className="text-xs text-slate-600 flex items-center gap-2 flex-wrap">
                       <span>To: <b>{email.recipientName}</b> &lt;{email.recipientEmail}&gt;</span>
-                      <span>•</span>
+                      <span>â€¢</span>
                       <span>From: <b>{email.senderName}</b> &lt;{email.senderEmail}&gt;</span>
-                      <span>•</span>
+                      <span>â€¢</span>
                       <span className="text-slate-400">{timeStr}</span>
                     </div>
 
@@ -507,7 +523,7 @@ export const TeamsNotificationsView: React.FC<{
                 <Mail className="w-4 h-4 text-[#00ad1d]" />
                 <span className="font-bold text-sm text-slate-800">Email Broadcast Preview</span>
                 <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 font-bold text-[10px] rounded">
-                  Delivered
+                  {emailStatusLabel[selectedEmail.status]}
                 </span>
               </div>
               <button
@@ -528,22 +544,15 @@ export const TeamsNotificationsView: React.FC<{
 
             {/* Email Body */}
             <div className="p-5 overflow-y-auto flex-1">
-              {selectedEmail.bodyHtml ? (
-                <div
-                  className="rounded border border-slate-200 overflow-hidden"
-                  dangerouslySetInnerHTML={{ __html: selectedEmail.bodyHtml }}
-                />
-              ) : (
-                <pre className="text-xs font-sans text-slate-700 whitespace-pre-wrap leading-relaxed bg-slate-50 p-4 rounded border border-slate-200">
-                  {selectedEmail.bodyText}
-                </pre>
-              )}
+              <pre className="text-xs font-sans text-slate-700 whitespace-pre-wrap leading-relaxed bg-slate-50 p-4 rounded border border-slate-200">
+                {selectedEmail.bodyText}
+              </pre>
             </div>
 
             {/* Footer */}
             <div className="px-5 py-3 border-t border-slate-200 bg-slate-50 flex items-center justify-between text-xs">
               <span className="text-slate-400 text-[11px]">
-                Delivered via WIPAHS Enterprise Email Dispatcher
+                Microsoft acceptance confirms submission; mailbox delivery is not tracked here.
               </span>
               <button
                 onClick={() => setSelectedEmail(null)}

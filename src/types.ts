@@ -398,7 +398,7 @@ export interface DispatchedEmail {
   timestamp: string;
   priority: 'Urgent' | 'Normal';
   category: string;
-  status: 'Delivered' | 'Sent';
+  status: 'queued' | 'processing' | 'sending' | 'retry' | 'accepted' | 'failed' | 'review' | 'cancelled' | 'unverified';
 }
 
 export interface AuditEvent {
@@ -483,4 +483,5 @@ export interface RolePermission {
     approve: boolean;
   }[];
 }
+
 

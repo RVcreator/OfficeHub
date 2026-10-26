@@ -31,12 +31,12 @@ You have received an official operational notification from the WIPAHS Portal:
 "${notification.message}"
 
 Notification Details:
-• Title: ${notification.title}
-• Priority: ${notification.priority || 'Normal'}
-• Category: ${notification.type.toUpperCase()}
-• Triggered By: ${notification.actorName || 'System'}
-• Time: ${timeFormatted}
-• Recipient: ${recipient.name} (${recipient.email})
+â€¢ Title: ${notification.title}
+â€¢ Priority: ${notification.priority || 'Normal'}
+â€¢ Category: ${notification.type.toUpperCase()}
+â€¢ Triggered By: ${notification.actorName || 'System'}
+â€¢ Time: ${timeFormatted}
+â€¢ Recipient: ${recipient.name} (${recipient.email})
 
 This is an automated operational broadcast to ensure no updates are missed. Please sign in to the WIPAHS Operations & Management Portal to review or take action.
 
@@ -89,8 +89,8 @@ Dar es Salaam, Tanzania`;
       </div>
     </div>
     <div class="footer">
-      World Islamic People's Aid & Help Society (WIPAHS) • Operations Portal<br/>
-      Dar es Salaam, Tanzania • Automatic email dispatch triggered for all portal updates
+      World Islamic People's Aid & Help Society (WIPAHS) â€¢ Operations Portal<br/>
+      Dar es Salaam, Tanzania â€¢ Automatic email dispatch triggered for all portal updates
     </div>
   </div>
 </body>
@@ -103,13 +103,13 @@ Dar es Salaam, Tanzania`;
     recipientEmail: recipient.email,
     recipientName: recipient.name,
     senderName: notification.actorName || 'WIPAHS Operations Portal',
-    senderEmail: 'notifications@wipahs.org',
+    senderEmail: 'officehub@wipahs.org',
     subject,
     bodyText,
     bodyHtml,
     timestamp: now.toISOString(),
     priority: (notification.priority as 'Urgent' | 'Normal') || 'Normal',
     category: notification.type || 'general',
-    status: 'Delivered',
+    status: 'unverified',
   };
 }

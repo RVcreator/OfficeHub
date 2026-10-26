@@ -42,10 +42,10 @@ export function toUuidOrNull(str: string | undefined | null): string | null {
 // Explicit column lists that exclude oversized denormalized Base64 avatar columns
 // so PostgREST responses never time out or truncate mid-stream.
 export const TASK_SELECT_COLUMNS =
-  'id, title, description, status, priority, department, organisation, assigned_to_id, assigned_to_name, assigned_to_ids, created_by_id, created_by_name, due_date, project_id, sharepoint_doc_id, pending_rating, rating, completed_at, cancelled_at, created_at';
+  'id, title, description, status, priority, department, organisation, assigned_to_id, assigned_to_name, assigned_to_ids, created_by_id, created_by_name, due_date, project_id, sharepoint_doc_id, pending_rating, rating, completed_at, cancelled_at, created_at, assignment_type, assigned_departments, assigned_organisations';
 
 export const NOTICE_SELECT_COLUMNS =
-  'id, title, content, author_id, author_name, author_role, department, organisation, priority, created_at, pinned, expires_at';
+  'id, title, content, author_id, author_name, author_role, department, organisation, priority, created_at, pinned, expires_at, target_audience_type, target_organisations, target_departments, target_user_ids';
 
 export const MEETING_ATTENDEE_SELECT_COLUMNS =
   'meeting_id, user_id, name, email, status, proposed_date, proposed_time, proposed_end_time, proposal_note, note, comment, responded_at';
@@ -268,7 +268,9 @@ export function mapTaskRow(row: any, subtasks: Subtask[] = []): Task {
     sharePointDocId: row.sharepoint_doc_id || undefined,
     projectId: row.project_id || undefined,
     type: isPersonal ? 'personal' : (isDeptTarget || isOrgTarget ? 'departmental' : (row.type || undefined)),
-    assignmentType: resolvedAssignmentType,
+    assignmentType: row.assignment_type || resolvedAssignmentType,
+    assignedDepartments: row.assigned_departments || [],
+    assignedOrganisations: row.assigned_organisations || [],
     pendingRating: isPersonal ? false : Boolean(row.pending_rating),
     rating: row.rating || undefined,
     completedAt: row.completed_at || undefined,
@@ -289,6 +291,9 @@ export function mapTaskToRow(task: Partial<Task>): Record<string, any> {
   if (task.assignedToName !== undefined) row.assigned_to_name = task.assignedToName;
   if (task.assignedToAvatar !== undefined) row.assigned_to_avatar = sanitizeDenormalizedAvatar(task.assignedToAvatar);
   if (task.assignedToIds !== undefined) row.assigned_to_ids = task.assignedToIds;
+  if (task.assignmentType !== undefined) row.assignment_type = task.assignmentType;
+  if (task.assignedDepartments !== undefined) row.assigned_departments = task.assignedDepartments;
+  if (task.assignedOrganisations !== undefined) row.assigned_organisations = task.assignedOrganisations;
   if (task.createdById !== undefined) row.created_by_id = toUuidOrNull(task.createdById);
   if (task.createdByName !== undefined) row.created_by_name = task.createdByName;
   if (task.dueDate !== undefined) row.due_date = task.dueDate;
@@ -321,6 +326,10 @@ export function mapNoticeRow(row: any, acks: string[] = []): Notice {
     priority: (row.priority as 'Urgent' | 'Normal') || 'Normal',
     pinned: Boolean(row.pinned),
     acknowledgedBy: acks,
+    targetAudienceType: row.target_audience_type || undefined,
+    targetOrganisations: row.target_organisations || [],
+    targetDepartments: row.target_departments || [],
+    targetUserIds: row.target_user_ids || [],
   };
 }
 
@@ -337,6 +346,10 @@ export function mapNoticeToRow(notice: Partial<Notice>): Record<string, any> {
   if (notice.priority !== undefined) row.priority = notice.priority;
   if (notice.pinned !== undefined) row.pinned = notice.pinned;
   if (notice.createdAt !== undefined) row.created_at = notice.createdAt;
+  if (notice.targetAudienceType !== undefined) row.target_audience_type = notice.targetAudienceType;
+  if (notice.targetOrganisations !== undefined) row.target_organisations = notice.targetOrganisations;
+  if (notice.targetDepartments !== undefined) row.target_departments = notice.targetDepartments;
+  if (notice.targetUserIds !== undefined) row.target_user_ids = notice.targetUserIds;
   return row;
 }
 
@@ -652,6 +665,7 @@ export function mapApprovalRow(row: any): Approval {
     approvedDate: row.approved_date || undefined,
     notes: row.notes || undefined,
     urgency: row.urgency || 'Normal',
+    approverIds: row.approver_ids || [],
   };
 }
 
@@ -675,6 +689,7 @@ export function mapApprovalToRow(app: Partial<Approval>): Record<string, any> {
   if (app.approvedDate !== undefined) row.approved_date = app.approvedDate;
   if (app.notes !== undefined) row.notes = app.notes;
   if (app.urgency !== undefined) row.urgency = app.urgency;
+  if (app.approverIds !== undefined) row.approver_ids = app.approverIds;
   return row;
 }
 
@@ -836,14 +851,15 @@ export function mapDispatchedEmailRow(row: any): DispatchedEmail {
     recipientEmail: row.recipient_email || '',
     recipientName: row.recipient_name || '',
     senderName: 'WIPAHS OfficeHub',
-    senderEmail: 'portal@wipahs.or.tz',
+    senderEmail: 'officehub@wipahs.org',
     subject: row.subject || '',
     bodyText: row.body_text || '',
-    bodyHtml: row.body_html || undefined,
-    timestamp: row.sent_at || new Date().toISOString(),
+    // Render text in React. Historic client-written HTML is not trusted.
+    timestamp: row.accepted_at || row.created_at || row.sent_at || '',
     priority: 'Normal',
-    category: 'Notification',
-    status: (row.status as any) || 'Delivered',
+    category: row.event_type || 'Notification',
+    status: (['queued','processing','sending','retry','accepted','failed','review','cancelled'].includes(row.status)
+      ? row.status : 'unverified') as DispatchedEmail['status'],
   };
 }
 
@@ -860,3 +876,4 @@ export function mapDispatchedEmailToRow(email: Partial<DispatchedEmail>): Record
   if (email.status !== undefined) row.status = email.status;
   return row;
 }
+
