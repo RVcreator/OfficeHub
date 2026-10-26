@@ -30,7 +30,7 @@ import { ForcedPasswordChangeScreen } from './components/ForcedPasswordChangeScr
 import { Project, StaffUser, Task } from './types';
 
 export default function App() {
-  const { authSession, currentUser, tasks, staff, actions, loading } = usePortalStore();
+  const { authSession, currentUser, tasks, staff, actions, loading, notificationError } = usePortalStore();
 
   const [activeTab, setActiveTab] = useState<TabId>('dashboard');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -216,7 +216,7 @@ export default function App() {
         />
 
         {/* Content View */}
-        <main className="flex-1 min-w-0 p-4 lg:p-6 overflow-y-auto"><AppErrorBoundary key={activeTab} onReturn={() => setActiveTab('dashboard')}><Suspense fallback={<div className="p-6 text-slate-500">Loading view...</div>}>
+        <main className="flex-1 min-w-0 p-4 lg:p-6 overflow-y-auto">{notificationError && <div role="alert" className="mb-4 rounded-lg border border-amber-300 bg-amber-50 p-3 text-amber-900">{notificationError}</div>}<AppErrorBoundary key={activeTab} onReturn={() => setActiveTab('dashboard')}><Suspense fallback={<div className="p-6 text-slate-500">Loading view...</div>}>
           {/* Active View Router */}
 
             {activeTab === 'dashboard' && (

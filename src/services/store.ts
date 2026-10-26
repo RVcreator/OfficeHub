@@ -80,6 +80,7 @@ import {
 } from './supabaseMappers';
 import { sendTeamsWebhookNotification, generateTeamsMeetingPayload } from './teamsSharePointService';
 import { playNotificationSound } from '../utils/sound';
+import { NotificationChimeTracker, visibleNotifications, persistNotification, reconcileNotificationSnapshot } from './notificationDelivery';
 import { isPersonalTask } from '../utils/taskUtils';
 import { convertTo24HourTime, convertTo12HourTime } from '../utils/meetingConflict';
 import {
@@ -121,6 +122,7 @@ export interface StoreData {
   conversations: ChatConversation[];
   messages: ChatMessage[];
   notifications: AppNotification[];
+  notificationError: string | null;
   dispatchedEmails: DispatchedEmail[];
   authSession: AuthSessionInfo;
   loading: boolean;
@@ -402,6 +404,7 @@ const storeState: StoreData = {
   conversations: [],
   messages: [],
   notifications: [],
+  notificationError: null,
   dispatchedEmails: [],
   authSession: {
     isAuthenticated: false,
@@ -429,7 +432,18 @@ export function subscribeTable<K extends TableKey>(key: K, listener: () => void)
  * ONLY notifies subscribers of the specific table that changed.
  * NEVER triggers full application or unrelated table re-renders.
  */
-export function setTableData<K extends TableKey>(key: K, data: StoreData[K]): void {
+const notificationChimes = new NotificationChimeTracker();
+let notificationRequestVersion = 0;
+
+export function setTableData<K extends TableKey>(key: K, data: StoreData[K], source: 'snapshot' | 'created' = 'snapshot'): void {
+  let ring = false;
+  if (key === 'notifications') {
+    const user = storeState.currentUser;
+    const rows = storeState.authSession.isAuthenticated
+      ? visibleNotifications(data as AppNotification[], user, getLocalDismissedNotificationIds(user.id)) : [];
+    data = rows as StoreData[K];
+    ring = notificationChimes.observe(rows, user.id, source === 'created');
+  }
   storeState[key] = data;
   tableListeners[key]?.forEach((fn) => {
     try {
@@ -438,6 +452,8 @@ export function setTableData<K extends TableKey>(key: K, data: StoreData[K]): vo
       console.error(`Listener error for ${key}:`, err);
     }
   });
+  // Publish to the same inbox used by the badge and list before playing audio.
+  if (ring) playNotificationSound();
 }
 
 /**
@@ -1657,61 +1673,46 @@ export const portalStore = {
   },
 
   getNotifications: async (userId?: string): Promise<AppNotification[]> => {
+    const targetUid = userId || storeState.currentUser.id;
+    if (!storeState.authSession.isAuthenticated || targetUid !== storeState.currentUser.id) return [];
+    const version = ++notificationRequestVersion;
+    const before = new Set(storeState.notifications.map(n => n.id));
+    const user = storeState.currentUser;
     try {
-      const targetUid = userId || storeState.currentUser.id;
-      if (!targetUid || targetUid === 'usr-default') {
-        return [];
-      }
-
-      // 1. Fetch notifications
-      let query = supabase
-        .from('notifications')
-        .select(NOTIFICATION_SELECT_COLUMNS)
+      // Include legacy email/name destinations; RLS still decides which rows are readable.
+      const targets = Array.from(new Set([targetUid, 'all', user.email, user.name].filter(Boolean)));
+      const { data, error } = await supabase.from('notifications')
+        .select(NOTIFICATION_SELECT_COLUMNS).in('target_user_id', targets)
         .order('created_at', { ascending: false });
-      query = query.or(`target_user_id.eq.${targetUid},target_user_id.eq.all`);
-
-      const { data, error } = await query;
       if (error) throw error;
-      const dbNotifs = (data || []).map((row) => {
-        const notif = mapNotificationRow(row);
-        if (!notif.actorAvatar) {
-          notif.actorAvatar = resolveStaffAvatar(notif.actorId, notif.actorName) || undefined;
-        }
-        return notif;
-      });
-
-      // 2. Fetch dismissals for this user ONLY if targetUid is a valid UUID
       const dismissedIds = new Set<string>();
       const validUuid = toUuidOrNull(targetUid);
       if (validUuid) {
-        const { data: dismissals } = await supabase
-          .from('notification_dismissals')
-          .select('notification_id')
-          .eq('user_id', validUuid);
-
-        (dismissals || []).forEach((d: any) => {
-          if (d?.notification_id) dismissedIds.add(d.notification_id);
-        });
+        const { data: dismissals, error: dismissalError } = await supabase
+          .from('notification_dismissals').select('notification_id').eq('user_id', validUuid);
+        if (dismissalError) throw dismissalError;
+        (dismissals || []).forEach((d: any) => { if (d?.notification_id) dismissedIds.add(d.notification_id); });
       }
-
-      // Merge client persistent dismissals
-      const localDismissals = getLocalDismissedNotificationIds(targetUid);
-      localDismissals.forEach((id) => dismissedIds.add(id));
-
-      // 3. Filter out dismissed
-      const filtered = dbNotifs.filter((n) => !dismissedIds.has(n.id));
-
+      // A stale response must never replace a newer user's or a newer request's inbox.
+      if (version !== notificationRequestVersion || targetUid !== storeState.authSession.userId) return storeState.notifications;
+      getLocalDismissedNotificationIds(targetUid).forEach(id => dismissedIds.add(id));
+      const mapped = (data || []).map(row => {
+        const n = mapNotificationRow(row);
+        if (!n.actorAvatar) n.actorAvatar = resolveStaffAvatar(n.actorId, n.actorName) || undefined;
+        return n;
+      });
+      // Retain confirmed inserts which arrived while this read was in flight.
+      const filtered = reconcileNotificationSnapshot(mapped, storeState.notifications, before, user, dismissedIds);
       setTableData('notifications', filtered);
+      setTableData('notificationError', null);
       return filtered;
-    } catch (err: any) {
-      if (!isNetworkOrTransientError(err)) {
-        console.warn('getNotifications note:', err?.message || err);
+    } catch {
+      if (version === notificationRequestVersion && targetUid === storeState.authSession.userId) {
+        setTableData('notificationError', 'Notifications could not refresh. Showing the last loaded alerts.');
       }
       return storeState.notifications;
     }
   },
-
-
 
   getDispatchedEmails: async (): Promise<DispatchedEmail[]> => {
     try {
@@ -4571,8 +4572,9 @@ export const portalStore = {
   sendMessage: async (message: ChatMessage): Promise<void> => {
     try {
       const row = mapMessageToRow(message);
-      const { data } = await supabase.from('messages').insert(row).select(MESSAGE_SELECT_COLUMNS).single();
-      const insertedMsg = data ? { ...mapMessageRow(data), senderAvatar: message.senderAvatar } : message;
+      const { data, error } = await supabase.from('messages').insert(row).select(MESSAGE_SELECT_COLUMNS).single();
+      if (error || !data) throw new Error('Message could not be saved');
+      const insertedMsg = { ...mapMessageRow(data), senderAvatar: message.senderAvatar };
       setTableData('messages', [...storeState.messages, insertedMsg]);
 
       await supabase
@@ -4623,7 +4625,7 @@ export const portalStore = {
           : 'Sent an attachment';
 
         const notifRows = otherParticipantIds.map((recipientId, idx) => {
-          const notifId = `notif-${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 6)}`;
+          const notifId = `notif-message-${insertedMsg.id}-${recipientId}`;
           return mapNotificationToRow({
             id: notifId,
             title: `New message from ${message.senderName || 'Staff Member'}`,
@@ -4650,7 +4652,7 @@ export const portalStore = {
           .select(NOTIFICATION_SELECT_COLUMNS);
 
         if (notifErr) {
-          console.warn('Supabase new_message notifications insert warning:', notifErr.message);
+          setTableData('notificationError', 'The message was saved, but its notification could not be saved. Contact WIPAHS IT.');
         } else if (insertedNotifs && insertedNotifs.length > 0) {
           const mapped = insertedNotifs.map((r) => {
             const n = mapNotificationRow(r);
@@ -4699,46 +4701,25 @@ export const portalStore = {
       };
 
       const row = mapNotificationToRow(newNotif);
-      let insertedNotif = newNotif;
-      try {
-        const { data, error } = await supabase.from('notifications').insert(row).select(NOTIFICATION_SELECT_COLUMNS).single();
-        if (error) {
-          console.warn('Supabase notifications insert status:', error.message);
-        } else if (data) {
-          insertedNotif = {
-            ...mapNotificationRow(data),
-            actorAvatar: newNotif.actorAvatar || resolveStaffAvatar(newNotif.actorId, newNotif.actorName) || undefined,
-          };
-        }
-      } catch (sbErr) {
-        console.warn('Supabase notifications insert exception:', sbErr);
-      }
-
-      const updatedNotifs = [insertedNotif, ...storeState.notifications.filter((n) => n.id !== insertedNotif.id)];
-      setTableData('notifications', updatedNotifs);
-
-      // Resilient local storage backup so background pollers NEVER wipe local notifications
-
-
-      // Cross-tab broadcast: notify other open tabs/windows immediately
-      broadcastRealtimeEvent({
-        type: 'NEW_NOTIFICATION',
-        notification: insertedNotif,
-        actorId: insertedNotif.actorId,
-        targetUserId: insertedNotif.targetUserId,
+      const insertedNotif = await persistNotification(async () => {
+        const { data, error } = await supabase.from('notifications').insert(row)
+          .select(NOTIFICATION_SELECT_COLUMNS).single();
+        if (error || !data) throw new Error('Notification could not be saved');
+        return { ...mapNotificationRow(data), actorAvatar: newNotif.actorAvatar
+          || resolveStaffAvatar(newNotif.actorId, newNotif.actorName) || undefined };
+      }, saved => {
+        setTableData('notifications', [saved, ...storeState.notifications.filter(n => n.id !== saved.id)], 'created');
+        setTableData('notificationError', null);
+        // Other tabs reload the saved row and apply their own audience/dismissals.
+        broadcastRealtimeEvent({ type: 'NEW_NOTIFICATION', actorId: saved.actorId, targetUserId: saved.targetUserId });
       });
-
-      // Play audio chime for creator if notification is targeted to all or self
-      if (insertedNotif.targetUserId === 'all' || insertedNotif.targetUserId === storeState.currentUser?.id) {
-        playNotificationSound();
-      }
 
       // Email jobs are created by database domain triggers after committed changes.
       // Notification rendering and client-provided recipient arrays never send email.
 
       return insertedNotif;
     } catch (err: any) {
-      console.error('addNotification error:', err);
+      setTableData('notificationError', 'A notification could not be saved. Please try again or contact WIPAHS IT.');
       return null;
     }
   },
@@ -5145,6 +5126,7 @@ export const portalStore = {
       },
     };
 
+    const newIdentity = storeState.authSession.userId !== authenticatedUser.id || !storeState.authSession.isAuthenticated;
     setTableData('currentUser', authenticatedUser);
     saveCurrentUserProfileToLocalStorage(authenticatedUser);
     setTableData('authSession', {
@@ -5153,6 +5135,13 @@ export const portalStore = {
       mustChangePassword: effectiveMustChange,
       sessionToken,
     });
+
+    if (newIdentity) {
+      notificationRequestVersion++;
+      setTableData('notifications', []);
+      notificationChimes.reset(authenticatedUser.id);
+      setTableData('notificationError', null);
+    }
 
     initRealtimeSubscription();
 
@@ -5190,6 +5179,10 @@ export const portalStore = {
       userId: null,
       mustChangePassword: false,
     });
+    notificationRequestVersion++;
+    setTableData('notifications', []);
+    notificationChimes.reset('');
+    setTableData('notificationError', null);
     if (signOut) await signOutSupabase();
   },
 
@@ -5357,6 +5350,7 @@ export function usePortalStore() {
   const conversations = useTableState('conversations');
   const messages = useTableState('messages');
   const notifications = useTableState('notifications');
+  const notificationError = useTableState('notificationError');
   const dispatchedEmails = useTableState('dispatchedEmails');
   const authSession = useTableState('authSession');
   const loading = useTableState('loading');
@@ -5383,6 +5377,7 @@ export function usePortalStore() {
     conversations,
     messages,
     notifications,
+    notificationError,
     dispatchedEmails,
     authSession,
     loading,

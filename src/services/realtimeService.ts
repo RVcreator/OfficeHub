@@ -16,7 +16,6 @@ import {
   mapConversationRow,
   MESSAGE_SELECT_COLUMNS,
 } from './supabaseMappers';
-import { playNotificationSound } from '../utils/sound';
 import { ChatMessage, Meeting, Notice, Task, ChatConversation, AppNotification, Approval } from '../types';
 
 export interface RealtimeBridge {
@@ -104,68 +103,21 @@ export function broadcastRealtimeEvent(event: PortalBroadcastEvent): void {
  * Handle incoming cross-tab broadcast events
  */
 function handleBroadcastMessage(event: PortalBroadcastEvent) {
-  if (!activeBridge || !isStarted) return;
-  const currentUserId = activeBridge.getState().currentUser?.id;
-  if (!currentUserId) return;
-
-  // Don't replay sound for self-actions
-  if (event.actorId && event.actorId === currentUserId) return;
-
-  const isTargetedToMe =
-    event.targetUserId === 'all' ||
-    !event.targetUserId ||
-    event.targetUserId === currentUserId;
-
-  if (event.type === 'NEW_NOTIFICATION' && event.notification) {
-    const notif = event.notification;
-    if (notif.targetUserId === 'all' || notif.targetUserId === currentUserId) {
-      const cur = activeBridge.getState().notifications || [];
-      if (!cur.some((n) => n.id === notif.id)) {
-        activeBridge.setTableData('notifications', [notif, ...cur]);
-      }
-      playNotificationSound();
-    }
-  } else if (event.type === 'NEW_NOTICE') {
-    activeBridge.getNotices().then((notices) => {
-      activeBridge?.setTableData('notices', notices);
-    });
-    triggerLiveNotificationSync();
-    if (isTargetedToMe) {
-      playNotificationSound();
-    }
-  } else if (event.type === 'NOTICE_ACKNOWLEDGED') {
-    activeBridge.getNotices().then((notices) => {
-      activeBridge?.setTableData('notices', notices);
-    });
-    triggerLiveNotificationSync();
-    if (event.targetUserId === currentUserId) {
-      playNotificationSound();
-    }
-  } else if (event.type === 'TASK_ASSIGNED') {
-    activeBridge.getTasks().then((tasks) => {
-      activeBridge?.setTableData('tasks', tasks);
-    });
-    triggerLiveNotificationSync();
-    if (event.targetUserId === currentUserId) {
-      playNotificationSound();
-    }
-  } else if (event.type === 'TASK_DONE') {
-    activeBridge.getTasks().then((tasks) => {
-      activeBridge?.setTableData('tasks', tasks);
-    });
-    triggerLiveNotificationSync();
-    if (event.targetUserId === currentUserId) {
-      playNotificationSound();
-    }
-  } else if (event.type === 'TASK_RATED') {
-    activeBridge.getTasks().then((tasks) => {
-      activeBridge?.setTableData('tasks', tasks);
-    });
-    triggerLiveNotificationSync();
-    if (event.targetUserId === currentUserId) {
-      playNotificationSound();
-    }
+  if (!activeBridge || !isStarted || !isBridgeAuthenticated()) return;
+  const bridge = activeBridge;
+  const userId = bridge.getState().currentUser.id;
+  // Broadcasts are refresh hints, never authoritative notification records.
+  const current = () => activeBridge === bridge && isStarted && bridge.getState().currentUser.id === userId;
+  if (event.type === 'NEW_NOTICE' || event.type === 'NOTICE_ACKNOWLEDGED') {
+    void bridge.getNotices().then(rows => { if (current()) bridge.setTableData('notices', rows); }).catch(() => {});
+  } else if (['TASK_ASSIGNED', 'TASK_DONE', 'TASK_RATED'].includes(event.type)) {
+    void bridge.getTasks().then(rows => { if (current()) bridge.setTableData('tasks', rows); }).catch(() => {});
+  } else if (event.type === 'MEETING_SCHEDULED' || event.type === 'MEETING_RSVP') {
+    void triggerLiveMeetingSync();
+  } else if (event.type === 'NEW_MESSAGE') {
+    void triggerLiveMessageSync();
   }
+  void triggerLiveNotificationSync();
 }
 
 /**
@@ -263,10 +215,10 @@ export async function triggerLiveMessageSync() {
       const freshConversations = await activeBridge.getConversations();
       activeBridge.setTableData('conversations', freshConversations);
 
-      // Play soft chime if a message from someone else arrived
+      // Refresh saved notifications for incoming messages.
       const currentUserId = activeBridge.getState().currentUser?.id;
       if (mappedNew.some((m) => m.senderId && m.senderId !== currentUserId)) {
-        playNotificationSound();
+        void triggerLiveNotificationSync();
       }
     }
   } catch (err) {
@@ -318,9 +270,9 @@ function setupRealtimeChannel() {
         });
         activeBridge.setTableData('conversations', updatedConvs);
 
-        // Sound chime for incoming message from other user
+        // The saved notification determines whether this message should chime.
         if (newMsg.senderId && newMsg.senderId !== currentUserId) {
-          playNotificationSound();
+          void triggerLiveNotificationSync();
         }
       }
     )
@@ -398,10 +350,6 @@ function setupRealtimeChannel() {
         try {
           const freshNotices = await activeBridge.getNotices();
           activeBridge.setTableData('notices', freshNotices);
-          const currentUserId = activeBridge.getState().currentUser?.id;
-          if (payload.new && payload.new.author_id !== currentUserId) {
-            playNotificationSound();
-          }
           triggerLiveNotificationSync();
         } catch (e) {}
       }
@@ -439,17 +387,6 @@ function setupRealtimeChannel() {
           activeBridge.setTableData('notices', freshNotices);
           triggerLiveNotificationSync();
 
-          const ackUser = payload.new?.user_id;
-          const noticeId = payload.new?.notice_id;
-          const currentUserId = activeBridge.getState().currentUser?.id;
-          const targetNotice = freshNotices.find((n) => n.id === noticeId);
-          if (
-            targetNotice &&
-            targetNotice.authorId === currentUserId &&
-            ackUser !== currentUserId
-          ) {
-            playNotificationSound();
-          }
         } catch (e) {}
       }
     )
@@ -496,24 +433,10 @@ function setupRealtimeChannel() {
               activeBridge.setTableData('tasks', freshTasks);
             }
 
-            if (
-              updatedRow.status === 'Done' &&
-              updatedRow.created_by_id === currentUserId &&
-              updatedRow.assigned_to_id !== currentUserId
-            ) {
-              playNotificationSound();
-            }
           } else {
             // INSERT or DELETE
             const freshTasks = await activeBridge.getTasks();
             activeBridge.setTableData('tasks', freshTasks);
-            if (payload.eventType === 'INSERT' && payload.new) {
-              const assigned = payload.new.assigned_to_id;
-              const createdBy = payload.new.created_by_id;
-              if (assigned === currentUserId && createdBy !== currentUserId) {
-                playNotificationSound();
-              }
-            }
           }
           triggerLiveNotificationSync();
         } catch (e) {}
@@ -523,18 +446,8 @@ function setupRealtimeChannel() {
     .on(
       'postgres_changes',
       { event: 'INSERT', schema: 'public', table: 'notifications' },
-      (payload) => {
-        if (!activeBridge) return;
-        const currentUserId = activeBridge.getState().currentUser?.id;
-        const notifRow = payload.new;
-        if (notifRow) {
-          const target = notifRow.target_user_id;
-          const actor = notifRow.actor_id;
-          if ((target === 'all' || target === currentUserId) && actor !== currentUserId) {
-            playNotificationSound();
-          }
-        }
-        triggerLiveNotificationSync();
+      () => {
+        void triggerLiveNotificationSync();
       }
     )
     .on(
@@ -586,33 +499,12 @@ function setupRealtimeChannel() {
  */
 export async function triggerLiveNotificationSync() {
   if (!activeBridge || !activeBridge.getNotifications || !isBridgeAuthenticated()) return;
+  const uid = activeBridge.getState().currentUser?.id;
   try {
-    const uid = activeBridge.getState().currentUser?.id;
-    const freshNotifs = await activeBridge.getNotifications(uid);
-    const current = activeBridge.getState().notifications || [];
-
-    // Check for newly arrived unread notifications targeted at this user and created by someone else
-    const curIds = new Set(current.map((n) => n.id));
-    const newlyArrived = freshNotifs.filter(
-      (n) =>
-        !curIds.has(n.id) &&
-        !n.read &&
-        n.actorId !== uid &&
-        (n.targetUserId === 'all' || n.targetUserId === uid)
-    );
-
-    if (
-      freshNotifs.length !== current.length ||
-      freshNotifs.some((n, i) => n.id !== current[i]?.id || n.read !== current[i]?.read)
-    ) {
-      activeBridge.setTableData('notifications', freshNotifs);
-    }
-
-    if (newlyArrived.length > 0) {
-      playNotificationSound();
-    }
-  } catch (err) {
-    console.warn('Live notification sync error:', err);
+    // Store delivery publishes persisted rows, then decides whether to chime.
+    await activeBridge.getNotifications(uid);
+  } catch {
+    // Keep the existing inbox on a failed refresh; never ring for a failed read.
   }
 }
 
@@ -662,8 +554,7 @@ function startLiveSyncPoller() {
           );
           activeBridge.setTableData('notices', notices);
           if (hasNewNoticeFromOther) {
-            playNotificationSound();
-            triggerLiveNotificationSync();
+            void triggerLiveNotificationSync();
           }
         }
       } catch {}
@@ -689,6 +580,16 @@ function handleOnline() {
   triggerLiveNotificationSync();
 }
 
+function handleVisibilityChange() {
+  if (document.visibilityState === 'visible') handleWindowFocus();
+}
+
+function handleStorageChange(e: StorageEvent) {
+  if (e.key === 'wipahs_last_broadcast_evt' && e.newValue) {
+    try { handleBroadcastMessage(JSON.parse(e.newValue)); } catch {}
+  }
+}
+
 /**
  * Start the full live realtime engine
  */
@@ -702,22 +603,11 @@ export function startRealtimeEngine(bridge: RealtimeBridge) {
 
   if (typeof window !== 'undefined') {
     window.addEventListener('focus', handleWindowFocus);
-    document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'visible') {
-        handleWindowFocus();
-      }
-    });
+    document.addEventListener('visibilitychange', handleVisibilityChange);
     window.addEventListener('online', handleOnline);
 
     // Cross-tab storage event fallback
-    window.addEventListener('storage', (e) => {
-      if (e.key === 'wipahs_last_broadcast_evt' && e.newValue) {
-        try {
-          const parsed = JSON.parse(e.newValue);
-          handleBroadcastMessage(parsed);
-        } catch {}
-      }
-    });
+    window.addEventListener('storage', handleStorageChange);
   }
 
   console.info('WIPAHS OfficeHub Live: Real-time synchronization active.');
@@ -740,6 +630,8 @@ export function stopRealtimeEngine() {
   }
   if (typeof window !== 'undefined') {
     window.removeEventListener('focus', handleWindowFocus);
+    document.removeEventListener('visibilitychange', handleVisibilityChange);
+    window.removeEventListener('storage', handleStorageChange);
     window.removeEventListener('online', handleOnline);
   }
 }

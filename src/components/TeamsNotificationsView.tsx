@@ -1,3 +1,4 @@
+import { isNotificationForUser } from '../services/notificationDelivery';
 import React, { useEffect, useState } from 'react';
 import {
   BellRing,
@@ -62,16 +63,7 @@ export const TeamsNotificationsView: React.FC<{
   }, [activeTab, currentUser.id, actions]);
 
   // Filter notifications for current user or broadcast ('all')
-  const userNotifications = notifications.filter(n => {
-    if (n.targetUserId === 'all' || !n.targetUserId) return true;
-    if (n.targetUserId === currentUser.id) return true;
-    if (currentUser.email && n.targetUserId.toLowerCase() === currentUser.email.toLowerCase()) return true;
-    if (currentUser.name && n.targetUserId.toLowerCase() === currentUser.name.toLowerCase()) return true;
-    if (Array.isArray(n.emailRecipients) && currentUser.email && n.emailRecipients.some(e => e.toLowerCase() === currentUser.email.toLowerCase())) return true;
-    if (n.metadata?.targetUserName && currentUser.name && n.metadata.targetUserName.toLowerCase() === currentUser.name.toLowerCase()) return true;
-    if (n.metadata?.targetUserEmail && currentUser.email && n.metadata.targetUserEmail.toLowerCase() === currentUser.email.toLowerCase()) return true;
-    return false;
-  });
+  const userNotifications = notifications.filter(n => isNotificationForUser(n, currentUser));
 
   const filteredNotifications = userNotifications.filter(n => {
     if (filterType !== 'All' && n.type !== filterType) return false;
@@ -100,8 +92,8 @@ export const TeamsNotificationsView: React.FC<{
     return true;
   });
 
-  const handleSendTestAlert = () => {
-    const testNotif = actions.addNotification({
+  const handleSendTestAlert = async () => {
+    const testNotif = await actions.addNotification({
       title: 'Notification sound test',
       message: `In-app notification test for ${currentUser.name}.`,
       type: 'general',
@@ -113,7 +105,7 @@ export const TeamsNotificationsView: React.FC<{
       pushedToMicrosoftTeams: true,
     });
 
-    setTestSentMessage('In-app notification test triggered. Check email status in the outbox for supported events.');
+    setTestSentMessage(testNotif ? 'Test notification saved. It is now in your notification list.' : 'The notification could not be saved. No sound was played.');
     setTimeout(() => setTestSentMessage(null), 4000);
   };
 
@@ -369,7 +361,7 @@ export const TeamsNotificationsView: React.FC<{
                       {/* Delivery & Dispatch Indicators */}
                       <div className="flex items-center gap-2.5 flex-wrap pt-1.5 text-[10px]">
                         <span className="text-slate-400">
-                          By <b>{notif.actorName || 'System'}</b> â€¢ {timeStr}
+                          By <b>{notif.actorName || 'System'}</b> • {timeStr}
                         </span>
 
                         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-50 text-emerald-800 font-semibold border border-emerald-200">
@@ -404,7 +396,7 @@ export const TeamsNotificationsView: React.FC<{
                         }}
                         className="px-3 py-1 bg-amber-500 hover:bg-amber-600 text-white rounded text-xs font-bold shadow-2xs transition flex items-center gap-1 cursor-pointer"
                       >
-                        <span>â˜…</span>
+                        <span>★</span>
                         <span>Rate Task</span>
                       </button>
                     )}
@@ -486,9 +478,9 @@ export const TeamsNotificationsView: React.FC<{
 
                     <div className="text-xs text-slate-600 flex items-center gap-2 flex-wrap">
                       <span>To: <b>{email.recipientName}</b> &lt;{email.recipientEmail}&gt;</span>
-                      <span>â€¢</span>
+                      <span>•</span>
                       <span>From: <b>{email.senderName}</b> &lt;{email.senderEmail}&gt;</span>
-                      <span>â€¢</span>
+                      <span>•</span>
                       <span className="text-slate-400">{timeStr}</span>
                     </div>
 
