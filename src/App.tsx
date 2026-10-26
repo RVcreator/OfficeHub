@@ -44,102 +44,58 @@ export default function App() {
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [selectedMeetingId, setSelectedMeetingId] = useState<string | null>(null);
   const [selectedApprovalId, setSelectedApprovalId] = useState<string | null>(null);
+  const [authChecking, setAuthChecking] = useState(true);
 
   // Sync Supabase Auth session & handle password recovery redirects
   useEffect(() => {
-    actions.syncStaffFromSupabase();
-    actions.getSharePointDocs();
-    actions.getFolderList();
+    let isMounted = true;
 
     supabase.auth.getSession().then(async ({ data: { session } }) => {
-      if (session?.user && !authSession.isAuthenticated) {
-        const email = session.user.email?.toLowerCase();
-        const staffList = staff.length > 0 ? staff : await actions.getStaff();
-        let matched = staffList.find(s => s.email.toLowerCase() === email);
-        const mustChange = Boolean(session.user.app_metadata?.must_change_password);
-
-        if (matched) {
-          actions.loginUser(matched, mustChange, session.access_token);
-        } else if (email) {
-          const detectedDept = (session.user.app_metadata?.department as string) ||
-            (session.user.user_metadata?.department as string) ||
-            (email.includes('marketing') ? 'Marketing' :
-             email.includes('it') ? 'IT' :
-             email.includes('finance') ? 'Finance' : 'General');
-
-          const newStaff: StaffUser = {
-            id: session.user.id || `usr-${Date.now()}`,
-            name: (session.user.user_metadata?.name as string) || email.split('@')[0],
-            email,
-            role: (session.user.app_metadata?.role as string) || 'Staff Member',
-            organisation: (session.user.app_metadata?.organisation as string) || 'WIPAHS',
-            department: detectedDept,
-            status: 'Online',
-            avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
-            phone: '+255 778 123 456',
-            activityScore: 85,
-            tasksCount: 0,
-            lastActive: 'Just now',
-            mustChangePassword: mustChange,
-            app_metadata: session.user.app_metadata
-          };
-          actions.addStaffMember(newStaff);
-          actions.loginUser(newStaff, mustChange, session.access_token);
+      try {
+        if (!isMounted) return;
+        if (session?.user) {
+          const resolvedUser = await actions.syncAuthenticatedUserProfile(session.user);
+          if (!isMounted) return;
+          const mustChange = actions.shouldForcePasswordChange(session.user, resolvedUser, {
+            isSessionRestore: true,
+          });
+          actions.loginUser(resolvedUser, mustChange, session.access_token);
         }
+      } finally {
+        if (isMounted) setAuthChecking(false);
       }
+    }).catch(() => {
+      if (isMounted) setAuthChecking(false);
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (event === 'PASSWORD_RECOVERY' || (event === 'SIGNED_IN' && session?.user)) {
-        if (session?.user) {
-          const email = session.user.email?.toLowerCase();
-          const staffList = staff.length > 0 ? staff : await actions.getStaff();
-          let matched = staffList.find(s => s.email.toLowerCase() === email);
-          const mustChange = event === 'PASSWORD_RECOVERY' ? true : Boolean(session.user.app_metadata?.must_change_password);
-
-          if (!matched && email) {
-            const detectedDept = (session.user.app_metadata?.department as string) ||
-              (session.user.user_metadata?.department as string) ||
-              (email.includes('marketing') ? 'Marketing' :
-               email.includes('it') ? 'IT' :
-               email.includes('finance') ? 'Finance' : 'General');
-
-            matched = {
-              id: session.user.id || `usr-${Date.now()}`,
-              name: (session.user.user_metadata?.name as string) || email.split('@')[0],
-              email,
-              role: (session.user.app_metadata?.role as string) || 'Staff Member',
-              organisation: (session.user.app_metadata?.organisation as string) || 'WIPAHS',
-              department: detectedDept,
-              status: 'Online',
-              avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
-              phone: '+255 778 123 456',
-              activityScore: 85,
-              tasksCount: 0,
-              lastActive: 'Just now',
-              mustChangePassword: mustChange,
-              app_metadata: session.user.app_metadata
-            };
-            actions.addStaffMember(matched);
-          }
-
-          if (matched) {
-            actions.loginUser(matched, mustChange, session.access_token);
-          }
-        }
+      if (!isMounted) return;
+      if (event === 'PASSWORD_RECOVERY' && session?.user) {
+        const resolvedUser = await actions.syncAuthenticatedUserProfile(session.user);
+        if (!isMounted) return;
+        const mustChange = actions.shouldForcePasswordChange(session.user, resolvedUser, {
+          isRecoveryEvent: true,
+        });
+        actions.loginUser(resolvedUser, mustChange, session.access_token);
+      } else if (event === 'SIGNED_IN' && session?.user && !actions.getAuthSession().isAuthenticated) {
+        const resolvedUser = await actions.syncAuthenticatedUserProfile(session.user);
+        if (!isMounted) return;
+        const mustChange = actions.shouldForcePasswordChange(session.user, resolvedUser, {
+          isSessionRestore: true,
+        });
+        actions.loginUser(resolvedUser, mustChange, session.access_token);
       } else if (event === 'SIGNED_OUT') {
-        if (authSession.isAuthenticated) {
-          actions.logoutUser();
-        }
+        actions.logoutUser();
       }
     });
 
     return () => {
+      isMounted = false;
       subscription.unsubscribe();
     };
   }, []);
 
-  if (loading) {
+  if (loading || authChecking) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50">
         <div className="text-[#00ad1d] font-bold text-lg">Loading WIPAHS OfficeHub...</div>
@@ -148,7 +104,7 @@ export default function App() {
   }
 
   // 1. Check if user is authenticated
-  if (!authSession.isAuthenticated) {
+  if (!authSession.isAuthenticated || !currentUser || currentUser.id === 'usr-default') {
     return (
       <LoginScreen
         onLoginSuccess={(user, mustChange, token) => {
@@ -158,13 +114,8 @@ export default function App() {
     );
   }
 
-  // 2. Check if logged-in user must change password on first login
-  // Per specification: must_change_password lives in app_metadata
-  const mustChangePassword = Boolean(
-    authSession.mustChangePassword ||
-    currentUser.mustChangePassword ||
-    currentUser.app_metadata?.must_change_password
-  );
+  // 2. Check if logged-in user must change password on first login / password recovery
+  const mustChangePassword = Boolean(authSession.mustChangePassword);
 
   if (mustChangePassword) {
     return (

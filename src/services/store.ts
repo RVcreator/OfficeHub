@@ -204,8 +204,92 @@ export function saveProjectsToLocalStorage(projects: Project[]): void {
 export function getSavedCurrentUserProfile(): Partial<StaffUser> | null {
   try {
     const raw = localStorage.getItem('wipahs_current_user_profile');
-    if (raw) return JSON.parse(raw);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (
+        parsed &&
+        parsed.id &&
+        parsed.id !== 'usr-default' &&
+        parsed.email !== 'staff@wipahs.or.tz' &&
+        parsed.name !== 'Staff Member'
+      ) {
+        return { ...parsed, mustChangePassword: false };
+      }
+    }
   } catch {}
+  return null;
+}
+
+export function hasCompletedPasswordChange(userId?: string | null, email?: string | null): boolean {
+  try {
+    const raw = localStorage.getItem('wipahs_password_verified_users');
+    if (!raw) return false;
+    const list: string[] = JSON.parse(raw);
+    if (!Array.isArray(list)) return false;
+    if (userId && list.includes(userId)) return true;
+    if (email && list.includes(email.toLowerCase())) return true;
+  } catch {}
+  return false;
+}
+
+export function markPasswordChangeCompleted(user?: Partial<StaffUser> | null): void {
+  if (!user) return;
+  try {
+    const raw = localStorage.getItem('wipahs_password_verified_users');
+    const set = new Set<string>(raw ? JSON.parse(raw) : []);
+    if (user.id && user.id !== 'usr-default') {
+      set.add(user.id);
+      localStorage.removeItem(`wipahs_pending_password_change_${user.id}`);
+    }
+    if (user.email && user.email !== 'staff@wipahs.or.tz') {
+      set.add(user.email.toLowerCase());
+    }
+    localStorage.setItem('wipahs_password_verified_users', JSON.stringify(Array.from(set)));
+  } catch {}
+}
+
+export function setPendingPasswordChangeFlag(userId?: string | null, pending: boolean = false): void {
+  if (!userId || userId === 'usr-default') return;
+  try {
+    const key = `wipahs_pending_password_change_${userId}`;
+    if (pending) {
+      localStorage.setItem(key, 'true');
+    } else {
+      localStorage.removeItem(key);
+    }
+  } catch {}
+}
+
+export function hasPendingPasswordChangeFlag(userId?: string | null): boolean {
+  if (!userId || userId === 'usr-default') return false;
+  try {
+    return localStorage.getItem(`wipahs_pending_password_change_${userId}`) === 'true';
+  } catch {
+    return false;
+  }
+}
+
+let sharePointEdgeFnAvailable = true;
+
+async function invokeSharePointListSafe(body?: Record<string, any>): Promise<any[] | null> {
+  if (!sharePointEdgeFnAvailable) return null;
+  try {
+    const session = (await supabase.auth.getSession()).data.session;
+    if (!session?.access_token) return null;
+    const { data, error } = await supabase.functions.invoke('sharepoint-list', {
+      headers: { Authorization: `Bearer ${session.access_token}` },
+      ...(body ? { body } : {}),
+    });
+    if (error) {
+      sharePointEdgeFnAvailable = false;
+      return null;
+    }
+    if (data && Array.isArray(data.documents)) {
+      return data.documents;
+    }
+  } catch {
+    sharePointEdgeFnAvailable = false;
+  }
   return null;
 }
 
@@ -218,16 +302,23 @@ function stripOversizedAvatarForStorage<T extends Partial<StaffUser>>(user: T): 
 }
 
 export function saveCurrentUserProfileToLocalStorage(user: StaffUser): void {
+  if (!user || user.id === 'usr-default' || user.email === 'staff@wipahs.or.tz' || user.name === 'Staff Member') return;
   try {
-    localStorage.setItem('wipahs_current_user_profile', JSON.stringify(stripOversizedAvatarForStorage(user)));
+    localStorage.setItem(
+      'wipahs_current_user_profile',
+      JSON.stringify(stripOversizedAvatarForStorage({ ...user, mustChangePassword: false }))
+    );
   } catch {}
 }
 
 export function saveStaffToLocalStorage(staffList: StaffUser[]): void {
   try {
+    const cleanList = staffList.filter(
+      (s) => s && s.id !== 'usr-default' && s.email !== 'staff@wipahs.or.tz' && s.name !== 'Staff Member'
+    );
     localStorage.setItem(
       'wipahs_registered_staff',
-      JSON.stringify(staffList.map((s) => stripOversizedAvatarForStorage(s)))
+      JSON.stringify(cleanList.map((s) => stripOversizedAvatarForStorage(s)))
     );
   } catch {}
 }
@@ -405,7 +496,9 @@ export async function initStoreOnce(): Promise<void> {
       
       // Projects, Audit Logs, etc. are now deferred on-demand
       isStoreInitialized = true;
-      initRealtimeSubscription();
+      if (storeState.authSession.isAuthenticated) {
+        initRealtimeSubscription();
+      }
     } catch (err) {
       console.error('Error during initStoreOnce:', err);
     } finally {
@@ -1133,21 +1226,10 @@ export const portalStore = {
 
       for (const m of rawMeetings) {
         const sig = `${(m.title || '').trim().toLowerCase()}_${m.date}_${m.startTime || m.time || ''}_${m.organizerId || m.chairId || ''}`;
-        if (seenSignatures.has(sig)) {
-          duplicateMeetingIds.push(m.id);
-        } else {
+        if (!seenSignatures.has(sig)) {
           seenSignatures.set(sig, m);
           deduplicatedMeetings.push(m);
         }
-      }
-
-      // If duplicate meetings exist in Supabase, purge redundant rows immediately
-      if (duplicateMeetingIds.length > 0) {
-        console.warn(`Cleaning up ${duplicateMeetingIds.length} duplicate meeting(s) from Supabase:`, duplicateMeetingIds);
-        supabase.from('meetings').delete().in('id', duplicateMeetingIds).then(({ error }) => {
-          if (error) console.error('Failed to purge duplicate meetings from Supabase:', error);
-          else console.info(`Purged duplicate meetings from Supabase: ${duplicateMeetingIds.join(', ')}`);
-        });
       }
 
       return deduplicatedMeetings;
@@ -1169,17 +1251,43 @@ export const portalStore = {
       let localStaff: StaffUser[] = [];
       try {
         const raw = localStorage.getItem('wipahs_registered_staff');
-        if (raw) localStaff = JSON.parse(raw);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) {
+            localStaff = parsed.filter(
+              (s: any) =>
+                s &&
+                s.id &&
+                s.id !== 'usr-default' &&
+                s.email !== 'staff@wipahs.or.tz' &&
+                s.name !== 'Staff Member'
+            );
+          }
+        }
       } catch {}
 
       const combinedMap = new Map<string, StaffUser>();
       dbProfiles.forEach((s) => combinedMap.set(s.id, s));
       localStaff.forEach((s) => {
-        const existing = combinedMap.get(s.id);
-        combinedMap.set(s.id, existing ? { ...existing, ...s, avatar: s.avatar || existing.avatar } : s);
+        const existing = combinedMap.get(s.id) ||
+          Array.from(combinedMap.values()).find(
+            (dbUser) => dbUser.email && s.email && dbUser.email.toLowerCase() === s.email.toLowerCase()
+          );
+        if (existing) {
+          // Database profile is authoritative for identity, role, department, and password status
+          combinedMap.set(existing.id, {
+            ...s,
+            ...existing,
+            birthday: existing.birthday || s.birthday,
+            avatar: existing.avatar || s.avatar,
+            mustChangePassword: existing.mustChangePassword,
+          });
+        } else {
+          combinedMap.set(s.id, { ...s, mustChangePassword: false });
+        }
       });
 
-      const finalStaff = Array.from(combinedMap.values()).filter(s => !s.deactivated);
+      const finalStaff = Array.from(combinedMap.values()).filter((s) => !s.deactivated);
 
       return finalStaff;
     } catch (err) {
@@ -1189,7 +1297,7 @@ export const portalStore = {
         const raw = localStorage.getItem('wipahs_registered_staff');
         if (raw) localStaff = JSON.parse(raw);
       } catch {}
-      return localStaff.filter(s => !s.deactivated);
+      return localStaff.filter((s) => s && s.id !== 'usr-default' && !s.deactivated);
     }
   },
 
@@ -1198,31 +1306,29 @@ export const portalStore = {
     try {
       const localDocs = getDocumentsFromLocalStorage().filter((d) => !deletedDocs.has(d.id));
 
-    let dbDocs: SharePointDocument[] = [];
-    try {
-      const { data, error } = await supabase
-        .from('sharepoint_documents')
-        .select('*')
-        .order('modified_at', { ascending: false });
+      let dbDocs: SharePointDocument[] = [];
+      try {
+        const { data, error } = await supabase
+          .from('sharepoint_documents')
+          .select('*')
+          .order('modified_at', { ascending: false });
 
-      if (!error && data) {
-        dbDocs = data.map(mapSharePointDocRow).filter((d) => !deletedDocs.has(d.id));
+        if (!error && data) {
+          dbDocs = data.map(mapSharePointDocRow).filter((d) => !deletedDocs.has(d.id));
+        }
+      } catch (err) {
+        console.warn('Supabase getSharePointDocs error:', err);
       }
-    } catch (err) {
-      console.warn('Supabase getSharePointDocs error:', err);
-    }
 
-    try {
-      const { data: fnData, error: fnError } = await supabase.functions.invoke('sharepoint-list');
-      if (!fnError && fnData && Array.isArray(fnData.documents) && fnData.documents.length > 0) {
-        const fnDocs = fnData.documents.map(mapSharePointDocRow).filter((d: SharePointDocument) => !deletedDocs.has(d.id));
+      const fnDocuments = await invokeSharePointListSafe();
+      if (fnDocuments && fnDocuments.length > 0) {
+        const fnDocs = fnDocuments.map(mapSharePointDocRow).filter((d: SharePointDocument) => !deletedDocs.has(d.id));
         fnDocs.forEach((d: SharePointDocument) => {
-          if (!dbDocs.some(existing => existing.id === d.id)) {
+          if (!dbDocs.some((existing) => existing.id === d.id)) {
             dbDocs.push(d);
           }
         });
       }
-    } catch (fnEx) {}
 
       const docMap = new Map<string, SharePointDocument>();
       dbDocs.forEach(d => docMap.set(d.id, d));
@@ -1553,12 +1659,17 @@ export const portalStore = {
   getNotifications: async (userId?: string): Promise<AppNotification[]> => {
     try {
       const targetUid = userId || storeState.currentUser.id;
-      
-      // 1. Fetch notifications
-      let query = supabase.from('notifications').select(NOTIFICATION_SELECT_COLUMNS).order('created_at', { ascending: false });
-      if (targetUid) {
-        query = query.or(`target_user_id.eq.${targetUid},target_user_id.eq.all`);
+      if (!targetUid || targetUid === 'usr-default') {
+        return [];
       }
+
+      // 1. Fetch notifications
+      let query = supabase
+        .from('notifications')
+        .select(NOTIFICATION_SELECT_COLUMNS)
+        .order('created_at', { ascending: false });
+      query = query.or(`target_user_id.eq.${targetUid},target_user_id.eq.all`);
+
       const { data, error } = await query;
       if (error) throw error;
       const dbNotifs = (data || []).map((row) => {
@@ -1569,13 +1680,19 @@ export const portalStore = {
         return notif;
       });
 
-      // 2. Fetch dismissals for this user
-      const { data: dismissals } = await supabase
-        .from('notification_dismissals')
-        .select('notification_id')
-        .eq('user_id', targetUid);
-      
-      const dismissedIds = new Set((dismissals || []).map((d: any) => d.notification_id).filter(Boolean));
+      // 2. Fetch dismissals for this user ONLY if targetUid is a valid UUID
+      const dismissedIds = new Set<string>();
+      const validUuid = toUuidOrNull(targetUid);
+      if (validUuid) {
+        const { data: dismissals } = await supabase
+          .from('notification_dismissals')
+          .select('notification_id')
+          .eq('user_id', validUuid);
+
+        (dismissals || []).forEach((d: any) => {
+          if (d?.notification_id) dismissedIds.add(d.notification_id);
+        });
+      }
 
       // Merge client persistent dismissals
       const localDismissals = getLocalDismissedNotificationIds(targetUid);
@@ -1583,12 +1700,14 @@ export const portalStore = {
 
       // 3. Filter out dismissed
       const filtered = dbNotifs.filter((n) => !dismissedIds.has(n.id));
-      
+
       setTableData('notifications', filtered);
       return filtered;
     } catch (err: any) {
-      console.warn('getNotifications note:', err?.message || err);
-      return [];
+      if (!isNetworkOrTransientError(err)) {
+        console.warn('getNotifications note:', err?.message || err);
+      }
+      return storeState.notifications;
     }
   },
 
@@ -3704,20 +3823,14 @@ export const portalStore = {
   },
 
   getProjectSharePointDocs: async (projectId: string): Promise<SharePointDocument[]> => {
-    try {
-      const { data: fnData, error: fnError } = await supabase.functions.invoke('sharepoint-list', {
-        body: { projectId },
-      });
-      if (!fnError && fnData && Array.isArray(fnData.documents) && fnData.documents.length > 0) {
-        const filtered = fnData.documents.filter(
-          (d: any) => d.projectId === projectId || (d.folder && d.folder.toLowerCase().includes(projectId.toLowerCase()))
-        );
-        if (filtered.length > 0) {
-          return filtered;
-        }
+    const fnDocuments = await invokeSharePointListSafe({ projectId });
+    if (fnDocuments && fnDocuments.length > 0) {
+      const filtered = fnDocuments.filter(
+        (d: any) => d.projectId === projectId || (d.folder && d.folder.toLowerCase().includes(projectId.toLowerCase()))
+      );
+      if (filtered.length > 0) {
+        return filtered;
       }
-    } catch (fnEx) {
-      console.warn('getProjectSharePointDocs edge invoke note:', fnEx);
     }
 
     try {
@@ -3911,14 +4024,15 @@ export const portalStore = {
 
       saveStaffToLocalStorage(remainingStaff);
 
-      // Soft delete: set deactivated = true in Supabase profiles
+      // Soft delete: store deactivated flag inside app_metadata (profiles has no top-level deactivated column)
       try {
+        const nextMeta = { ...(targetUser?.app_metadata || {}), deactivated: true };
         const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
         if (isUuid) {
-          const { error } = await supabase.from('profiles').update({ deactivated: true }).eq('id', id);
+          const { error } = await supabase.from('profiles').update({ app_metadata: nextMeta }).eq('id', id);
           if (error) console.warn('Supabase profile deactivation note:', error.message);
         } else if (targetUser?.email) {
-          const { error } = await supabase.from('profiles').update({ deactivated: true }).eq('email', targetUser.email);
+          const { error } = await supabase.from('profiles').update({ app_metadata: nextMeta }).eq('email', targetUser.email);
           if (error) console.warn('Supabase profile deactivation note:', error.message);
         }
       } catch (sbErr) {
@@ -4711,17 +4825,20 @@ export const portalStore = {
       // 2. Persist to local client dismissals so it stays hidden on refresh
       saveLocalDismissedNotificationIds(targetUid, [notificationId]);
 
-      // 3. Save dismissal in Supabase table
-      try {
-        await supabase
-          .from('notification_dismissals')
-          .upsert(
-            { notification_id: notificationId, user_id: targetUid },
-            { onConflict: 'notification_id,user_id', ignoreDuplicates: true }
-          );
-      } catch (dErr: any) {
-        if (dErr?.code !== '23505' && dErr?.code !== '23503') {
-          console.warn('notification_dismissals upsert note:', dErr?.message || dErr);
+      // 3. Save dismissal in Supabase table only if targetUid is a valid UUID
+      const validUuid = toUuidOrNull(targetUid);
+      if (validUuid) {
+        try {
+          await supabase
+            .from('notification_dismissals')
+            .upsert(
+              { notification_id: notificationId, user_id: validUuid },
+              { onConflict: 'notification_id,user_id', ignoreDuplicates: true }
+            );
+        } catch (dErr: any) {
+          if (dErr?.code !== '23505' && dErr?.code !== '23503') {
+            console.warn('notification_dismissals upsert note:', dErr?.message || dErr);
+          }
         }
       }
 
@@ -4751,16 +4868,19 @@ export const portalStore = {
       // 2. Immediately clear local notifications state so UI reacts with zero delay and badge count resets
       setTableData('notifications', []);
 
-      if (!targetUid) return;
+      if (!targetUid || targetUid === 'usr-default') return;
 
       // 3. Persist local dismissals immediately so client-generated notifications remain cleared across refresh/logins
       if (visibleIds.length > 0) {
         saveLocalDismissedNotificationIds(targetUid, visibleIds);
       }
 
+      const validUuid = toUuidOrNull(targetUid);
+      if (!validUuid) return;
+
       // 4. Fetch notifications from DB to collect real DB notification IDs
       let query = supabase.from('notifications').select('id');
-      query = query.or(`target_user_id.eq.${targetUid},target_user_id.eq.all`);
+      query = query.or(`target_user_id.eq.${validUuid},target_user_id.eq.all`);
       const { data: dbNotifs, error: lookupErr } = await query;
       if (lookupErr) {
         console.warn('Supabase notifications lookup note:', lookupErr.message);
@@ -4776,14 +4896,13 @@ export const portalStore = {
       const { data: existingDismissals } = await supabase
         .from('notification_dismissals')
         .select('notification_id')
-        .eq('user_id', targetUid);
+        .eq('user_id', validUuid);
 
       const alreadyDismissed = new Set(
         (existingDismissals || []).map((d: any) => d.notification_id).filter(Boolean)
       );
 
       // 6. Filter only un-dismissed IDs that exist in DB notifications table
-      // (notification_dismissals has foreign key constraint to notifications.id)
       const validDbIds = new Set((dbNotifs || []).map((n: any) => n.id));
       const idsToDismiss = allTargetNotifIds.filter(
         (id) => validDbIds.has(id) && !alreadyDismissed.has(id)
@@ -4792,7 +4911,7 @@ export const portalStore = {
       if (idsToDismiss.length > 0) {
         const dismissals = idsToDismiss.map((nid) => ({
           notification_id: nid,
-          user_id: targetUid,
+          user_id: validUuid,
         }));
 
         try {
@@ -4890,21 +5009,210 @@ export const portalStore = {
   // -----------------------------------------------------------------------
   // Auth & Session
   // -----------------------------------------------------------------------
+  syncAuthenticatedUserProfile: async (sbUser: any): Promise<StaffUser> => {
+    const cleanEmail = (sbUser?.email || '').trim().toLowerCase();
+    const uid = sbUser?.id || '';
+
+    const staffList = storeState.staff.length > 0 ? storeState.staff : await portalStore.getStaff();
+    if (storeState.staff.length === 0 && staffList.length > 0) {
+      setTableData('staff', staffList);
+    }
+
+    let matched = staffList.find(
+      (s) => (uid && s.id === uid) || (cleanEmail && s.email?.toLowerCase() === cleanEmail)
+    );
+
+    if (uid || cleanEmail) {
+      try {
+        let query = supabase.from('profiles').select('*');
+        if (toUuidOrNull(uid) && cleanEmail) {
+          query = query.or(`id.eq.${uid},email.ilike.${cleanEmail}`);
+        } else if (toUuidOrNull(uid)) {
+          query = query.eq('id', uid);
+        } else {
+          query = query.ilike('email', cleanEmail);
+        }
+        const { data: dbProfile } = await query.maybeSingle();
+        if (dbProfile) {
+          const fullMapped = mapStaffRow(dbProfile);
+          matched = matched ? { ...matched, ...fullMapped } : fullMapped;
+        }
+      } catch {}
+    }
+
+    if (matched) {
+      const mergedMeta: Record<string, any> = {
+        ...(sbUser?.app_metadata || {}),
+        ...(matched.app_metadata || {}),
+      };
+      if (matched.app_metadata?.must_change_password === false || matched.app_metadata?.password_changed_at) {
+        mergedMeta.must_change_password = false;
+      }
+
+      return {
+        ...matched,
+        status: matched.outOfOffice ? 'Out of Office' : 'Online',
+        mustChangePassword: Boolean(
+          mergedMeta.must_change_password === true && !mergedMeta.password_changed_at
+        ),
+        app_metadata: mergedMeta,
+      };
+    }
+
+    // Fallback for authenticated Supabase user without an existing row in public.profiles
+    // Never invoke admin-create-user or set mustChangePassword: true here!
+    const detectedDept =
+      (sbUser?.app_metadata?.department as string) ||
+      (sbUser?.user_metadata?.department as string) ||
+      (cleanEmail.includes('marketing')
+        ? 'Marketing'
+        : cleanEmail.includes('admin')
+        ? 'Top management'
+        : cleanEmail.includes('it')
+        ? 'IT'
+        : cleanEmail.includes('finance')
+        ? 'Finance'
+        : 'General');
+
+    const rawName =
+      (sbUser?.user_metadata?.name as string) ||
+      (sbUser?.user_metadata?.full_name as string) ||
+      cleanEmail.split('@')[0] ||
+      'Portal User';
+
+    const fallbackUser: StaffUser = {
+      id: uid || `usr-${Date.now()}`,
+      name: rawName,
+      email: cleanEmail,
+      role: (sbUser?.app_metadata?.role as string) || (cleanEmail.includes('admin') ? 'Admin' : 'Staff Member'),
+      organisation: (sbUser?.app_metadata?.organisation as string) || 'WIPAHS',
+      department: normalizeDepartmentName(detectedDept),
+      status: 'Online',
+      avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
+      phone: '+255 778 123 456',
+      activityScore: 85,
+      tasksCount: 0,
+      lastActive: 'Just now',
+      mustChangePassword: false,
+      app_metadata: sbUser?.app_metadata || {},
+    };
+
+    const nextStaff = [
+      fallbackUser,
+      ...storeState.staff.filter(
+        (s) => s.id !== fallbackUser.id && (!cleanEmail || s.email?.toLowerCase() !== cleanEmail)
+      ),
+    ];
+    setTableData('staff', nextStaff);
+    return fallbackUser;
+  },
+
+  shouldForcePasswordChange: (
+    sbUser: any,
+    resolvedProfile?: Partial<StaffUser> | null,
+    options?: {
+      isRecoveryEvent?: boolean;
+      enteredPassword?: string;
+      isSessionRestore?: boolean;
+    }
+  ): boolean => {
+    const uid = resolvedProfile?.id || sbUser?.id || '';
+    const email = resolvedProfile?.email || sbUser?.email || '';
+
+    if (options?.isRecoveryEvent) {
+      setPendingPasswordChangeFlag(uid, true);
+      return true;
+    }
+
+    if (hasCompletedPasswordChange(uid, email)) {
+      setPendingPasswordChangeFlag(uid, false);
+      return false;
+    }
+
+    // Authoritative DB profile check: if public.profiles.app_metadata already cleared must_change_password
+    if (
+      resolvedProfile?.app_metadata?.must_change_password === false ||
+      Boolean(resolvedProfile?.app_metadata?.password_changed_at)
+    ) {
+      markPasswordChangeCompleted({ id: uid, email });
+      return false;
+    }
+
+    // Supabase Auth user_metadata check
+    if (
+      sbUser?.user_metadata?.must_change_password === false ||
+      Boolean(sbUser?.user_metadata?.password_changed_at)
+    ) {
+      markPasswordChangeCompleted({ id: uid, email });
+      return false;
+    }
+
+    // If user just signed in with a permanent password different from temporary_password, they already changed it
+    if (
+      options?.enteredPassword &&
+      resolvedProfile?.temporaryPassword &&
+      options.enteredPassword !== resolvedProfile.temporaryPassword
+    ) {
+      markPasswordChangeCompleted({ id: uid, email });
+      return false;
+    }
+
+    // During page reload / session restore, never lock out an already-authenticated user unless a password change was actively pending
+    if (options?.isSessionRestore) {
+      return hasPendingPasswordChangeFlag(uid);
+    }
+
+    const requiresChange = Boolean(
+      sbUser?.app_metadata?.must_change_password === true &&
+      !sbUser?.app_metadata?.password_changed_at
+    );
+    setPendingPasswordChangeFlag(uid, requiresChange);
+    return requiresChange;
+  },
+
   loginUser: (user: StaffUser, mustChangePassword: boolean, sessionToken?: string): void => {
-    setTableData('currentUser', user);
+    const alreadyVerified = hasCompletedPasswordChange(user.id, user.email);
+    const dbVerified =
+      user.app_metadata?.must_change_password === false ||
+      Boolean(user.app_metadata?.password_changed_at);
+    const effectiveMustChange = Boolean(mustChangePassword && !alreadyVerified && !dbVerified);
+
+    setPendingPasswordChangeFlag(user.id, effectiveMustChange);
+
+    const authenticatedUser: StaffUser = {
+      ...user,
+      mustChangePassword: effectiveMustChange,
+      app_metadata: {
+        ...(user.app_metadata || {}),
+        must_change_password: effectiveMustChange,
+      },
+    };
+
+    setTableData('currentUser', authenticatedUser);
+    saveCurrentUserProfileToLocalStorage(authenticatedUser);
     setTableData('authSession', {
       isAuthenticated: true,
-      userId: user.id,
-      mustChangePassword,
+      userId: authenticatedUser.id,
+      mustChangePassword: effectiveMustChange,
       sessionToken,
     });
-    // Refresh tasks with the newly authenticated user context
+
+    initRealtimeSubscription();
+
+    // Refresh tasks and notifications with the newly authenticated user context
     portalStore.getTasks().then((freshTasks) => {
       setTableData('tasks', freshTasks);
     }).catch(console.warn);
+    portalStore.getNotifications(authenticatedUser.id).catch(() => {});
   },
 
   logoutUser: async (): Promise<void> => {
+    const prevId = storeState.currentUser?.id;
+    stopRealtimeEngine();
+    setPendingPasswordChangeFlag(prevId, false);
+    try {
+      localStorage.removeItem('wipahs_current_user_profile');
+    } catch {}
     setTableData('currentUser', {
       id: 'usr-default',
       name: 'Staff Member',
@@ -4918,6 +5226,7 @@ export const portalStore = {
       activityScore: 85,
       tasksCount: 0,
       lastActive: 'Just now',
+      mustChangePassword: false,
     });
     setTableData('authSession', {
       isAuthenticated: false,
@@ -4970,16 +5279,35 @@ export const portalStore = {
     }
   },
 
-  completeForcedPasswordChange: async (newPassword: string): Promise<void> => {
-    setTableData('currentUser', {
-      ...storeState.currentUser,
+  completeForcedPasswordChange: async (_newPassword: string): Promise<void> => {
+    const curr = storeState.currentUser;
+    markPasswordChangeCompleted(curr);
+
+    const updatedUser: StaffUser = {
+      ...curr,
       mustChangePassword: false,
       temporaryPassword: undefined,
-    });
+      app_metadata: {
+        ...(curr.app_metadata || {}),
+        must_change_password: false,
+        password_changed_at: new Date().toISOString(),
+      },
+    };
+
+    setTableData('currentUser', updatedUser);
+    saveCurrentUserProfileToLocalStorage(updatedUser);
     setTableData('authSession', {
       ...storeState.authSession,
       mustChangePassword: false,
     });
+
+    const updatedStaff = storeState.staff.map((s) =>
+      s.id === updatedUser.id || (s.email && updatedUser.email && s.email.toLowerCase() === updatedUser.email.toLowerCase())
+        ? { ...s, mustChangePassword: false, temporaryPassword: undefined, app_metadata: updatedUser.app_metadata }
+        : s
+    );
+    setTableData('staff', updatedStaff);
+    saveStaffToLocalStorage(updatedStaff);
   },
 
   changeCurrentUserPassword: (currentPassword: string, newPassword: string): { success: boolean; message: string } => {
