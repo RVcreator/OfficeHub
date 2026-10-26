@@ -11,7 +11,17 @@ export async function handler(req: Request): Promise<Response> {
   // This function is reserved for the scheduler/service role and has no CORS.
   const callerAuthorization=req.headers.get('authorization') || '';
   if(!callerAuthorization.startsWith('Bearer ')) return json({error:'Unauthorized'},401);
-  try {
+  let schedulerAuthorized=false;
+  const schedulerKey=env('OFFICEHUB_EMAIL_WORKER_SECRET');
+  const callerSchedulerKey=req.headers.get('x-officehub-worker-key') || '';
+  if(schedulerKey && callerSchedulerKey) {
+    const expected=new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(schedulerKey)));
+    const received=new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(callerSchedulerKey)));
+    let difference=0;
+    for(let i=0;i<expected.length;i++) difference |= expected[i]^received[i];
+    schedulerAuthorized=difference===0;
+  }
+  if(!schedulerAuthorized) try {
     // PostgREST validates the JWT. This RPC is executable only by service_role;
     // never decode and trust an unverified role claim in the function itself.
     const authorization=await fetch(url+'/rest/v1/rpc/officehub_email_authorize',{

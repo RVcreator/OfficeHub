@@ -8,7 +8,8 @@ Keep the existing scoped Exchange Application Mail.Send authorization.
 
 Database triggers create durable jobs in the same transaction as the domain write.
 The browser never supplies an email destination to the worker or calls Graph.
-The worker accepts only the project's server service-role credential. Each request
+The worker accepts a validated service-role caller or a dedicated scheduler secret,
+in addition to the gateway's JWT verification. Each request
 processes one job, addressed to exactly one verified Supabase Auth account.
 
 Supported events:
@@ -54,7 +55,8 @@ as proof of delivery. Browser writes to that old audit table are revoked.
    statement timeout is 20 seconds. Existing profiles are only read and all test
    tasks, meetings, notices and approvals are rolled back. At least two verified
    internal accounts are needed for the assertions.
-2. Apply only `20261026000000_officehub_email_outbox.sql`. Both capture and delivery
+2. Apply `20261026000000_officehub_email_outbox.sql`, followed by
+   `20261026000001_validate_email_worker_service_role.sql`. Both capture and delivery
    default to false. Do not replay old migrations against production.
 3. Deploy `officehub-email-worker` with JWT verification enabled, together with
    `_shared/officehubEmailWorker.ts`. Do not alter Teams or SharePoint functions.
@@ -87,12 +89,19 @@ as proof of delivery. Browser writes to that old audit table are revoked.
 10. Test each additional event type in the same allowlist phase. Inspect actual
     recipient targeting and absence of duplicates before general rollout.
 11. Configure a scheduled server invocation every minute using Supabase Cron and
-    Vault. Keep the service-role key in Vault; never paste it into a migration,
+    Vault. Generate a dedicated worker secret; never paste it into a migration,
     repository, browser app or cron command in plaintext. The request is POST to
-    `/functions/v1/officehub-email-worker` with the service credential in the
-    Authorization header and `{ "dryRun": false }` as JSON. Validate pg_cron,
+    `/functions/v1/officehub-email-worker` with the public legacy anon JWT in the
+    Authorization header, the dedicated secret in
+    `x-officehub-worker-key`, and `{ "dryRun": false }` as JSON. Validate pg_cron,
     pg_net and Vault availability on the actual project before creating the job.
     One invocation processes one recipient: schedule/scale deliberately for volume.
+    `supabase/operations/schedule_email_worker_paused.sql` creates the schedule
+    inactive and refers to named Vault entries. Save the dedicated secret in both
+    Function secrets (`OFFICEHUB_EMAIL_WORKER_SECRET`) and Vault
+    (`officehub_email_worker_secret`). Store the public anon JWT separately as
+    `officehub_email_worker_anon_key`. Obtain approval before creating this persistent
+    credential. Do not reuse the manual test's service-role credential for scheduling.
 12. After acceptance and mailbox delivery tests pass, enable normal targeting by
     clearing the test allowlist. Empty means all eligible internal accounts.
 

@@ -76,6 +76,7 @@ test('HTTP worker rejects browser credentials and defaults to a read-only dry ru
   const values: Record<string,string> = {
     SUPABASE_SERVICE_ROLE_KEY:'server-test-key',SUPABASE_URL:'https://example.supabase.co',
     MS_TENANT_ID:'tenant',MS_CLIENT_ID:'client',MS_CLIENT_SECRET:'test-secret',
+    OFFICEHUB_EMAIL_WORKER_SECRET:'scheduler-test-secret',
   };
   (globalThis as any).Deno={env:{get:(k:string)=>values[k]},serve:()=>{}};
   const {handler}=await import('../supabase/functions/officehub-email-worker/index.ts');
@@ -92,5 +93,8 @@ test('HTTP worker rejects browser credentials and defaults to a read-only dry ru
   assert.deepEqual(await dry.json(),{configured:true,dryRun:true,sender:'officehub@wipahs.org'});
   assert.equal((await handler(new Request('https://example/worker',{method:'POST',headers,body:'{"recipient":"someone@example.com"}'}))).status,400);
   assert.equal((await handler(new Request('https://example/worker',{headers}))).status,405);
+  const schedulerHeaders={authorization:'Bearer public-anon-test-jwt','x-officehub-worker-key':'scheduler-test-secret'};
+  assert.equal((await handler(new Request('https://example/worker',{method:'POST',headers:schedulerHeaders,body:'{}'}))).status,200);
+  assert.equal((await handler(new Request('https://example/worker',{method:'POST',headers:{...schedulerHeaders,'x-officehub-worker-key':'wrong-secret'},body:'{}'}))).status,401);
   } finally {globalThis.fetch=originalFetch;}
 });
