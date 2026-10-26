@@ -5,6 +5,12 @@ apart from trailing blank lines. It does not include the email PR changes.
 
 ## Findings and changes
 
+The environment example also pointed to a different Supabase project with a demo
+key. Copying it to an active environment would break authentication and data
+access. It now targets the actual OfficeHub project and defaults to the existing
+public anon key. Existing AI Studio environment values still need checking by
+the owner; editing this template does not overwrite saved runtime settings.
+
 `App.tsx` registered an async `onAuthStateChange` listener which awaited
 `actions.getStaff()` and could invoke profile writes and task refreshes. These
 Supabase requests can wait on the same auth lock held by the callback, freezing
