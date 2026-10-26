@@ -1,6 +1,9 @@
 import React, { useState, useEffect, Suspense, lazy } from 'react';
 import { usePortalStore } from './services/store';
 import { supabase } from './services/supabaseClient';
+import type { AuthChangeEvent, Session } from '@supabase/supabase-js';
+import { createDeferredAuthHandler } from './services/deferredAuth';
+import { AppErrorBoundary } from './components/AppErrorBoundary';
 import { Header } from './components/Header';
 import { Sidebar, TabId } from './components/Sidebar';
 import { DashboardView } from './components/DashboardView';
@@ -46,51 +49,32 @@ export default function App() {
   const [selectedApprovalId, setSelectedApprovalId] = useState<string | null>(null);
   const [authChecking, setAuthChecking] = useState(true);
 
-  // Sync Supabase Auth session & handle password recovery redirects
+  // Release Supabase's auth lock before resolving profiles or refreshing data.
   useEffect(() => {
-    let isMounted = true;
-
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
+    const deferred = createDeferredAuthHandler<AuthChangeEvent, Session | null>(async (event, session, isCurrent) => {
       try {
-        if (!isMounted) return;
-        if (session?.user) {
-          const resolvedUser = await actions.syncAuthenticatedUserProfile(session.user);
-          if (!isMounted) return;
-          const mustChange = actions.shouldForcePasswordChange(session.user, resolvedUser, {
-            isSessionRestore: true,
-          });
-          actions.loginUser(resolvedUser, mustChange, session.access_token);
+        if (event === 'SIGNED_OUT') {
+          await actions.logoutUser(false);
+          return;
         }
+        if (!session?.user) return;
+        const resolvedUser = await actions.syncAuthenticatedUserProfile(session.user);
+        if (!isCurrent()) return;
+        const mustChange = actions.shouldForcePasswordChange(session.user, resolvedUser, {
+          isRecoveryEvent: event === 'PASSWORD_RECOVERY',
+          isSessionRestore: event !== 'PASSWORD_RECOVERY',
+        });
+        actions.loginUser(resolvedUser, mustChange, session.access_token);
       } finally {
-        if (isMounted) setAuthChecking(false);
+        if (isCurrent()) setAuthChecking(false);
       }
-    }).catch(() => {
-      if (isMounted) setAuthChecking(false);
+    }, () => {
+      setAuthChecking(false);
+      console.warn('OfficeHub could not restore the current session. Please sign in again.');
     });
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (!isMounted) return;
-      if (event === 'PASSWORD_RECOVERY' && session?.user) {
-        const resolvedUser = await actions.syncAuthenticatedUserProfile(session.user);
-        if (!isMounted) return;
-        const mustChange = actions.shouldForcePasswordChange(session.user, resolvedUser, {
-          isRecoveryEvent: true,
-        });
-        actions.loginUser(resolvedUser, mustChange, session.access_token);
-      } else if (event === 'SIGNED_IN' && session?.user && !actions.getAuthSession().isAuthenticated) {
-        const resolvedUser = await actions.syncAuthenticatedUserProfile(session.user);
-        if (!isMounted) return;
-        const mustChange = actions.shouldForcePasswordChange(session.user, resolvedUser, {
-          isSessionRestore: true,
-        });
-        actions.loginUser(resolvedUser, mustChange, session.access_token);
-      } else if (event === 'SIGNED_OUT') {
-        actions.logoutUser();
-      }
-    });
-
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(deferred.handle);
     return () => {
-      isMounted = false;
+      deferred.dispose();
       subscription.unsubscribe();
     };
   }, []);
@@ -232,7 +216,7 @@ export default function App() {
         />
 
         {/* Content View */}
-        <main className="flex-1 min-w-0 p-4 lg:p-6 overflow-y-auto"><Suspense fallback={<div className="p-6 text-slate-500">Loading view...</div>}>
+        <main className="flex-1 min-w-0 p-4 lg:p-6 overflow-y-auto"><AppErrorBoundary key={activeTab} onReturn={() => setActiveTab('dashboard')}><Suspense fallback={<div className="p-6 text-slate-500">Loading view...</div>}>
           {/* Active View Router */}
 
             {activeTab === 'dashboard' && (
@@ -411,7 +395,7 @@ export default function App() {
             {activeTab === 'messages' && (
               <MessagesView />
             )}
-          </Suspense>
+          </Suspense></AppErrorBoundary>
         </main>
       </div>
 

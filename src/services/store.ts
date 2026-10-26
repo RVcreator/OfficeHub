@@ -1716,9 +1716,10 @@ export const portalStore = {
   getDispatchedEmails: async (): Promise<DispatchedEmail[]> => {
     try {
       const { data, error } = await supabase
-        .from('dispatched_emails')
+        .from('officehub_email_outbox')
         .select('*')
-        .order('sent_at', { ascending: false });
+        .order('created_at', { ascending: false })
+        .limit(200);
 
       if (error) {
         console.error('Supabase getDispatchedEmails error:', error.message);
@@ -4732,52 +4733,8 @@ export const portalStore = {
         playNotificationSound();
       }
 
-      // Email dispatch
-      if (notifData.emailTriggered) {
-        const recipients =
-          notifData.emailRecipients && notifData.emailRecipients.length > 0
-            ? notifData.emailRecipients
-            : ['staff@wipahs.or.tz'];
-
-        const emailRows = recipients.map((recEmail, idx) => {
-          const matchedStaff = storeState.staff.find(
-            (s) => s.email?.toLowerCase() === recEmail.toLowerCase() || s.id === notifData.targetUserId
-          );
-          const recName = matchedStaff?.name || notifData.actorName || 'Staff Member';
-          return {
-            id: `email-${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 6)}`,
-            notification_id: id,
-            recipient_email: recEmail,
-            recipient_name: recName,
-            subject: notifData.emailSubject || newNotif.title,
-            body_html: `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px;">
-  <div style="background-color: #00ad1d; color: white; padding: 12px 16px; border-radius: 6px 6px 0 0; font-weight: bold; font-size: 16px;">
-    WIPAHS OfficeHub Internal Dispatch
-  </div>
-  <div style="padding: 16px; background-color: #ffffff;">
-    <h2 style="font-size: 18px; color: #1e293b; margin-top: 0;">${newNotif.title}</h2>
-    <p style="font-size: 14px; color: #334155; line-height: 1.6;">${newNotif.message}</p>
-    <div style="margin: 16px 0; padding: 12px; background-color: #f8fafc; border-left: 4px solid #00ad1d; font-size: 13px; color: #475569;">
-      <strong>Details:</strong> Type: ${newNotif.type} | Priority: ${newNotif.priority || 'Normal'}
-    </div>
-    <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 20px 0;" />
-    <p style="font-size: 11px; color: #64748b; margin-bottom: 0;">This is an automated notification from WIPAHS OfficeHub. Please do not reply directly to this email.</p>
-  </div>
-</div>`,
-            body_text: newNotif.message,
-            sent_at: new Date().toISOString(),
-            status: 'Sent',
-          };
-        });
-
-        const { data: emailData } = await supabase.from('dispatched_emails').insert(emailRows).select('*');
-        const insertedEmails =
-          emailData && emailData.length > 0
-            ? emailData.map(mapDispatchedEmailRow)
-            : emailRows.map(mapDispatchedEmailRow);
-
-        setTableData('dispatchedEmails', [...insertedEmails, ...storeState.dispatchedEmails]);
-      }
+      // Email jobs are created by database domain triggers after committed changes.
+      // Notification rendering and client-provided recipient arrays never send email.
 
       return insertedNotif;
     } catch (err: any) {
@@ -5206,7 +5163,7 @@ export const portalStore = {
     portalStore.getNotifications(authenticatedUser.id).catch(() => {});
   },
 
-  logoutUser: async (): Promise<void> => {
+  logoutUser: async (signOut = true): Promise<void> => {
     const prevId = storeState.currentUser?.id;
     stopRealtimeEngine();
     setPendingPasswordChangeFlag(prevId, false);
@@ -5233,7 +5190,7 @@ export const portalStore = {
       userId: null,
       mustChangePassword: false,
     });
-    await signOutSupabase();
+    if (signOut) await signOutSupabase();
   },
 
   resetUserPassword: async (id: string, customPass?: string): Promise<{ success: boolean; message: string }> => {
@@ -5453,3 +5410,4 @@ if (typeof window !== 'undefined') {
     portalStore.syncLivePresence();
   });
 }
+
