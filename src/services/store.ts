@@ -4861,7 +4861,7 @@ export const portalStore = {
     }).catch(console.warn);
   },
 
-  logoutUser: async (): Promise<void> => {
+  logoutUser: async (signOut = true): Promise<void> => {
     setTableData('currentUser', {
       id: 'usr-default',
       name: 'Staff Member',
@@ -4881,7 +4881,7 @@ export const portalStore = {
       userId: null,
       mustChangePassword: false,
     });
-    await signOutSupabase();
+    if (signOut) await signOutSupabase();
   },
 
   resetUserPassword: async (id: string, customPass?: string): Promise<{ success: boolean; message: string }> => {

@@ -1,6 +1,9 @@
 import React, { useState, useEffect, Suspense, lazy } from 'react';
 import { usePortalStore } from './services/store';
 import { supabase } from './services/supabaseClient';
+import type { AuthChangeEvent, Session } from '@supabase/supabase-js';
+import { createDeferredAuthHandler } from './services/deferredAuth';
+import { AppErrorBoundary } from './components/AppErrorBoundary';
 import { Header } from './components/Header';
 import { Sidebar, TabId } from './components/Sidebar';
 import { DashboardView } from './components/DashboardView';
@@ -45,96 +48,41 @@ export default function App() {
   const [selectedMeetingId, setSelectedMeetingId] = useState<string | null>(null);
   const [selectedApprovalId, setSelectedApprovalId] = useState<string | null>(null);
 
-  // Sync Supabase Auth session & handle password recovery redirects
+  // Supabase auth callbacks run under an exclusive lock. Defer database work.
   useEffect(() => {
-    actions.syncStaffFromSupabase();
-    actions.getSharePointDocs();
-    actions.getFolderList();
-
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
-      if (session?.user && !authSession.isAuthenticated) {
-        const email = session.user.email?.toLowerCase();
-        const staffList = staff.length > 0 ? staff : await actions.getStaff();
-        let matched = staffList.find(s => s.email.toLowerCase() === email);
-        const mustChange = Boolean(session.user.app_metadata?.must_change_password);
-
-        if (matched) {
-          actions.loginUser(matched, mustChange, session.access_token);
-        } else if (email) {
-          const detectedDept = (session.user.app_metadata?.department as string) ||
-            (session.user.user_metadata?.department as string) ||
-            (email.includes('marketing') ? 'Marketing' :
-             email.includes('it') ? 'IT' :
-             email.includes('finance') ? 'Finance' : 'General');
-
-          const newStaff: StaffUser = {
-            id: session.user.id || `usr-${Date.now()}`,
-            name: (session.user.user_metadata?.name as string) || email.split('@')[0],
-            email,
-            role: (session.user.app_metadata?.role as string) || 'Staff Member',
-            organisation: (session.user.app_metadata?.organisation as string) || 'WIPAHS',
-            department: detectedDept,
-            status: 'Online',
-            avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
-            phone: '+255 778 123 456',
-            activityScore: 85,
-            tasksCount: 0,
-            lastActive: 'Just now',
-            mustChangePassword: mustChange,
-            app_metadata: session.user.app_metadata
-          };
-          actions.addStaffMember(newStaff);
-          actions.loginUser(newStaff, mustChange, session.access_token);
-        }
+    const deferred = createDeferredAuthHandler<AuthChangeEvent, Session | null>(async (event, session, isCurrent) => {
+      if (event === 'SIGNED_OUT') {
+        await actions.logoutUser(false);
+        return;
       }
-    });
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (event === 'PASSWORD_RECOVERY' || (event === 'SIGNED_IN' && session?.user)) {
-        if (session?.user) {
-          const email = session.user.email?.toLowerCase();
-          const staffList = staff.length > 0 ? staff : await actions.getStaff();
-          let matched = staffList.find(s => s.email.toLowerCase() === email);
-          const mustChange = event === 'PASSWORD_RECOVERY' ? true : Boolean(session.user.app_metadata?.must_change_password);
-
-          if (!matched && email) {
-            const detectedDept = (session.user.app_metadata?.department as string) ||
-              (session.user.user_metadata?.department as string) ||
-              (email.includes('marketing') ? 'Marketing' :
-               email.includes('it') ? 'IT' :
-               email.includes('finance') ? 'Finance' : 'General');
-
-            matched = {
-              id: session.user.id || `usr-${Date.now()}`,
-              name: (session.user.user_metadata?.name as string) || email.split('@')[0],
-              email,
-              role: (session.user.app_metadata?.role as string) || 'Staff Member',
-              organisation: (session.user.app_metadata?.organisation as string) || 'WIPAHS',
-              department: detectedDept,
-              status: 'Online',
-              avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
-              phone: '+255 778 123 456',
-              activityScore: 85,
-              tasksCount: 0,
-              lastActive: 'Just now',
-              mustChangePassword: mustChange,
-              app_metadata: session.user.app_metadata
-            };
-            actions.addStaffMember(matched);
-          }
-
-          if (matched) {
-            actions.loginUser(matched, mustChange, session.access_token);
-          }
-        }
-      } else if (event === 'SIGNED_OUT') {
-        if (authSession.isAuthenticated) {
-          actions.logoutUser();
-        }
+      if (!session?.user) return;
+      const email = session.user.email?.toLowerCase();
+      if (!email) return;
+      const staffList = await actions.getStaff();
+      if (!isCurrent()) return;
+      const mustChange = event === 'PASSWORD_RECOVERY' || Boolean(session.user.app_metadata?.must_change_password);
+      let matched = staffList.find(s => s.id === session.user.id || s.email.toLowerCase() === email);
+      if (!matched) {
+        matched = {
+          id: session.user.id,
+          name: session.user.user_metadata?.name || email.split('@')[0],
+          email,
+          role: session.user.app_metadata?.role || 'Staff Member',
+          organisation: session.user.app_metadata?.organisation || 'WIPAHS',
+          department: session.user.app_metadata?.department || 'General',
+          status: 'Online',
+          avatar: '', phone: '', activityScore: 0, tasksCount: 0,
+          lastActive: 'Just now', mustChangePassword: mustChange,
+          app_metadata: session.user.app_metadata,
+        };
       }
-    });
-
+      // Restoring a session must not create/overwrite a database profile.
+      if (isCurrent()) actions.loginUser({ ...matched, app_metadata: session.user.app_metadata, mustChangePassword: mustChange }, mustChange, session.access_token);
+    }, () => console.warn('OfficeHub could not restore the current session. Please sign in again.'));
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(deferred.handle);
+    // INITIAL_SESSION from Supabase also restores an existing browser session.
     return () => {
+      deferred.dispose();
       subscription.unsubscribe();
     };
   }, []);
@@ -281,7 +229,7 @@ export default function App() {
         />
 
         {/* Content View */}
-        <main className="flex-1 min-w-0 p-4 lg:p-6 overflow-y-auto"><Suspense fallback={<div className="p-6 text-slate-500">Loading view...</div>}>
+        <main className="flex-1 min-w-0 p-4 lg:p-6 overflow-y-auto"><AppErrorBoundary key={activeTab} onReturn={() => setActiveTab('dashboard')}><Suspense fallback={<div className="p-6 text-slate-500">Loading view...</div>}>
           {/* Active View Router */}
 
             {activeTab === 'dashboard' && (
@@ -460,7 +408,7 @@ export default function App() {
             {activeTab === 'messages' && (
               <MessagesView />
             )}
-          </Suspense>
+          </Suspense></AppErrorBoundary>
         </main>
       </div>
 
