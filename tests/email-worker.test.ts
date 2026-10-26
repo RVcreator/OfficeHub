@@ -79,6 +79,12 @@ test('HTTP worker rejects browser credentials and defaults to a read-only dry ru
   };
   (globalThis as any).Deno={env:{get:(k:string)=>values[k]},serve:()=>{}};
   const {handler}=await import('../supabase/functions/officehub-email-worker/index.ts');
+  const originalFetch=globalThis.fetch;
+  globalThis.fetch=async(_url,options)=>{
+    const bearer=new Headers(options?.headers).get('authorization');
+    return bearer==='Bearer server-test-key' ? Response.json(true) : Response.json({error:'permission denied'},{status:403});
+  };
+  try {
   assert.equal((await handler(new Request('https://example/worker',{method:'POST'}))).status,401);
   assert.equal((await handler(new Request('https://example/worker',{method:'POST',headers:{authorization:'Bearer user-jwt'}}))).status,401);
   const headers={authorization:'Bearer server-test-key','content-type':'application/json'};
@@ -86,4 +92,5 @@ test('HTTP worker rejects browser credentials and defaults to a read-only dry ru
   assert.deepEqual(await dry.json(),{configured:true,dryRun:true,sender:'officehub@wipahs.org'});
   assert.equal((await handler(new Request('https://example/worker',{method:'POST',headers,body:'{"recipient":"someone@example.com"}'}))).status,400);
   assert.equal((await handler(new Request('https://example/worker',{headers}))).status,405);
+  } finally {globalThis.fetch=originalFetch;}
 });

@@ -5,15 +5,21 @@ const json = (body: unknown,status=200) => Response.json(body,{status});
 
 export async function handler(req: Request): Promise<Response> {
   const service = env('SUPABASE_SERVICE_ROLE_KEY');
-  if (!service) return json({error:'Worker is not configured'},503);
+  const url=env('SUPABASE_URL');
+  if (!service || !url) return json({error:'Worker is not configured'},503);
   // Gateway JWT validation alone would also accept regular user sessions.
   // This function is reserved for the scheduler/service role and has no CORS.
-  const expected = await crypto.subtle.digest('SHA-256',new TextEncoder().encode('Bearer '+service));
-  const received = await crypto.subtle.digest('SHA-256',new TextEncoder().encode(req.headers.get('authorization') || ''));
-  let difference=0;
-  const a=new Uint8Array(expected), b=new Uint8Array(received);
-  for(let i=0;i<a.length;i++) difference |= a[i]^b[i];
-  if (difference) return json({error:'Unauthorized'},401);
+  const callerAuthorization=req.headers.get('authorization') || '';
+  if(!callerAuthorization.startsWith('Bearer ')) return json({error:'Unauthorized'},401);
+  try {
+    // PostgREST validates the JWT. This RPC is executable only by service_role;
+    // never decode and trust an unverified role claim in the function itself.
+    const authorization=await fetch(url+'/rest/v1/rpc/officehub_email_authorize',{
+      method:'POST',headers:{apikey:service,authorization:callerAuthorization,'content-type':'application/json'},
+      body:'{}',signal:AbortSignal.timeout(10000),
+    });
+    if(!authorization.ok || await authorization.json()!==true) return json({error:'Unauthorized'},401);
+  } catch { return json({error:'Worker authorization unavailable'},503); }
   if(req.method!=='POST') return json({error:'Method not allowed'},405);
   const raw=await req.text();
   if(raw.length>1024) return json({error:'Request too large'},413);
@@ -23,7 +29,6 @@ export async function handler(req: Request): Promise<Response> {
   if(!input || typeof input!=='object' || Array.isArray(input)
     || Object.keys(input).some(k=>k!=='dryRun')
     || (input.dryRun!==undefined && typeof input.dryRun!=='boolean')) return json({error:'Invalid request'},400);
-  const url=env('SUPABASE_URL');
   const tenant=env('MS_TENANT_ID'), client=env('MS_CLIENT_ID'), secret=env('MS_CLIENT_SECRET');
   if(!url || !tenant || !client || !secret) return json({error:'Worker is not configured'},503);
   // A test invocation is read-only unless dryRun:false is explicitly provided.
