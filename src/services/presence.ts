@@ -1,4 +1,5 @@
 import type { StaffUser, UserPresenceStatus } from '../types';
+export const presenceNow = () => typeof performance !== 'undefined' ? performance.now() : Date.now();
 export const PRESENCE_PULSE_MS = 30_000;
 export const PRESENCE_IDLE_MS = 5 * 60_000;
 export const PRESENCE_TTL_MS = 120_000;
