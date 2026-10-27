@@ -82,6 +82,7 @@ import { sendTeamsWebhookNotification, generateTeamsMeetingPayload } from './tea
 import { playNotificationSound } from '../utils/sound';
 import { NotificationChimeTracker, visibleNotifications, persistNotification, reconcileNotificationSnapshot } from './notificationDelivery';
 import { isPersonalTask } from '../utils/taskUtils';
+import { taskCreatedAlert } from './taskCreatedAlert';
 import { convertTo24HourTime, convertTo12HourTime } from '../utils/meetingConflict';
 import {
   startRealtimeEngine,
@@ -1950,6 +1951,7 @@ export const portalStore = {
         console.warn('Failed to dispatch task notification/email:', notifErr);
       }
 
+      await portalStore.addNotification(taskCreatedAlert(newTask, storeState.currentUser));
       return newTask;
     } catch (err: any) {
       console.error('addTask error:', err);
@@ -3739,96 +3741,21 @@ export const portalStore = {
     docData: Omit<SharePointDocument, 'id' | 'modifiedAt' | 'modifiedBy' | 'syncedWithSharePoint' | 'isLockedForEditing' | 'activeCollaborators'> & { fileData?: string }
   ): Promise<SharePointDocument | null> => {
     try {
-      const docId = `sp-doc-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
-      const nowIso = new Date().toISOString();
-      const siteUrl = 'https://wipahstz.sharepoint.com/sites/OfficeHub';
-      const folderName = docData.folder || 'General';
-      const docName = docData.name || 'Document';
-      const webUrl = `${siteUrl}/Shared Documents/${encodeURIComponent(folderName.trim())}/${encodeURIComponent(docName.trim())}`;
-
-      let synced = false;
-      let finalWebUrl = webUrl;
-      let driveItemId = null;
-
-      try {
-        const token = storeState.authSession.sessionToken || (await supabase.auth.getSession()).data.session?.access_token;
-        const { data: fnData, error: fnError } = await supabase.functions.invoke('sharepoint-upload', {
-          headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-          body: {
-            name: docName,
-            folder: folderName,
-            fileData: docData.fileData,
-            fileType: docData.fileType,
-            visibility: docData.visibility,
-            targetDepartment: docData.targetDepartment,
-            allowedUserIds: docData.allowedUserIds,
-            editableUserIds: docData.editableUserIds,
-            contentSummary: docData.contentSummary,
-            projectId: (docData as any).projectId,
-          },
-        });
-
-        if (!fnError && fnData?.success && fnData?.document) {
-          const rawDoc = fnData.document;
-          finalWebUrl = rawDoc.sharePointWebUrl || rawDoc.webUrl || rawDoc.web_url || webUrl;
-          driveItemId = rawDoc.graph_drive_item_id || rawDoc.drive_item_id || null;
-          synced = true;
-        }
-      } catch (ex) {
-        console.warn('SharePoint edge upload fallback note (saving locally & to DB directly):', ex);
+      const { data, error } = await supabase.functions.invoke('sharepoint-upload', { body: {
+        name: docData.name, folder: docData.folder, fileData: docData.fileData,
+        fileType: docData.fileType, visibility: docData.visibility,
+        targetDepartment: docData.targetDepartment, allowedUserIds: docData.allowedUserIds,
+        editableUserIds: docData.editableUserIds, contentSummary: docData.contentSummary,
+        projectId: docData.projectId } });
+      if (error || !data?.success || !data.document) {
+        throw new Error(data?.error || 'Upload or Microsoft sharing could not be confirmed. No local copy was created.');
       }
-
-      const newDoc: SharePointDocument = {
-        id: docId,
-        name: docName.trim(),
-        folder: folderName.trim(),
-        fileType: docData.fileType || 'pdf',
-        size: (docData as any).size || '1.4 MB',
-        modifiedAt: nowIso,
-        modifiedBy: storeState.currentUser.name || 'Staff Member',
-        createdById: docData.createdById || storeState.currentUser.id,
-        version: 'v1.0',
-        sharePointWebUrl: finalWebUrl,
-        webUrl: finalWebUrl,
-        visibility: docData.visibility || 'Everyone',
-        targetDepartment: docData.targetDepartment,
-        allowedUserIds: docData.allowedUserIds || [],
-        editableUserIds: docData.editableUserIds || [],
-        syncedWithSharePoint: synced,
-        contentSummary: docData.contentSummary || 'Uploaded via OfficeHub.',
-        projectId: docData.projectId,
-        isLockedForEditing: false,
-        activeCollaborators: [],
-      };
-
-      // Directly insert/upsert into Supabase database table
-      try {
-        const row = mapSharePointDocToRow(newDoc);
-        if (driveItemId) row.graph_drive_item_id = driveItemId;
-        await supabase.from('sharepoint_documents').upsert(row);
-      } catch (dbErr) {
-        console.warn('Supabase direct document insert note:', dbErr);
-      }
-
-      // Ensure not in deletedDocs
-      const deletedDocs = getDeletedDocumentIds();
-      if (deletedDocs.has(newDoc.id)) {
-        deletedDocs.delete(newDoc.id);
-        saveDeletedDocumentIds(deletedDocs);
-      }
-
-      // Update folder list if new folder
-      if (newDoc.folder && !storeState.folderList.includes(newDoc.folder)) {
-        setTableData('folderList', [...storeState.folderList, newDoc.folder]);
-      }
-
-      // Update store state & localStorage
-      const currentDocs = storeState.sharePointDocs.filter((d) => d.id !== newDoc.id);
-      const updatedDocs: SharePointDocument[] = [newDoc, ...currentDocs];
+      const newDoc = data.document as SharePointDocument;
+      const updatedDocs = [newDoc, ...storeState.sharePointDocs.filter(d => d.id !== newDoc.id)];
       setTableData('sharePointDocs', updatedDocs);
       saveDocumentsToLocalStorage(updatedDocs);
-
-      portalStore.logAudit('sharepoint_doc_uploaded', `Uploaded document "${newDoc.name}" to SharePoint folder "${newDoc.folder}"`, 'blue');
+      if (!storeState.folderList.includes(newDoc.folder)) setTableData('folderList', [...storeState.folderList, newDoc.folder]);
+      portalStore.logAudit('sharepoint_doc_uploaded', `Uploaded document "${newDoc.name}"`, 'blue');
 
       return newDoc;
     } catch (err: any) {
@@ -3868,22 +3795,20 @@ export const portalStore = {
   },
 
   updateSharePointDocument: async (docId: string, updates: Partial<SharePointDocument>): Promise<void> => {
-    try {
-      // 1. Immediately update storeState and localStorage
-      const updatedDocs = storeState.sharePointDocs.map((d) => (d.id === docId ? { ...d, ...updates } : d));
-      setTableData('sharePointDocs', updatedDocs);
-      saveDocumentsToLocalStorage(updatedDocs);
-
-      // 2. Safely attempt Supabase update in background
-      try {
-        const rowUpdates = mapSharePointDocToRow(updates);
-        await supabase.from('sharepoint_documents').update(rowUpdates).eq('id', docId);
-      } catch (sbErr) {
-        console.warn('Supabase updateSharePointDocument note:', sbErr);
-      }
-    } catch (err: any) {
-      console.error('updateSharePointDocument error:', err);
+    const accessChange = ['visibility','targetDepartment','allowedUserIds','editableUserIds'].some(key => key in updates);
+    let saved: SharePointDocument;
+    if (accessChange) {
+      const { data, error } = await supabase.functions.invoke('sharepoint-share', { body: { documentId: docId, settings: updates } });
+      if (error || !data?.success || !data.document) throw new Error(data?.error || 'Microsoft access could not be confirmed.');
+      saved = mapSharePointDocRow(data.document);
+    } else {
+      const { data, error } = await supabase.from('sharepoint_documents').update(mapSharePointDocToRow(updates)).eq('id', docId).select('*').single();
+      if (error || !data) throw new Error('Document update could not be saved');
+      saved = mapSharePointDocRow(data);
     }
+    const updatedDocs = storeState.sharePointDocs.map(d => d.id === docId ? saved : d);
+    setTableData('sharePointDocs', updatedDocs);
+    saveDocumentsToLocalStorage(updatedDocs);
   },
 
   deleteSharePointDocument: async (docId: string): Promise<void> => {
