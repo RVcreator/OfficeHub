@@ -2,7 +2,7 @@
 // Invoked by an administrator to provision a new staff account.
 // Step 1: Call supabase.auth.admin.createUser({ email, password, email_confirm: true }) with minimal metadata.
 // Step 2: Set must_change_password: true in app_metadata via supabase.auth.admin.updateUserById().
-// Step 3: Explicit follow-up update on public.profiles with { must_change_password: true, temporary_password: password, ...fields }.
+// Step 3: Explicit follow-up update on public.profiles with { must_change_password: true, temporary_password: null, ...fields }.
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
@@ -110,6 +110,7 @@ serve(async (req: Request) => {
       email: email.trim().toLowerCase(),
       password,
       email_confirm: true,
+      app_metadata:{must_change_password:true,password_changed_at:null,password_reset_at:new Date().toISOString(),password_reset_id:crypto.randomUUID()},
       user_metadata: {
         name: name || email.split('@')[0],
         role: role || 'Staff Member',
@@ -161,7 +162,7 @@ serve(async (req: Request) => {
         phone: phone || '',
         status: 'Offline',
         must_change_password: true,
-        temporary_password: password,
+        temporary_password: null,
       })
       .eq('id', userId);
 
@@ -196,3 +197,4 @@ serve(async (req: Request) => {
     });
   }
 });
+
