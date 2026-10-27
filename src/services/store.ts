@@ -83,7 +83,7 @@ import { playNotificationSound } from '../utils/sound';
 import { NotificationChimeTracker, visibleNotifications, persistNotification, reconcileNotificationSnapshot } from './notificationDelivery';
 import { isPersonalTask } from '../utils/taskUtils';
 import { taskCreatedAlert } from './taskCreatedAlert';
-import { cachePresence, effectivePresence, startPresence, type PresenceRecord } from './presence';
+import { cachePresence, effectivePresence, startPresence, presenceNow, type PresenceRecord } from './presence';
 import { convertTo24HourTime, convertTo12HourTime } from '../utils/meetingConflict';
 import {
   startRealtimeEngine,
@@ -358,9 +358,9 @@ function startUserPresence(): void {
     },
   }, rows => {
     if (!storeState.authSession.isAuthenticated || identity !== storeState.authSession.userId) return;
-    if (rows) presenceCache = cachePresence(rows, Date.now());
+    if (rows) presenceCache = cachePresence(rows, presenceNow());
     applyPresence();
-  }, { window, document, online: () => navigator.onLine, now: Date.now, sessionId: crypto.randomUUID() });
+  }, { window, document, online: () => navigator.onLine, now: presenceNow, sessionId: crypto.randomUUID() });
 }
 
 export const DEFAULT_DEPARTMENTS: DepartmentInfo[] = [
@@ -443,7 +443,7 @@ export function setTableData<K extends TableKey>(key: K, data: StoreData[K], sou
   let ring = false;
   const withPresence = (user: StaffUser): StaffUser => {
     const row = presenceCache.get(user.id);
-    return { ...user, outOfOffice: row && row.officeUntil > Date.now() ? row.outOfOffice : user.outOfOffice, status: computeUserLivePresence(user) };
+    return { ...user, outOfOffice: row && row.officeUntil > presenceNow() ? row.outOfOffice : user.outOfOffice, status: computeUserLivePresence(user) };
   };
   if (key === 'staff') data = (data as StaffUser[]).map(withPresence) as StoreData[K];
   if (key === 'currentUser') {
@@ -629,7 +629,7 @@ export function normalizeDepartmentName(dept?: string | null): string {
 }
 
 export function computeUserLivePresence(user: StaffUser, _meetings: Meeting[] = []): UserPresenceStatus {
-  const status = effectivePresence(user, presenceCache, Date.now());
+  const status = effectivePresence(user, presenceCache, presenceNow());
   if (user.id === storeState.authSession.userId && typeof navigator !== 'undefined' && !navigator.onLine && status !== 'Out of Office') return 'Offline';
   return status;
 }
