@@ -28,6 +28,7 @@ import { SettingsModal, SettingsTabType } from './components/SettingsModal';
 import { LoginScreen } from './components/LoginScreen';
 import { ForcedPasswordChangeScreen } from './components/ForcedPasswordChangeScreen';
 import { Project, StaffUser, Task } from './types';
+import { isTaskAssignedByMe } from './utils/taskUtils';
 
 export default function App() {
   const { authSession, currentUser, tasks, staff, actions, loading, notificationError } = usePortalStore();
@@ -150,7 +151,7 @@ export default function App() {
     setSelectedMeetingId(null);
     setSelectedApprovalId(null);
     const task = tasks.find((t: Task) => t.id === id);
-    if (task && currentUser && task.createdById === currentUser.id) {
+    if (task && currentUser && isTaskAssignedByMe(task, currentUser.id)) {
       setActiveTab('tasks-assigned-by-me');
     } else {
       setActiveTab('tasks-my-work');
