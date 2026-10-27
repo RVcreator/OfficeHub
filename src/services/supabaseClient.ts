@@ -1,3 +1,4 @@
+import { passwordChangeRequired } from './passwordPolicy';
 import { createClient, Session, User } from '@supabase/supabase-js';
 
 // Configuration from environment (Vite import.meta.env or Node process.env) or verified WIPAHS portal project default
@@ -59,12 +60,7 @@ export async function signInWithSupabase(email: string, password: string): Promi
     }
 
     if (data && data.user) {
-      const mustChangePassword = Boolean(
-        data.user.app_metadata?.must_change_password === true &&
-        !data.user.app_metadata?.password_changed_at &&
-        !data.user.user_metadata?.password_changed_at &&
-        data.user.user_metadata?.must_change_password !== false
-      );
+      const mustChangePassword = passwordChangeRequired(data.user);
       return {
         data: {
           user: data.user,
@@ -100,94 +96,24 @@ export async function resetPasswordWithSupabase(email: string): Promise<AuthResp
   }
 }
 
-/**
- * Step 1 of Forced Password Change: supabase.auth.updateUser({ password: newPassword })
- */
+/** Change the password and clear its requirement through one verified server flow. */
 export async function updatePasswordWithSupabase(newPassword: string): Promise<AuthResponse<User>> {
   try {
-    const sessionRes = await supabase.auth.getSession();
-    const hasSession = Boolean(sessionRes?.data?.session);
-    const nowIso = new Date().toISOString();
-
-    if (hasSession) {
-      const { data, error } = await supabase.auth.updateUser({
-        password: newPassword,
-        data: {
-          must_change_password: false,
-          password_changed_at: nowIso,
-        },
-      });
-
-      if (error) {
-        const lowerMsg = (error.message || '').toLowerCase();
-        // If user entered the same permanent password they already set earlier, mark metadata cleared and succeed
-        if (lowerMsg.includes('different from the old password') || lowerMsg.includes('same_password')) {
-          try {
-            await supabase.auth.updateUser({
-              data: {
-                must_change_password: false,
-                password_changed_at: nowIso,
-              },
-            });
-          } catch {}
-          return { data: (sessionRes.data.session?.user || { id: `usr-${Date.now()}` }) as User, error: null };
-        }
-
-        // If error is session related (expired recovery token / demo session), fallback safely
-        if (
-          lowerMsg.includes('session') ||
-          lowerMsg.includes('auth') ||
-          lowerMsg.includes('jwt')
-        ) {
-          return { data: { id: sessionRes.data.session?.user?.id || `usr-${Date.now()}` } as User, error: null };
-        }
-        return { data: null, error: { message: error.message } };
-      }
-
-      return { data: data.user, error: null };
-    }
-
-    return { data: { id: `usr-${Date.now()}` } as User, error: null };
-  } catch {
-    return { data: { id: `usr-${Date.now()}` } as User, error: null };
-  }
-}
-
-/**
- * Step 2 of Forced Password Change: Call Supabase Edge Function 'clear-must-change-password'
- * Always fetches the freshest rotated session token after updateUser, and falls back cleanly
- * if the Edge Function is unavailable or returns 401 so the user is never locked out.
- */
-export async function invokeClearMustChangePasswordEdgeFunction(sessionToken?: string): Promise<AuthResponse<{ success: boolean; cleared: boolean }>> {
-  try {
-    const freshSession = (await supabase.auth.getSession()).data.session;
-    const token = freshSession?.access_token || sessionToken;
-
-    if (!token) {
-      return { data: { success: true, cleared: true }, error: null };
-    }
-
-    const { data, error } = await supabase.functions.invoke('clear-must-change-password', {
-      headers: { Authorization: `Bearer ${token}` },
-      body: { timestamp: new Date().toISOString() }
+    const {data:sessionData,error:sessionError} = await supabase.auth.getSession();
+    const session=sessionData.session;
+    if (sessionError || !session?.access_token) return {data:null,error:{message:'Your session expired. Please sign in again or request a new reset link.'}};
+    const {data,error}=await supabase.functions.invoke('officehub-complete-password',{
+      headers:{Authorization:`Bearer ${session.access_token}`},body:{newPassword},
     });
-
-    if (error || data?.error) {
-      // Fallback: ensure user_metadata records completion so session restores never re-prompt
-      try {
-        await supabase.auth.updateUser({
-          data: {
-            must_change_password: false,
-            password_changed_at: new Date().toISOString(),
-          },
-        });
-      } catch {}
-      return { data: { success: true, cleared: true }, error: null };
+    if(error || data?.error || data?.success!==true || data?.userId!==session.user.id
+      || data?.app_metadata?.must_change_password!==false || !data?.app_metadata?.password_changed_at) {
+      return {data:null,error:{message:data?.error || 'Password change could not be confirmed. Please try again.'}};
     }
-
-    return { data: data || { success: true, cleared: true }, error: null };
+    // Refresh the server-issued claims. Failure cannot fabricate a successful write.
+    await supabase.auth.refreshSession();
+    return {data:{...session.user,app_metadata:data.app_metadata},error:null};
   } catch {
-    return { data: { success: true, cleared: true }, error: null };
+    return {data:null,error:{message:'Password change could not be confirmed. Please check your connection and try again.'}};
   }
 }
 
@@ -208,22 +134,7 @@ export async function invokeCreateStaffUserEdgeFunction(userData: {
     const sessionRes = await supabase.auth.getSession();
     const session = sessionRes.data.session;
 
-    // If there is no active cloud session token (e.g., local preview or direct store action),
-    // handle locally without triggering a failed cloud edge function invocation
-    if (!session?.access_token) {
-      console.info('No active Supabase Auth cloud session; provisioning staff member in local and database store.');
-      return {
-        data: {
-          user: {
-            id: `usr-${Date.now()}`,
-            email: userData.email,
-            user_metadata: { name: userData.name },
-          },
-          temporaryPassword: userData.tempPassword,
-        },
-        error: null,
-      };
-    }
+    if (!session?.access_token) return {data:null,error:{message:'Please sign in again before creating an account.'}};
 
     const payload = {
       email: userData.email,
@@ -251,22 +162,6 @@ export async function invokeCreateStaffUserEdgeFunction(userData: {
       invokeError = e;
     }
 
-    // Secondary fallback: if admin-create-user failed or returned non-2xx, try 'create-staff-user'
-    if (invokeError || invokeData?.error) {
-      try {
-        const fallbackRes = await supabase.functions.invoke('create-staff-user', {
-          headers: { Authorization: `Bearer ${session.access_token}` },
-          body: payload,
-        });
-        if (!fallbackRes.error && fallbackRes.data && !fallbackRes.data.error) {
-          invokeData = fallbackRes.data;
-          invokeError = null;
-        }
-      } catch {
-        // Fallback also failed or unavailable
-      }
-    }
-
     if (invokeError) {
       let detailedMsg = invokeError.message || 'Edge function invocation error';
       try {
@@ -287,6 +182,7 @@ export async function invokeCreateStaffUserEdgeFunction(userData: {
       return { data: null, error: { message: invokeData.error } };
     }
 
+    if (invokeData?.success !== true || !invokeData?.user?.id) return {data:null,error:{message:'Account creation was not confirmed.'}};
     return { data: invokeData, error: null };
   } catch (err: any) {
     console.warn('Admin create user Edge Function note:', err?.message);
