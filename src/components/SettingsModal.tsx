@@ -113,12 +113,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   if (!isOpen) return null;
 
-  const handleSaveProfile = (e: React.FormEvent) => {
+  const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
     
     const formattedMsg = outOfOfficeMessage.trim() || (isOutOfOffice ? `On ${leaveType}${leaveEndDate ? ` until ${leaveEndDate}` : ''}` : '');
 
-    actions.updateCurrentUserProfile({
+    try {
+    await actions.updateCurrentUserProfile({
       name: profileData.name.trim(),
       email: profileData.email.trim(),
       role: profileData.role.trim(),
@@ -128,7 +129,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       avatar: profileData.avatar,
       birthday: profileData.birthday.trim() || undefined,
       outOfOffice: isOutOfOffice,
-      status: isOutOfOffice ? 'Out of Office' : (currentUser.status === 'Out of Office' ? 'Online' : currentUser.status),
+      status: isOutOfOffice ? 'Out of Office' : (currentUser.status === 'Out of Office' ? 'Offline' : currentUser.status),
       leaveType: isOutOfOffice ? leaveType : undefined,
       leaveStartDate: isOutOfOffice ? leaveStartDate : undefined,
       leaveEndDate: isOutOfOffice ? leaveEndDate : undefined,
@@ -146,6 +147,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
     setProfileSaved(true);
     setTimeout(() => setProfileSaved(false), 2500);
+    } catch (error) {
+      setProfileSaved(false);
+      window.alert(error instanceof Error ? error.message : 'Profile could not be saved. Please try again.');
+    }
   };
 
   const handleSaveIntegrations = (e: React.FormEvent) => {
