@@ -542,7 +542,7 @@ export function mapSharePointDocRow(row: any): SharePointDocument {
     editableUserIds: row.editable_user_ids || [],
     isLockedForEditing: false,
     activeCollaborators: [],
-    syncedWithSharePoint: Boolean(row.synced_with_sharepoint ?? true),
+    syncedWithSharePoint: Boolean(row.graph_drive_item_id && row.synced_with_sharepoint !== false),
     contentSummary: row.content_summary || undefined,
     projectId: row.project_id || row.projectId || undefined,
   };

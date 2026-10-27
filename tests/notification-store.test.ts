@@ -126,3 +126,27 @@ test('rating preserves the completion alert while clearing its required action',
     assert.equal(updates[0].title, 'Task completed: Rated work');
   } finally { supabase.from = originalFrom; }
 });
+
+
+test('upload uses the server document ID without making a duplicate database record', async () => {
+  initialize();
+  const originalFunctions = Object.getOwnPropertyDescriptor(supabase, 'functions');
+  let writes = 0;
+  (supabase as any).from = (table: string) => { if (table === 'sharepoint_documents') { writes++; throw new Error('Unexpected duplicate insert'); } return query({ data: {}, error: null }); };
+  Object.defineProperty(supabase, 'functions', { configurable: true, value: { invoke: async () => ({ data: { success: true, document: { id: 'server-document', name: 'Report.pdf', folder: 'General' } }, error: null }) } });
+  try {
+    const document = await portalStore.addSharePointDocument({ name: 'Report.pdf', folder: 'General', fileType: 'pdf' } as any);
+    assert.equal(document?.id, 'server-document');
+    // Audit logging may write independently; document metadata must never be reinserted.
+    assert.equal(writes, 0);
+  } finally { supabase.from = originalFrom; if (originalFunctions) Object.defineProperty(supabase, 'functions', originalFunctions); else delete (supabase as any).functions; }
+});
+
+test('a failed upload cannot produce a successful local document', async () => {
+  initialize();
+  const originalFunctions = Object.getOwnPropertyDescriptor(supabase, 'functions');
+  Object.defineProperty(supabase, 'functions', { configurable: true, value: { invoke: async () => ({ data: { error: 'Microsoft permission denied' }, error: null }) } });
+  try {
+    await assert.rejects(portalStore.addSharePointDocument({ name: 'Report.pdf', folder: 'General', fileType: 'pdf' } as any), /Microsoft permission denied/);
+  } finally { if (originalFunctions) Object.defineProperty(supabase, 'functions', originalFunctions); else delete (supabase as any).functions; }
+});
