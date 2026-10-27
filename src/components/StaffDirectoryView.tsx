@@ -143,7 +143,7 @@ export const StaffDirectoryView: React.FC<StaffDirectoryViewProps> = ({
             </span>
           </div>
           <p className="text-xs text-slate-500 mt-0.5">
-            Two-level organizational hierarchy: Organisation → Department → Staff with Microsoft Teams presence.
+            Two-level organizational hierarchy: Organisation → Department → Staff with OfficeHub activity and office availability.
           </p>
         </div>
 
