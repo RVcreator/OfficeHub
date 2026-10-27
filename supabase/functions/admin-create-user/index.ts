@@ -17,9 +17,7 @@ const corsHeaders = {
 function generateTempPassword(): string {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789@#$%&*!';
   let pass = 'Wipahs#';
-  for (let i = 0; i < 8; i++) {
-    pass += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
+  for (const byte of crypto.getRandomValues(new Uint8Array(12))) pass += chars.charAt(byte % chars.length);
   return pass + '9!';
 }
 
@@ -136,35 +134,17 @@ serve(async (req: Request) => {
       },
       app_metadata: {
         must_change_password: true,
+        password_changed_at:null,
+        password_reset_at:new Date().toISOString(),
         role,
         department,
       },
     });
 
     if (authError || !authData?.user) {
-      // Check if user is already registered in Auth; if so, update their password & metadata
-      if (authError?.message?.toLowerCase().includes('already')) {
-        const { data: listData } = await supabaseAdmin.auth.admin.listUsers();
-        const existingUser = listData?.users?.find((u: any) => u.email?.toLowerCase() === email.trim().toLowerCase());
-        if (existingUser) {
-          targetUserId = existingUser.id;
-          await supabaseAdmin.auth.admin.updateUserById(targetUserId, {
-            password: tempPassword,
-            user_metadata: { name, role, department, organisation },
-            app_metadata: { must_change_password: true, role, department }
-          });
-        } else {
-          return new Response(JSON.stringify({ error: authError?.message || 'Failed to create auth user' }), {
-            status: 400,
-            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-          });
-        }
-      } else {
-        return new Response(JSON.stringify({ error: authError?.message || 'Failed to create auth user' }), {
-          status: 400,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
-      }
+      return new Response(JSON.stringify({error:authError?.message || 'Account creation failed. Existing accounts must use Reset Password.'}),{
+        status:400,headers:{...corsHeaders,'Content-Type':'application/json'},
+      });
     } else {
       targetUserId = authData.user.id;
     }
@@ -172,13 +152,15 @@ serve(async (req: Request) => {
     const userId = targetUserId;
 
     // 5. Ensure app_metadata is set correctly
-    await supabaseAdmin.auth.admin.updateUserById(userId, {
+    const {error:requirementError}=await supabaseAdmin.auth.admin.updateUserById(userId, {
       app_metadata: {
         must_change_password: true,
         role,
         department,
       },
     });
+
+    if(requirementError) return new Response(JSON.stringify({error:'Account created, but password requirement confirmation failed.'}),{status:503,headers:{...corsHeaders,'Content-Type':'application/json'}});
 
     // 6. Insert or upsert profiles row
     const { error: profileError } = await supabaseAdmin
@@ -193,7 +175,7 @@ serve(async (req: Request) => {
         phone,
         status: 'Offline',
         must_change_password: true,
-        temporary_password: tempPassword,
+        temporary_password: null,
       });
 
     if (profileError) {
@@ -228,3 +210,4 @@ serve(async (req: Request) => {
     });
   }
 });
+
