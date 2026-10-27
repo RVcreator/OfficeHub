@@ -64,7 +64,7 @@ test('notification read failure retains the previous confirmed inbox', async () 
 
 test('completion notifies the assigner and explicitly requests their rating', async () => {
   initialize();
-  const creator = '0a9edd24-62bd-40ff-a486-fd1c95724b8e';
+  const creator = '10000000-0000-4000-8000-000000000002';
   setTableData('tasks', [{ id: 'completed-task', title: 'Delegated work', status: 'To Do',
     assignedToId: actor, assignedToIds: [actor], createdById: creator, subtasks: [] } as any]);
   const inserted: any[] = [];
@@ -94,7 +94,7 @@ test('completion notifies the assigner and explicitly requests their rating', as
 
 test('rating preserves the completion alert while clearing its required action', async () => {
   initialize();
-  const assignee = '0a9edd24-62bd-40ff-a486-fd1c95724b8e';
+  const assignee = '10000000-0000-4000-8000-000000000002';
   const completion = { ...row, id: 'completion-alert', type: 'task_rating_required',
     metadata: { taskId: 'rated-task', requiresRating: true, completedAt: '2026-10-27T07:00:00Z' } };
   setTableData('tasks', [{ id: 'rated-task', title: 'Rated work', status: 'Done',
