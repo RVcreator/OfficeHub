@@ -83,6 +83,7 @@ import { playNotificationSound } from '../utils/sound';
 import { NotificationChimeTracker, visibleNotifications, persistNotification, reconcileNotificationSnapshot } from './notificationDelivery';
 import { isPersonalTask } from '../utils/taskUtils';
 import { taskCreatedAlert } from './taskCreatedAlert';
+import { passwordChangeRequired } from './passwordPolicy';
 import { cachePresence, effectivePresence, startPresence, presenceNow, type PresenceRecord } from './presence';
 import { convertTo24HourTime, convertTo12HourTime } from '../utils/meetingConflict';
 import {
@@ -224,42 +225,16 @@ export function getSavedCurrentUserProfile(): Partial<StaffUser> | null {
   return null;
 }
 
-export function hasCompletedPasswordChange(userId?: string | null, email?: string | null): boolean {
-  try {
-    const raw = localStorage.getItem('wipahs_password_verified_users');
-    if (!raw) return false;
-    const list: string[] = JSON.parse(raw);
-    if (!Array.isArray(list)) return false;
-    if (userId && list.includes(userId)) return true;
-    if (email && list.includes(email.toLowerCase())) return true;
-  } catch {}
-  return false;
-}
-
-export function markPasswordChangeCompleted(user?: Partial<StaffUser> | null): void {
-  if (!user) return;
-  try {
-    const raw = localStorage.getItem('wipahs_password_verified_users');
-    const set = new Set<string>(raw ? JSON.parse(raw) : []);
-    if (user.id && user.id !== 'usr-default') {
-      set.add(user.id);
-      localStorage.removeItem(`wipahs_pending_password_change_${user.id}`);
-    }
-    if (user.email && user.email !== 'staff@wipahs.or.tz') {
-      set.add(user.email.toLowerCase());
-    }
-    localStorage.setItem('wipahs_password_verified_users', JSON.stringify(Array.from(set)));
-  } catch {}
-}
-
+const pendingRecovery = new Set<string>();
 export function setPendingPasswordChangeFlag(userId?: string | null, pending: boolean = false): void {
   if (!userId || userId === 'usr-default') return;
+  if (pending) pendingRecovery.add(userId); else pendingRecovery.delete(userId);
   try {
     const key = `wipahs_pending_password_change_${userId}`;
     if (pending) {
-      localStorage.setItem(key, 'true');
+      sessionStorage.setItem(key, 'true');
     } else {
-      localStorage.removeItem(key);
+      sessionStorage.removeItem(key);
     }
   } catch {}
 }
@@ -267,9 +242,9 @@ export function setPendingPasswordChangeFlag(userId?: string | null, pending: bo
 export function hasPendingPasswordChangeFlag(userId?: string | null): boolean {
   if (!userId || userId === 'usr-default') return false;
   try {
-    return localStorage.getItem(`wipahs_pending_password_change_${userId}`) === 'true';
+    return pendingRecovery.has(userId) || sessionStorage.getItem(`wipahs_pending_password_change_${userId}`) === 'true';
   } catch {
-    return false;
+    return pendingRecovery.has(userId);
   }
 }
 
@@ -298,11 +273,12 @@ async function invokeSharePointListSafe(body?: Record<string, any>): Promise<any
 }
 
 function stripOversizedAvatarForStorage<T extends Partial<StaffUser>>(user: T): Partial<StaffUser> {
-  if (user.avatar && user.avatar.startsWith('data:') && user.avatar.length > 65536) {
-    const { avatar: _omitted, ...rest } = user;
+  const {temporaryPassword: _password, ...safe} = user;
+  if (safe.avatar && safe.avatar.startsWith('data:') && safe.avatar.length > 65536) {
+    const { avatar: _omitted, ...rest } = safe;
     return rest;
   }
-  return user;
+  return safe;
 }
 
 export function saveCurrentUserProfileToLocalStorage(user: StaffUser): void {
@@ -3783,24 +3759,13 @@ export const portalStore = {
     userData: Omit<StaffUser, 'id' | 'activityScore' | 'tasksCount' | 'lastActive'> & Partial<StaffUser>
   ): Promise<StaffUser | null> => {
     try {
-      const tempPass = (userData as any).temporaryPassword || (userData as any).password || 'Wipahs@2026';
-      let createdId = userData.id || `usr-${Date.now()}`;
-      try {
-        const res = await invokeCreateStaffUserEdgeFunction({
-          email: userData.email,
-          tempPassword: tempPass,
-          name: userData.name,
-          role: userData.role || 'Staff Member',
-          department: userData.department || 'General',
-          organisation: userData.organisation || 'WIPAHS',
-          phone: userData.phone,
-        });
-        if (res.data?.user?.id) {
-          createdId = res.data.user.id;
-        }
-      } catch (edgeErr) {
-        console.warn('Edge function create staff user note:', edgeErr);
-      }
+      const tempPass = (userData as any).temporaryPassword || (userData as any).password || generateTempPassword();
+      const res = await invokeCreateStaffUserEdgeFunction({
+        email:userData.email,tempPassword:tempPass,name:userData.name,role:userData.role || 'Staff Member',
+        department:userData.department || 'General',organisation:userData.organisation || 'WIPAHS',phone:userData.phone,
+      });
+      if (res.error || !res.data?.user?.id) throw new Error(res.error?.message || 'Account creation was not confirmed.');
+      const createdId=res.data.user.id;
 
       const createdUser: StaffUser = {
         id: createdId,
@@ -3821,13 +3786,14 @@ export const portalStore = {
 
       // Ensure user profile is saved to Supabase profiles table
       try {
-        await supabase.from('profiles').upsert(mapStaffToRow(createdUser));
+        const {error}=await supabase.from('profiles').upsert(mapStaffToRow({...createdUser,temporaryPassword:undefined}));
+        if(error) throw error;
       } catch (upsertErr) {
-        console.warn('Supabase profiles direct upsert note:', upsertErr);
+        throw new Error('Account was created, but some profile details could not be saved. Please use Edit Member to finish setup.');
       }
 
       const updatedStaff = [
-        createdUser,
+        {...createdUser,temporaryPassword:undefined},
         ...storeState.staff.filter(s => s.id !== createdUser.id && s.email.toLowerCase() !== createdUser.email.toLowerCase())
       ];
       setTableData('staff', updatedStaff);
@@ -4835,19 +4801,14 @@ export const portalStore = {
 
     if (matched) {
       const mergedMeta: Record<string, any> = {
-        ...(sbUser?.app_metadata || {}),
         ...(matched.app_metadata || {}),
+        ...(sbUser?.app_metadata || {}),
       };
-      if (matched.app_metadata?.must_change_password === false || matched.app_metadata?.password_changed_at) {
-        mergedMeta.must_change_password = false;
-      }
 
       return {
         ...matched,
         status: matched.outOfOffice ? 'Out of Office' : 'Online',
-        mustChangePassword: Boolean(
-          mergedMeta.must_change_password === true && !mergedMeta.password_changed_at
-        ),
+        mustChangePassword: passwordChangeRequired(sbUser, matched),
         app_metadata: mergedMeta,
       };
     }
@@ -4909,77 +4870,16 @@ export const portalStore = {
       isSessionRestore?: boolean;
     }
   ): boolean => {
-    const uid = resolvedProfile?.id || sbUser?.id || '';
-    const email = resolvedProfile?.email || sbUser?.email || '';
-
-    if (options?.isRecoveryEvent) {
-      setPendingPasswordChangeFlag(uid, true);
-      return true;
-    }
-
-    if (hasCompletedPasswordChange(uid, email)) {
-      setPendingPasswordChangeFlag(uid, false);
-      return false;
-    }
-
-    // Authoritative DB profile check: if public.profiles.app_metadata already cleared must_change_password
-    if (
-      resolvedProfile?.app_metadata?.must_change_password === false ||
-      Boolean(resolvedProfile?.app_metadata?.password_changed_at)
-    ) {
-      markPasswordChangeCompleted({ id: uid, email });
-      return false;
-    }
-
-    // Supabase Auth user_metadata check
-    if (
-      sbUser?.user_metadata?.must_change_password === false ||
-      Boolean(sbUser?.user_metadata?.password_changed_at)
-    ) {
-      markPasswordChangeCompleted({ id: uid, email });
-      return false;
-    }
-
-    // If user just signed in with a permanent password different from temporary_password, they already changed it
-    if (
-      options?.enteredPassword &&
-      resolvedProfile?.temporaryPassword &&
-      options.enteredPassword !== resolvedProfile.temporaryPassword
-    ) {
-      markPasswordChangeCompleted({ id: uid, email });
-      return false;
-    }
-
-    // During page reload / session restore, never lock out an already-authenticated user unless a password change was actively pending
-    if (options?.isSessionRestore) {
-      return hasPendingPasswordChangeFlag(uid);
-    }
-
-    const requiresChange = Boolean(
-      sbUser?.app_metadata?.must_change_password === true &&
-      !sbUser?.app_metadata?.password_changed_at
-    );
-    setPendingPasswordChangeFlag(uid, requiresChange);
-    return requiresChange;
+    const uid = sbUser?.id || resolvedProfile?.id || '';
+    if (options?.isRecoveryEvent) setPendingPasswordChangeFlag(uid, true);
+    return passwordChangeRequired(sbUser, resolvedProfile, hasPendingPasswordChangeFlag(uid));
   },
 
+  requirePasswordRecovery: (userId: string): void => setPendingPasswordChangeFlag(userId, true),
+
   loginUser: (user: StaffUser, mustChangePassword: boolean, sessionToken?: string): void => {
-    const alreadyVerified = hasCompletedPasswordChange(user.id, user.email);
-    const dbVerified =
-      user.app_metadata?.must_change_password === false ||
-      Boolean(user.app_metadata?.password_changed_at);
-    const effectiveMustChange = Boolean(mustChangePassword && !alreadyVerified && !dbVerified);
-
-    setPendingPasswordChangeFlag(user.id, effectiveMustChange);
-
-    const authenticatedUser: StaffUser = {
-      ...user,
-      mustChangePassword: effectiveMustChange,
-      app_metadata: {
-        ...(user.app_metadata || {}),
-        must_change_password: effectiveMustChange,
-      },
-    };
+    const effectiveMustChange = Boolean(mustChangePassword);
+    const authenticatedUser: StaffUser = { ...user, mustChangePassword: effectiveMustChange };
 
     const newIdentity = storeState.authSession.userId !== authenticatedUser.id || !storeState.authSession.isAuthenticated;
     if (newIdentity) presenceCache.clear();
@@ -5048,59 +4948,34 @@ export const portalStore = {
 
   resetUserPassword: async (id: string, customPass?: string): Promise<{ success: boolean; message: string }> => {
     const tempPass = customPass || generateTempPassword();
-    try {
-      const session = (await supabase.auth.getSession()).data.session;
-      const { data, error } = await supabase.functions.invoke('admin-reset-password', {
-        headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : undefined,
-        body: { userId: id, customPassword: tempPass },
-      });
-      if (!error && !(data && data.error)) {
-        return {
-          success: true,
-          message: data?.message || tempPass,
-        };
-      }
-    } catch (edgeErr) {
-      console.warn('Edge function admin-reset-password fallback:', edgeErr);
+    const session = (await supabase.auth.getSession()).data.session;
+    if (!session?.access_token) throw new Error('Please sign in again before resetting a password.');
+    const { data, error } = await supabase.functions.invoke('admin-reset-password', {
+      headers: { Authorization: `Bearer ${session.access_token}` },
+      body: { userId: id, customPassword: tempPass },
+    });
+    if (error || data?.error || data?.success !== true) throw new Error(data?.error || 'Password reset failed. No successful reset was confirmed.');
+    const markPending = (s: StaffUser) => s.id === id ? { ...s, mustChangePassword:true, temporaryPassword:undefined,
+      app_metadata:{...s.app_metadata,must_change_password:true,password_changed_at:null} } : s;
+    setTableData('staff',storeState.staff.map(markPending));
+    if (storeState.currentUser.id === id) {
+      setTableData('currentUser',markPending(storeState.currentUser));
+      setTableData('authSession',{...storeState.authSession,mustChangePassword:true});
     }
-
-    // Fallback: update profiles table directly so admin password reset always succeeds
-    try {
-      await supabase
-        .from('profiles')
-        .update({
-          must_change_password: true,
-          temporary_password: tempPass,
-        })
-        .eq('id', id);
-
-      const updatedStaff = storeState.staff.map(s => 
-        s.id === id ? { ...s, mustChangePassword: true, temporaryPassword: tempPass } : s
-      );
-      setTableData('staff', updatedStaff);
-
-      return {
-        success: true,
-        message: tempPass,
-      };
-    } catch (err: any) {
-      console.error('resetUserPassword fallback error:', err);
-      throw new Error(err.message || 'Failed to reset user password');
-    }
+    return { success:true, message:tempPass };
   },
 
-  completeForcedPasswordChange: async (_newPassword: string): Promise<void> => {
+  completeForcedPasswordChange: async (confirmedUser: StaffUser): Promise<void> => {
     const curr = storeState.currentUser;
-    markPasswordChangeCompleted(curr);
+    if (confirmedUser.id !== curr.id || confirmedUser.app_metadata?.must_change_password !== false || !confirmedUser.app_metadata?.password_changed_at) throw new Error('Password completion was not confirmed.');
+    setPendingPasswordChangeFlag(curr.id, false);
 
     const updatedUser: StaffUser = {
       ...curr,
       mustChangePassword: false,
       temporaryPassword: undefined,
       app_metadata: {
-        ...(curr.app_metadata || {}),
-        must_change_password: false,
-        password_changed_at: new Date().toISOString(),
+        ...(confirmedUser.app_metadata || {}),
       },
     };
 
@@ -5243,9 +5118,8 @@ export function usePortalStore() {
 function generateTempPassword(): string {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789@#$%&*!';
   let pass = 'Wipahs#';
-  for (let i = 0; i < 8; i++) {
-    pass += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
+  const random = crypto.getRandomValues(new Uint8Array(12));
+  for (const byte of random) pass += chars.charAt(byte % chars.length);
   return pass + '9!';
 }
 
