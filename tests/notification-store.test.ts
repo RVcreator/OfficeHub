@@ -150,3 +150,19 @@ test('a failed upload cannot produce a successful local document', async () => {
     await assert.rejects(portalStore.addSharePointDocument({ name: 'Report.pdf', folder: 'General', fileType: 'pdf' } as any), /Microsoft permission denied/);
   } finally { if (originalFunctions) Object.defineProperty(supabase, 'functions', originalFunctions); else delete (supabase as any).functions; }
 });
+
+test('office availability only changes after a confirmed save and updates the current user', async () => {
+ initialize();
+ (supabase as any).from=()=>{const q:any=query({data:null,error:null});q.update=()=>q;q.single=async()=>({data:null,error:{message:'denied'}});return q;};
+ try {
+  await assert.rejects(portalStore.setUserOfficeStatus(actor,false),/could not be saved/);
+  assert.notEqual(portalStore.getCurrentUser().outOfOffice,true);
+  (supabase as any).from=()=>{const q:any=query({data:null,error:null});q.update=()=>q;q.single=async()=>({data:{id:actor},error:null});return q;};
+  await portalStore.setUserOfficeStatus(actor,false,'On leave');
+  assert.equal(portalStore.getCurrentUser().outOfOffice,true);
+  assert.equal(portalStore.getCurrentUser().status,'Out of Office');
+  await portalStore.setUserOfficeStatus(actor,true);
+  assert.equal(portalStore.getCurrentUser().outOfOffice,false);
+  assert.equal(portalStore.getCurrentUser().status,'Offline');
+ } finally {supabase.from=originalFrom;}
+});
