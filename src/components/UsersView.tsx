@@ -161,7 +161,9 @@ export const UsersView: React.FC<UsersViewProps> = ({ onAssignTaskToUser }) => {
       });
       setEditingUser(null);
     } else {
-      const newStaff = await actions.addStaffMember({
+      let newStaff: StaffUser | null;
+      try {
+      newStaff = await actions.addStaffMember({
         name: formData.name.trim(),
         email: formData.email.trim(),
         role: formData.role.trim(),
@@ -173,6 +175,10 @@ export const UsersView: React.FC<UsersViewProps> = ({ onAssignTaskToUser }) => {
         teamsHandle: formData.teamsHandle.trim() || undefined,
         avatar: formData.avatar
       });
+      } catch(error) {
+        window.alert(error instanceof Error ? error.message : 'Account creation failed. Please try again.');
+        return;
+      }
       setIsAddModalOpen(false);
       if (newStaff && newStaff.temporaryPassword) {
         setPasswordResetInfo({
@@ -196,9 +202,14 @@ export const UsersView: React.FC<UsersViewProps> = ({ onAssignTaskToUser }) => {
   };
 
   const handleResetPassword = async (user: StaffUser) => {
-    const res = await actions.resetUserPassword(user.id);
-    setPasswordResetInfo({ user, tempPass: res.message || 'Wipahs#Temp2026!', isNewAccount: false });
-    setCopiedPass(false);
+    try {
+      const res = await actions.resetUserPassword(user.id);
+      if (!res.success || !res.message) throw new Error('Password reset was not confirmed.');
+      setPasswordResetInfo({user,tempPass:res.message,isNewAccount:false});
+      setCopiedPass(false);
+    } catch(error) {
+      window.alert(error instanceof Error ? error.message : 'Password reset failed. Please try again.');
+    }
   };
 
   const filteredStaff = useMemo(() => {
