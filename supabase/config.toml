@@ -3,3 +3,6 @@ verify_jwt = true
 
 [functions.officehub-email-test]
 verify_jwt = true
+
+[functions.sharepoint-share]
+verify_jwt = true
