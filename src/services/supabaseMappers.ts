@@ -133,8 +133,7 @@ export function recoverTruncatedJsonArray<T = any>(raw: string | undefined | nul
 export function mapStaffRow(row: any): StaffUser {
   const appMeta = row.app_metadata || {};
   const mustChangeFromMeta =
-    appMeta.must_change_password === true &&
-    !appMeta.password_changed_at;
+    row.must_change_password === true || appMeta.must_change_password === true;
 
   return {
     id: row.id,
