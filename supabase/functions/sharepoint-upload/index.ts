@@ -128,6 +128,7 @@ serve(async (req: Request) => {
       });
     }
 
+    const docId = `sp-doc-${Date.now()}-${crypto.randomUUID()}`;
     let graphDriveItemId = null;
     let graphWebUrl = null;
 
@@ -156,7 +157,7 @@ serve(async (req: Request) => {
       }
 
       const cleanFolder = encodeURIComponent(folder.trim());
-      const cleanName = encodeURIComponent(name.trim());
+      const cleanName = encodeURIComponent(`${docId}-${name.trim()}`);
       const uploadUrl = `https://graph.microsoft.com/v1.0/sites/${siteId}/drives/${driveId}/root:/${cleanFolder}/${cleanName}:/content`;
 
       const uploadRes = await fetch(uploadUrl, {
@@ -193,7 +194,6 @@ serve(async (req: Request) => {
       });
     }
 
-    const docId = `sp-doc-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
     const nowIso = new Date().toISOString();
     const siteUrl = 'https://wipahstz.sharepoint.com/sites/OfficeHub';
     let webUrl = graphWebUrl;
@@ -223,7 +223,7 @@ serve(async (req: Request) => {
       row.project_id = resolvedProjectId;
     }
 
-    console.log('Service key present:', Boolean(supabaseServiceKey), 'length:', supabaseServiceKey?.length || 0);
+    
     let { error: insertError } = await supabaseAdmin.from('sharepoint_documents').insert(row);
     if (insertError && (insertError.message?.includes('project_id') || insertError.code === '42703')) {
       console.warn('project_id column not present in schema yet; falling back to insert without project_id');
@@ -239,26 +239,18 @@ serve(async (req: Request) => {
       });
     }
 
-    const newDoc = {
-      id: docId,
-      name: name.trim(),
-      folder: folder.trim(),
-      fileType,
-      size: '1.2 MB',
-      version: 'v1.0',
-      sharePointWebUrl: webUrl,
-      webUrl: webUrl,
-      contentSummary: row.content_summary,
-      createdById: user.id,
-      modifiedAt: nowIso,
-      modifiedBy: row.modified_by,
-      visibility,
-      targetDepartment,
-      allowedUserIds,
-      editableUserIds,
-      projectId: resolvedProjectId,
-      syncedWithSharePoint: true,
-    };
+    const shareResponse = await fetch(`${supabaseUrl}/functions/v1/sharepoint-share`, {
+      method: 'POST', headers: { Authorization: authHeader, apikey: supabaseAnonKey, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ documentId: docId }) });
+    const sharing = await shareResponse.json();
+    if (!shareResponse.ok || !sharing.success) return new Response(JSON.stringify({ error: sharing.error || 'File uploaded but sharing was not confirmed', documentId: docId }), {
+      status: 409, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    const newDoc = { ...sharing.document,
+      id: docId, name: name.trim(), folder: folder.trim(), fileType, size: row.size,
+      sharePointWebUrl: webUrl, webUrl, createdById: user.id, modifiedAt: nowIso,
+      modifiedBy: row.modified_by, version: row.version, visibility, targetDepartment,
+      allowedUserIds, editableUserIds, projectId: resolvedProjectId, syncedWithSharePoint: true,
+      isLockedForEditing: false, activeCollaborators: [] };
 
     return new Response(JSON.stringify({ success: true, document: newDoc }), {
       status: 200,
@@ -272,3 +264,4 @@ serve(async (req: Request) => {
     });
   }
 });
+
