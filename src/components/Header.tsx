@@ -103,19 +103,19 @@ export const Header: React.FC<HeaderProps> = ({
   const getStatusDetails = (status: UserPresenceStatus) => {
     switch (status) {
       case 'Online':
-        return { label: 'Online', badge: 'In Office', desc: 'Active & available', color: 'bg-[#00ad1d]', isAuto: true };
+        return { label: 'Online', badge: 'Active', desc: 'Active in OfficeHub', color: 'bg-[#00ad1d]', isAuto: true };
       case 'In Teams Meeting':
-        return { label: 'In Teams Meeting', badge: 'Active Call', desc: 'Microsoft Teams meeting session', color: 'bg-purple-600', isAuto: true };
+        return { label: 'In Teams Meeting', badge: 'Meeting', desc: 'Meeting status', color: 'bg-purple-600', isAuto: true };
       case 'Offline':
-        return { label: 'Offline', badge: 'Disconnected', desc: 'Network offline', color: 'bg-slate-400', isAuto: true };
+        return { label: 'Offline', badge: 'Disconnected', desc: 'No recent OfficeHub activity', color: 'bg-slate-400', isAuto: true };
       case 'Out of Office':
         return { label: 'Out of Office', badge: 'On Leave / Travel', desc: currentUser.outOfOfficeMessage || 'Away from office', color: 'bg-amber-500', isAuto: false };
       case 'Busy':
-        return { label: 'Busy', badge: 'In Office', desc: 'In office', color: 'bg-rose-500', isAuto: true };
+        return { label: 'Busy', badge: 'Busy', desc: 'Marked busy', color: 'bg-rose-500', isAuto: true };
       case 'Away':
-        return { label: 'Away', badge: 'Idle', desc: 'In office (idle)', color: 'bg-amber-500', isAuto: true };
+        return { label: 'Away', badge: 'Idle', desc: 'Inactive in OfficeHub', color: 'bg-amber-500', isAuto: true };
       default:
-        return { label: status, badge: 'In Office', desc: 'Active', color: 'bg-[#00ad1d]', isAuto: true };
+        return { label: 'Offline', badge: 'Disconnected', desc: 'No recent OfficeHub activity', color: 'bg-slate-400', isAuto: true };
     }
   };
 
@@ -613,7 +613,7 @@ export const Header: React.FC<HeaderProps> = ({
                     <button
                       type="button"
                       onClick={() => {
-                        actions.setUserOfficeStatus(currentUser.id, true);
+                        void actions.setUserOfficeStatus(currentUser.id, true).catch(error => window.alert(error.message));
                       }}
                       className={`py-1.5 px-2 rounded-md text-xs font-semibold transition cursor-pointer flex items-center justify-center gap-1.5 ${
                         !isOutOfOffice
@@ -628,7 +628,7 @@ export const Header: React.FC<HeaderProps> = ({
                     <button
                       type="button"
                       onClick={() => {
-                        actions.setUserOfficeStatus(currentUser.id, false);
+                        void actions.setUserOfficeStatus(currentUser.id, false).catch(error => window.alert(error.message));
                       }}
                       className={`py-1.5 px-2 rounded-md text-xs font-semibold transition cursor-pointer flex items-center justify-center gap-1.5 ${
                         isOutOfOffice
@@ -641,7 +641,7 @@ export const Header: React.FC<HeaderProps> = ({
                     </button>
                   </div>
                   <p className="text-[10px] text-slate-400 mt-1.5 leading-tight">
-                    Teams meetings, online, and offline status are automatically detected by the system.
+                    Online and Away follow activity in OfficeHub. Office availability is set by you.
                   </p>
                 </div>
               </div>
