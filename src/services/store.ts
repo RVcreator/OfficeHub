@@ -2093,7 +2093,7 @@ export const portalStore = {
       pendingTaskStatusUpdates.set(taskId, { status: newStatus, timestamp: Date.now() });
 
       // 4. Handle ratings notifications for task completion
-      if (newStatus === 'Done' && updates.pending_rating) {
+      if (newStatus === 'Done' && targetTask.status !== 'Done') {
         const creatorId = confirmedRow.created_by_id || targetTask?.createdById;
         if (creatorId && creatorId !== storeState.currentUser?.id) {
           const taskTitle = targetTask?.title || confirmedRow.title || 'Completed Task';
@@ -2101,10 +2101,10 @@ export const portalStore = {
           await portalStore
             .addNotification({
               id: notifId,
-              title: `Performance Rating Required: ${taskTitle}`,
-              message: `Task "${taskTitle}" has been marked complete. A performance rating is required before this notification can be cleared.`,
-              type: 'task_rating_required',
-              metadata: { taskId, requiresRating: true },
+              title: `Task completed: ${taskTitle}`,
+              message: `Task "${taskTitle}" has been completed by ${storeState.currentUser?.name || 'a staff member'}.${updates.pending_rating ? ' Your performance rating is required. Open the task to rate the completed work.' : ' Open the task to review it.'}`,
+              type: updates.pending_rating ? 'task_rating_required' : 'task',
+              metadata: { taskId, requiresRating: Boolean(updates.pending_rating), completedAt: nowIso },
               targetUserId: creatorId,
               actorId: storeState.currentUser?.id,
               actorName: storeState.currentUser?.name || targetTask?.assignedToName || 'Staff Member',
@@ -2275,17 +2275,30 @@ export const portalStore = {
         return t;
       }));
 
-      // Automatically clean up any pending task_rating_required notifications for this task
-      const ratingNotifs = storeState.notifications.filter(
-        (n) => n.type === 'task_rating_required' && n.metadata?.taskId === taskId
-      );
-      if (ratingNotifs.length > 0) {
-        const notifIds = ratingNotifs.map((n) => n.id);
-        supabase.from('notifications').delete().in('id', notifIds).then(() => {});
-        setTableData(
-          'notifications',
-          storeState.notifications.filter((n) => !notifIds.includes(n.id))
-        );
+      // Keep the completion record after rating; only retire its action requirement.
+      // The server query also finds an alert not yet loaded in this browser.
+      const { data: completionAlerts, error: completionReadError } = await supabase
+        .from('notifications').select(NOTIFICATION_SELECT_COLUMNS)
+        .eq('target_user_id', currentUser.id).eq('type', 'task_rating_required')
+        .contains('metadata', { taskId });
+      if (completionReadError) {
+        setTableData('notificationError', 'The rating was saved, but its completion alert could not refresh.');
+      } else {
+        for (const alert of completionAlerts || []) {
+          const { data: updatedAlert, error: alertError } = await supabase.from('notifications')
+            .update({ type: 'task', title: `Task completed: ${data.title}`,
+              message: `Task "${data.title}" was completed. Your performance rating has been submitted.`,
+              metadata: { ...(alert.metadata as Record<string, unknown> || {}), requiresRating: false },
+              priority: 'Normal' })
+            .eq('id', alert.id).select(NOTIFICATION_SELECT_COLUMNS).single();
+          if (alertError || !updatedAlert) {
+            setTableData('notificationError', 'The rating was saved, but its completion alert could not update.');
+            continue;
+          }
+          const saved = mapNotificationRow(updatedAlert);
+          setTableData('notifications', [saved, ...storeState.notifications.filter(n => n.id !== saved.id)]);
+        }
+        broadcastRealtimeEvent({ type: 'NEW_NOTIFICATION', targetUserId: currentUser.id });
       }
 
       // Notify the assigned staff member that their performance rating was submitted
