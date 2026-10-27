@@ -83,6 +83,7 @@ import { playNotificationSound } from '../utils/sound';
 import { NotificationChimeTracker, visibleNotifications, persistNotification, reconcileNotificationSnapshot } from './notificationDelivery';
 import { isPersonalTask } from '../utils/taskUtils';
 import { taskCreatedAlert } from './taskCreatedAlert';
+import { cachePresence, effectivePresence, startPresence, type PresenceRecord } from './presence';
 import { convertTo24HourTime, convertTo12HourTime } from '../utils/meetingConflict';
 import {
   startRealtimeEngine,
@@ -326,38 +327,40 @@ export function saveStaffToLocalStorage(staffList: StaffUser[]): void {
   } catch {}
 }
 
-export function getActiveHeartbeats(): Record<string, { timestamp: number; status?: UserPresenceStatus }> {
-  try {
-    const raw = localStorage.getItem('wipahs_user_heartbeats');
-    if (raw) return JSON.parse(raw);
-  } catch {}
-  return {};
+let presenceCache = new Map<string, PresenceRecord>();
+let presenceController: ReturnType<typeof startPresence> | undefined;
+// Legacy call sites may request a refresh, but never publish a browser-local identity.
+export function recordUserHeartbeat(user: StaffUser, _status?: UserPresenceStatus): void {
+  if (storeState.authSession.isAuthenticated && user.id === storeState.authSession.userId) void presenceController?.sync();
 }
-
-export function recordUserHeartbeat(user: StaffUser, status?: UserPresenceStatus): void {
-  try {
-    const heartbeats = getActiveHeartbeats();
-    const entry = {
-      timestamp: Date.now(),
-      status: status || user.status || 'Online',
-    };
-    if (user.id) heartbeats[user.id] = entry;
-    if (user.email) heartbeats[user.email.toLowerCase()] = entry;
-    localStorage.setItem('wipahs_user_heartbeats', JSON.stringify(heartbeats));
-  } catch {}
+function applyPresence(): void {
+  setTableData('staff', storeState.staff);
+  setTableData('currentUser', storeState.currentUser);
 }
-
-export function clearUserHeartbeat(user: StaffUser): void {
-  try {
-    const heartbeats = getActiveHeartbeats();
-    const entry = {
-      timestamp: 0,
-      status: 'Offline' as UserPresenceStatus,
-    };
-    if (user.id) heartbeats[user.id] = entry;
-    if (user.email) heartbeats[user.email.toLowerCase()] = entry;
-    localStorage.setItem('wipahs_user_heartbeats', JSON.stringify(heartbeats));
-  } catch {}
+function startUserPresence(): void {
+  if (typeof window === 'undefined') return;
+  void presenceController?.stop();
+  presenceCache.clear();
+  const identity = storeState.authSession.userId;
+  presenceController = startPresence({
+    heartbeat: async (session, active) => {
+      const { error } = await supabase.rpc('officehub_presence_heartbeat', { p_session: session, p_active: active });
+      if (error) throw error;
+    },
+    leave: async session => {
+      const { error } = await supabase.rpc('officehub_presence_leave', { p_session: session });
+      if (error) throw error;
+    },
+    snapshot: async () => {
+      const { data, error } = await supabase.rpc('officehub_presence_snapshot');
+      if (error) throw error;
+      return data || [];
+    },
+  }, rows => {
+    if (!storeState.authSession.isAuthenticated || identity !== storeState.authSession.userId) return;
+    if (rows) presenceCache = cachePresence(rows, Date.now());
+    applyPresence();
+  }, { window, document, online: () => navigator.onLine, now: Date.now, sessionId: crypto.randomUUID() });
 }
 
 export const DEFAULT_DEPARTMENTS: DepartmentInfo[] = [
@@ -390,13 +393,13 @@ const storeState: StoreData = {
     role: 'Staff Member',
     organisation: 'WIPAHS',
     department: 'General',
-    status: 'Online',
     avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
     phone: '+255 778 123 456',
     activityScore: 85,
     tasksCount: 0,
     lastActive: 'Just now',
     ...(initialSavedUser || {}),
+    status: initialSavedUser?.outOfOffice ? 'Out of Office' : 'Offline',
   },
   decisions: [],
   approvals: [],
@@ -438,6 +441,15 @@ let notificationRequestVersion = 0;
 
 export function setTableData<K extends TableKey>(key: K, data: StoreData[K], source: 'snapshot' | 'created' = 'snapshot'): void {
   let ring = false;
+  const withPresence = (user: StaffUser): StaffUser => {
+    const row = presenceCache.get(user.id);
+    return { ...user, outOfOffice: row && row.officeUntil > Date.now() ? row.outOfOffice : user.outOfOffice, status: computeUserLivePresence(user) };
+  };
+  if (key === 'staff') data = (data as StaffUser[]).map(withPresence) as StoreData[K];
+  if (key === 'currentUser') {
+    const user = data as StaffUser;
+    data = withPresence(user) as StoreData[K];
+  }
   if (key === 'notifications') {
     const user = storeState.currentUser;
     const rows = storeState.authSession.isAuthenticated
@@ -616,88 +628,10 @@ export function normalizeDepartmentName(dept?: string | null): string {
   return trimmed;
 }
 
-export function computeUserLivePresence(
-  user: StaffUser,
-  meetings: Meeting[] = [],
-  activeHeartbeats?: Record<string, { timestamp: number; status?: UserPresenceStatus }>
-): UserPresenceStatus {
-  if (user.outOfOffice === true || user.status === 'Out of Office') {
-    return 'Out of Office';
-  }
-
-  if (typeof navigator !== 'undefined' && typeof navigator.onLine === 'boolean' && !navigator.onLine) {
-    return 'Offline';
-  }
-
-  const now = new Date();
-  const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-  const nowMinutes = now.getHours() * 60 + now.getMinutes();
-
-  const isLiveMeeting = (meetings || []).some((m) => {
-    if (m.status === 'Cancelled' || m.status === 'Completed') return false;
-    const isUserInvolved =
-      m.organizerId === user.id ||
-      m.chairId === user.id ||
-      (m.attendees && m.attendees.some((a) => a.userId === user.id && a.status === 'Accepted'));
-    if (!isUserInvolved) return false;
-
-    if (m.status === 'In Progress') return true;
-
-    if (m.date === todayStr && m.startTime && m.endTime) {
-      const [startH, startM] = m.startTime.split(':').map(Number);
-      const [endH, endM] = m.endTime.split(':').map(Number);
-      const startMinutes = (startH || 0) * 60 + (startM || 0);
-      const endMinutes = (endH || 0) * 60 + (endM || 0);
-      return nowMinutes >= startMinutes && nowMinutes <= endMinutes;
-    }
-    return false;
-  });
-
-  if (isLiveMeeting) {
-    return 'In Teams Meeting';
-  }
-
-  const currentUser = storeState.currentUser;
-  const isSelf =
-    currentUser &&
-    (user.id === currentUser.id ||
-      (user.email && currentUser.email && user.email.toLowerCase() === currentUser.email.toLowerCase()));
-
-  // Active current user in this browser session
-  if (isSelf) {
-    if (currentUser.status) {
-      return currentUser.status;
-    }
-    return 'Online';
-  }
-
-  // If user has status set to Online, Busy, or Away
-  if (user.status === 'Online' || user.status === 'Busy' || user.status === 'Away') {
-    const heartbeats = activeHeartbeats || getActiveHeartbeats();
-    const userHeartbeat = heartbeats[user.id] || (user.email ? heartbeats[user.email.toLowerCase()] : null);
-    const TWO_MINUTES_MS = 2 * 60 * 1000;
-    if (userHeartbeat && Date.now() - userHeartbeat.timestamp < TWO_MINUTES_MS) {
-      if (userHeartbeat.status && userHeartbeat.status !== 'Offline') {
-        return userHeartbeat.status;
-      }
-    }
-    return user.status;
-  }
-
-  // Other staff members: check real heartbeat within the last 2 minutes
-  const heartbeats = activeHeartbeats || getActiveHeartbeats();
-  const userHeartbeat = heartbeats[user.id] || (user.email ? heartbeats[user.email.toLowerCase()] : null);
-  const TWO_MINUTES_MS = 2 * 60 * 1000;
-
-  if (userHeartbeat && Date.now() - userHeartbeat.timestamp < TWO_MINUTES_MS) {
-    if (userHeartbeat.status && userHeartbeat.status !== 'Offline') {
-      return userHeartbeat.status;
-    }
-    return 'Online';
-  }
-
-  // Otherwise, they are genuinely Offline
-  return 'Offline';
+export function computeUserLivePresence(user: StaffUser, _meetings: Meeting[] = []): UserPresenceStatus {
+  const status = effectivePresence(user, presenceCache, Date.now());
+  if (user.id === storeState.authSession.userId && typeof navigator !== 'undefined' && !navigator.onLine && status !== 'Out of Office') return 'Offline';
+  return status;
 }
 
 import { isTaskArchived, isMeetingArchived } from '../utils/archiveUtils';
@@ -3990,24 +3924,21 @@ export const portalStore = {
   },
 
   setUserOfficeStatus: async (userId: string, inOffice: boolean, oooMessage?: string): Promise<void> => {
-    try {
-      await supabase
-        .from('profiles')
-        .update({
-          out_of_office: !inOffice,
-          out_of_office_message: inOffice ? null : oooMessage || 'Out of Office',
-        })
-        .eq('id', userId);
-
-      setTableData('staff', storeState.staff.map((s) => (s.id === userId ? {
-        ...s,
-        outOfOffice: !inOffice,
-        outOfOfficeMessage: inOffice ? undefined : oooMessage || 'Out of Office',
-        status: inOffice ? 'Online' : 'Out of Office',
-      } : s)));
-    } catch (err: any) {
-      console.error('setUserOfficeStatus error:', err);
+    const updates = { out_of_office: !inOffice,
+      out_of_office_message: inOffice ? null : oooMessage || 'Out of Office',
+      status: inOffice ? 'Offline' : 'Out of Office' };
+    const { data, error } = await supabase.from('profiles').update(updates).eq('id', userId).select('id').single();
+    if (error || !data) throw new Error('Office availability could not be saved. Please try again.');
+    presenceCache.delete(userId);
+    const patch = (user: StaffUser): StaffUser => user.id === userId ? { ...user,
+      outOfOffice: !inOffice, outOfOfficeMessage: updates.out_of_office_message || undefined } : user;
+    setTableData('staff', storeState.staff.map(patch));
+    if (storeState.currentUser.id === userId) {
+      const updated = patch(storeState.currentUser);
+      setTableData('currentUser', updated);
+      saveCurrentUserProfileToLocalStorage(updated);
     }
+    await presenceController?.sync();
   },
 
   updateUserStatus: async (arg1: string | UserPresenceStatus, arg2?: UserPresenceStatus): Promise<void> => {
@@ -4042,15 +3973,8 @@ export const portalStore = {
   },
 
   syncLivePresence: (): void => {
-    // Record current user's heartbeat
-    if (storeState.currentUser) {
-      recordUserHeartbeat(storeState.currentUser, storeState.currentUser.status);
-    }
-    const heartbeats = getActiveHeartbeats();
-    setTableData('staff', storeState.staff.map((s) => ({
-      ...s,
-      status: computeUserLivePresence(s, storeState.meetings, heartbeats),
-    })));
+    applyPresence();
+    void presenceController?.sync();
   },
 
   // -----------------------------------------------------------------------
@@ -5058,6 +4982,7 @@ export const portalStore = {
     };
 
     const newIdentity = storeState.authSession.userId !== authenticatedUser.id || !storeState.authSession.isAuthenticated;
+    if (newIdentity) presenceCache.clear();
     setTableData('currentUser', authenticatedUser);
     saveCurrentUserProfileToLocalStorage(authenticatedUser);
     setTableData('authSession', {
@@ -5075,6 +5000,7 @@ export const portalStore = {
     }
 
     initRealtimeSubscription();
+    if (newIdentity) startUserPresence();
 
     // Refresh tasks and notifications with the newly authenticated user context
     portalStore.getTasks().then((freshTasks) => {
@@ -5086,6 +5012,9 @@ export const portalStore = {
   logoutUser: async (signOut = true): Promise<void> => {
     const prevId = storeState.currentUser?.id;
     stopRealtimeEngine();
+    await presenceController?.stop();
+    presenceController = undefined;
+    presenceCache.clear();
     setPendingPasswordChangeFlag(prevId, false);
     try {
       localStorage.removeItem('wipahs_current_user_profile');
