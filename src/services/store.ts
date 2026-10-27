@@ -1375,14 +1375,7 @@ export const portalStore = {
       }
       setTableData('sharePointDocs', merged);
 
-      // In background, sync any local documents to Supabase if not yet in database
-      const unsyncedDocs = localDocs.filter(ld => !dbDocs.some(dbd => dbd.id === ld.id));
-      if (unsyncedDocs.length > 0) {
-        Promise.all(unsyncedDocs.map(ud => {
-          const row = mapSharePointDocToRow(ud);
-          return supabase.from('sharepoint_documents').upsert(row);
-        })).catch(() => {});
-      }
+      // Cached documents are read-only; fetching must never recreate an upload.
 
       return merged;
     } catch (err) {
