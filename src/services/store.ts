@@ -5131,7 +5131,11 @@ export const portalStore = {
     const user = storeState.currentUser;
     const updatedUser = { ...user, ...updates };
 
-    // 1. Immediately update currentUser state
+    // Confirm the profile write before publishing availability or saved feedback.
+    const { data, error } = await supabase.from('profiles')
+      .update(mapStaffToRow(updates)).eq('id', user.id).select('id').single();
+    if (error || !data) throw new Error('Profile could not be saved. Please try again.');
+    if (updates.outOfOffice !== undefined) presenceCache.delete(user.id);
     setTableData('currentUser', updatedUser);
 
     // 2. Persist currentUser in localStorage so birthday & profile survive refreshes!
@@ -5153,18 +5157,7 @@ export const portalStore = {
     // 4. Record heartbeat
     recordUserHeartbeat(updatedUser, updatedUser.status);
 
-    // 5. Safely attempt Supabase update without throwing
-    try {
-      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(updatedUser.id);
-      const rowUpdates = mapStaffToRow(updates);
-      if (isUuid) {
-        await supabase.from('profiles').update(rowUpdates).eq('id', updatedUser.id);
-      } else if (updatedUser.email) {
-        await supabase.from('profiles').update(rowUpdates).eq('email', updatedUser.email);
-      }
-    } catch (sbErr) {
-      console.warn('Supabase updateCurrentUserProfile note:', sbErr);
-    }
+
   },
 
   resetAllData: async (): Promise<void> => {
