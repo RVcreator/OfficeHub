@@ -59,7 +59,7 @@ export function canUserViewDocument(doc: SharePointDocument, currentUser: StaffU
     const allowed = isUserAllowed(doc.allowedUserIds);
     const isCreator = Boolean(doc.createdById && isUserMatch(doc.createdById));
     if (!doc.allowedUserIds || doc.allowedUserIds.length === 0) {
-      return isCreator || true;
+      return isCreator;
     }
     return allowed || isCreator;
   }
@@ -214,6 +214,7 @@ export const SharePointView: React.FC<{ onOpenUploadModal: () => void }> = ({ on
 
   const handleSavePermissions = async () => {
     if (!permissionDoc) return;
+    try {
     await actions.updateSharePointDocument(permissionDoc.id, {
       visibility: editVisibility,
       targetDepartment: (editTargetDepartment || undefined) as any,
@@ -225,6 +226,9 @@ export const SharePointView: React.FC<{ onOpenUploadModal: () => void }> = ({ on
       setPermissionDoc(null);
       setPermissionSavedNotice(false);
     }, 600);
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Microsoft sharing could not be confirmed.');
+    }
   };
 
   const handleDeleteDocument = async (docId: string) => {
@@ -556,7 +560,7 @@ export const SharePointView: React.FC<{ onOpenUploadModal: () => void }> = ({ on
                     onChange={setEditAllowedUserIds}
                   />
                   <p className="text-[11px] text-slate-500 mt-1">
-                    Only the explicitly selected colleagues above (and the document creator) will have visibility access to this document.
+                    The selected colleagues and document creator receive access through OfficeHub. Existing SharePoint site or folder permissions also apply. Remove or reduce access using SharePoint Manage access.
                   </p>
                 </div>
               )}
