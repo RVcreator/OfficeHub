@@ -503,7 +503,7 @@ export async function initStoreOnce(): Promise<void> {
         foldersData,
       ] = await Promise.all([
         portalStore.getStaff(),
-        portalStore.getTasks(25, 0),
+        portalStore.getTasks(200, 0),
         portalStore.getNotices(25, 0),
         portalStore.getMeetings(25, 0),
         portalStore.getApprovals(25, 0),
@@ -737,7 +737,7 @@ export const portalStore = {
   // -----------------------------------------------------------------------
   // Getters (Async Supabase Queries)
   // -----------------------------------------------------------------------
-  getTasks: async (limit: number = 50, offset: number = 0): Promise<Task[]> => {
+  getTasks: async (limit: number = 200, offset: number = 0): Promise<Task[]> => {
     try {
       let [tasksRes, subtasksRes] = await Promise.all([
         supabase

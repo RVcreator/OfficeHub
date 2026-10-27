@@ -22,7 +22,7 @@ import { usePortalStore } from '../services/store';
 import { TabId } from './Sidebar';
 import { fetchAyahOfTheDay, QuranAyah } from '../services/quranService';
 import { useHijriDate } from '../utils/hijriDate';
-import { isPersonalTask, isTaskAssignedToUser } from '../utils/taskUtils';
+import { isMyPersonalOrAssignedTask } from '../utils/taskUtils';
 import { Project } from '../types';
 import { getProjectFinancials } from './ProjectsView';
 
@@ -55,10 +55,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
   const myTasks = tasks.filter(t => {
     if (t.status === 'Cancelled') return false;
-    const isPersonal = isPersonalTask(t, currentUser.id);
-    const isCreatedByMe = t.createdById === currentUser.id;
-    const isAssignedDirectly = isTaskAssignedToUser(t, currentUser.id, currentUser.name);
-    return (isPersonal && (isCreatedByMe || isAssignedDirectly)) || isAssignedDirectly;
+    return isMyPersonalOrAssignedTask(t, currentUser.id, currentUser.name);
   });
 
   const todayStr = new Date().toISOString().split('T')[0];
@@ -185,7 +182,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               { label: 'Open', count: openTasks.length, color: 'text-slate-900' },
               { label: 'Overdue', count: overdueTasksCount, color: 'text-red-600' },
               { label: 'Due soon', count: dueSoonTasksCount, color: 'text-yellow-600' },
-              { label: 'Done this week', count: doneTasksCount, color: 'text-emerald-600' },
+              { label: 'Done', count: doneTasksCount, color: 'text-emerald-600' },
             ].map((stat, i) => (
               <div key={i} className="border border-slate-100 p-4 rounded-lg bg-slate-50 hover:bg-slate-100 transition">
                 <p className={`text-3xl font-bold ${stat.color}`}>{stat.count}</p>

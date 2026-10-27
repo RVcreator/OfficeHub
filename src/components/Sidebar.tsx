@@ -22,7 +22,7 @@ import {
   UserCheck
 } from 'lucide-react';
 import { usePortalStore } from '../services/store';
-import { isPersonalTask, isTaskAssignedByMe, isTaskAssignedToUser, isTaskDepartmentalForUser } from '../utils/taskUtils';
+import { isMyPersonalOrAssignedTask, isTaskAssignedByMe, isTaskDepartmentalForUser } from '../utils/taskUtils';
 import { canUserViewDocument } from './SharePointView';
 
 export type TabId = 
@@ -70,10 +70,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   const myTasksCount = tasks.filter(t => {
     if (t.status === 'Done' || t.status === 'Cancelled') return false;
-    const isPersonal = isPersonalTask(t, currentUser.id);
-    const isCreatedByMe = t.createdById === currentUser.id;
-    const isAssignedDirectly = isTaskAssignedToUser(t, currentUser.id, currentUser.name);
-    return (isPersonal && (isCreatedByMe || isAssignedDirectly)) || isAssignedDirectly;
+    return isMyPersonalOrAssignedTask(t, currentUser.id, currentUser.name);
   }).length;
   const deptTasksCount = tasks.filter(t => {
     if (t.status === 'Done' || t.status === 'Cancelled') return false;

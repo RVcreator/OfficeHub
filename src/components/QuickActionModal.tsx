@@ -83,6 +83,7 @@ export const QuickActionModal: React.FC<QuickActionModalProps> = ({
       setTaskAttachments([]);
       setTaskSelectedDepartments([]);
       setTaskSelectedOrganisations(['WIPAHS']);
+      setTaskFormError(null);
 
       // Reset meeting fields so old meeting details never carry over
       setMeetingTitle('');
@@ -135,6 +136,7 @@ export const QuickActionModal: React.FC<QuickActionModalProps> = ({
   const [newSubtaskInput, setNewSubtaskInput] = useState('');
   const [taskAttachments, setTaskAttachments] = useState<MessageAttachment[]>([]);
   const [isUploadingTaskFile, setIsUploadingTaskFile] = useState(false);
+  const [taskFormError, setTaskFormError] = useState<string | null>(null);
 
   const handleTaskFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files || e.target.files.length === 0) return;
@@ -379,9 +381,14 @@ export const QuickActionModal: React.FC<QuickActionModalProps> = ({
     // Validation: Task Title and Due Date are compulsory
     if (!taskTitle.trim()) return;
     if (!taskDueDate || !taskDueDate.trim()) {
-      alert('Due date is compulsory when creating a task.');
+      setTaskFormError('Due date is compulsory when creating a task.');
       return;
     }
+    if (taskAssignTarget === 'specific_people' && taskSelectedPeopleIds.length === 0) {
+      setTaskFormError('Please select at least one staff member to assign this task to.');
+      return;
+    }
+    setTaskFormError(null);
 
     setIsSubmitting(true);
     try {
@@ -802,7 +809,16 @@ export const QuickActionModal: React.FC<QuickActionModalProps> = ({
                 <div className="relative">
                   <select
                     value={taskAssignTarget}
-                    onChange={(e) => setTaskAssignTarget(e.target.value as any)}
+                    onChange={(e) => {
+                      const nextTarget = e.target.value as 'personal' | 'department' | 'organization' | 'specific_people';
+                      setTaskFormError(null);
+                      if (nextTarget === 'personal') {
+                        setTaskSelectedPeopleIds([currentUser.id]);
+                      } else if (nextTarget === 'specific_people' && taskAssignTarget === 'personal') {
+                        setTaskSelectedPeopleIds(defaultAssignee ? [defaultAssignee.id] : []);
+                      }
+                      setTaskAssignTarget(nextTarget);
+                    }}
                     className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white font-medium text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-[#00ad1d]"
                   >
                     <option value="personal">Personal (Myself)</option>
@@ -1174,6 +1190,12 @@ export const QuickActionModal: React.FC<QuickActionModalProps> = ({
                   </button>
                 </div>
               </div>
+
+              {taskFormError && (
+                <div role="alert" className="p-2.5 rounded-lg bg-rose-50 border border-rose-200 text-rose-800 font-semibold text-xs">
+                  {taskFormError}
+                </div>
+              )}
 
               <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
                 <button

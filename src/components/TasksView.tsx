@@ -48,7 +48,7 @@ import { UserRatingDisplay } from './UserRatingDisplay';
 import { TaskRatingPrompt } from './TaskRatingPrompt';
 import {
   isPersonalTask,
-  isTaskAssignedToUser,
+  isMyPersonalOrAssignedTask,
   isTaskDepartmentalForUser,
   isTaskVisibleInAllTasks,
   isTaskAssignedByMe
@@ -467,17 +467,13 @@ export const TasksView: React.FC<TasksViewProps> = ({
     setSearchQuery('');
   }, [defaultCategory]);
 
-  // 1. My Tasks: personal tasks and tasks assigned to me
+  // 1. My Tasks: personal tasks and tasks assigned to me (excluding tasks assigned by me to others)
   const myWorkTasks = useMemo(() => {
     const currentId = currentUser.id;
     const currentName = currentUser.name?.toLowerCase().trim() || '';
     return tasks.filter(t => {
       if (isTaskArchived(t)) return false;
-      const isPersonal = isPersonalTask(t, currentId);
-      const isCreatedByMe = t.createdById === currentId;
-      const isAssignedDirectly = isTaskAssignedToUser(t, currentId, currentName);
-
-      return (isPersonal && (isCreatedByMe || isAssignedDirectly)) || isAssignedDirectly;
+      return isMyPersonalOrAssignedTask(t, currentId, currentName);
     });
   }, [tasks, currentUser]);
 
@@ -508,14 +504,20 @@ export const TasksView: React.FC<TasksViewProps> = ({
     });
   }, [activeCategory, assignedByMeTasks]);
 
-  // 4. All Tasks: strictly scoped to personal tasks, departmental tasks, and tasks assigned to user
-  // "in all tasks only personal tasks, departmental and tasks assigned to u should appear and not everyone else's tasks"
+  // 4. All Tasks: all tasks relevant to the user, including personal tasks, tasks assigned to me,
+  // tasks assigned by me, departmental tasks, and organisation-wide tasks
   const allTasksForUser = useMemo(() => {
     const currentId = currentUser.id;
     const currentName = currentUser.name?.toLowerCase().trim() || '';
     return tasks.filter(t => {
       if (isTaskArchived(t)) return false;
-      return isTaskVisibleInAllTasks(t, currentId, currentName, currentUser.department);
+      return isTaskVisibleInAllTasks(
+        t,
+        currentId,
+        currentName,
+        currentUser.department,
+        currentUser.organisation
+      );
     });
   }, [tasks, currentUser]);
 

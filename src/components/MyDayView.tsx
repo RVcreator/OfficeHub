@@ -11,7 +11,7 @@ import { usePortalStore } from '../services/store';
 import { TabId } from './Sidebar';
 import { fetchHadithOfTheDay, ShiaHadith } from '../services/hadithService';
 import { useHijriDate } from '../utils/hijriDate';
-import { isPersonalTask, isTaskAssignedToUser } from '../utils/taskUtils';
+import { isMyPersonalOrAssignedTask } from '../utils/taskUtils';
 
 interface MyDayViewProps {
   onSelectTab: (tab: TabId) => void;
@@ -36,10 +36,7 @@ export const MyDayView: React.FC<MyDayViewProps> = ({
 
   const myTasks = tasks.filter(t => {
     if (t.status === 'Done' || t.status === 'Cancelled') return false;
-    const isPersonal = isPersonalTask(t, currentUser.id);
-    const isCreatedByMe = t.createdById === currentUser.id;
-    const isAssignedDirectly = isTaskAssignedToUser(t, currentUser.id, currentUser.name);
-    return (isPersonal && (isCreatedByMe || isAssignedDirectly)) || isAssignedDirectly;
+    return isMyPersonalOrAssignedTask(t, currentUser.id, currentUser.name);
   });
   const todayMeetings = meetings.filter(m => m.status === 'Scheduled');
 

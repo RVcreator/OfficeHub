@@ -84,7 +84,7 @@ export function isPersonalTask(task: Partial<Task> | null | undefined, currentUs
   // 2. If a task is assigned to other people, it is NEVER a personal task
   if (currentUserId) {
     const isAssignedToOther =
-      (typeof task.assignedToId === 'string' && task.assignedToId !== currentUserId && !task.assignedToId.startsWith('dept-') && !task.assignedToId.startsWith('org-')) ||
+      (typeof task.assignedToId === 'string' && task.assignedToId.length > 0 && task.assignedToId !== currentUserId && !task.assignedToId.startsWith('dept-') && !task.assignedToId.startsWith('org-')) ||
       (Array.isArray(task.assignedToIds) && task.assignedToIds.some(id => id && id !== currentUserId));
     if (isAssignedToOther) {
       return false;
@@ -94,7 +94,9 @@ export function isPersonalTask(task: Partial<Task> | null | undefined, currentUs
   // If creator and assignee are distinctly different users, it is NOT personal (it is delegated/assigned)
   if (
     typeof task.createdById === 'string' &&
+    task.createdById.length > 0 &&
     typeof task.assignedToId === 'string' &&
+    task.assignedToId.length > 0 &&
     task.createdById !== task.assignedToId &&
     !task.assignedToId.startsWith('dept-') &&
     !task.assignedToId.startsWith('org-')
@@ -131,7 +133,9 @@ export function isPersonalTask(task: Partial<Task> | null | undefined, currentUs
 
   // 6. If currentUserId is passed and task is self-assigned to this user
   if (currentUserId && task.createdById === currentUserId && (!task.assignedToId || task.assignedToId === currentUserId)) {
-    return true;
+    if (!task.assignedToIds || task.assignedToIds.length === 0 || task.assignedToIds.every(id => !id || id === currentUserId)) {
+      return true;
+    }
   }
 
   return false;
@@ -147,6 +151,8 @@ export function isTaskAssignedToUser(task: Task, currentUserId: string, currentU
   if (
     task.assignmentType === 'department' ||
     task.assignmentType === 'organization' ||
+    (Array.isArray(task.assignedDepartments) && task.assignedDepartments.length > 0) ||
+    (Array.isArray(task.assignedOrganisations) && task.assignedOrganisations.length > 0) ||
     (typeof task.assignedToId === 'string' && (task.assignedToId.startsWith('dept-') || task.assignedToId.startsWith('org-') || task.assignedToId === 'all')) ||
     (typeof task.assignedToName === 'string' && (task.assignedToName.toLowerCase().includes('(department)') || task.assignedToName.toLowerCase().includes('(whole org)')))
   ) {
@@ -161,9 +167,13 @@ export function isTaskAssignedToUser(task: Task, currentUserId: string, currentU
     return true;
   }
 
-  // 3. Exact name match (fallback for cases where IDs might not be mapped in DB)
+  // 3. Exact name match (fallback ONLY for cases where assignee IDs were not mapped in DB)
+  const hasExplicitAssigneeIds =
+    Boolean(task.assignedToId) ||
+    (Array.isArray(task.assignedToIds) && task.assignedToIds.some(Boolean));
+
   const normCurrentName = currentUserName?.toLowerCase().trim();
-  if (normCurrentName) {
+  if (!hasExplicitAssigneeIds && normCurrentName && normCurrentName !== 'staff member') {
     if (task.assignedToName && task.assignedToName.toLowerCase().trim() === normCurrentName) {
       return true;
     }
@@ -213,6 +223,45 @@ export function isTaskAssignedByMe(task: Task, currentUserId: string): boolean {
 }
 
 /**
+ * Checks if a task belongs directly to the current user's own execution queue
+ * (either a personal task of the current user, or a task assigned to the current user).
+ * Explicitly excludes tasks delegated/assigned by the current user to other people,
+ * departments, or organisations.
+ */
+export function isMyPersonalOrAssignedTask(
+  task: Task,
+  currentUserId: string,
+  currentUserName?: string
+): boolean {
+  if (!task || !currentUserId || currentUserId === 'usr-default' || currentUserId === 'usr-guest') {
+    return false;
+  }
+
+  // Tasks delegated/assigned by the current user to others (or rated by the current user as assigner)
+  // are NOT tasks assigned to or personally done by the current user.
+  if (isTaskAssignedByMe(task, currentUserId)) {
+    return false;
+  }
+  if (task.rating?.raterUserId && task.rating.raterUserId === currentUserId) {
+    return false;
+  }
+  if (task.rating?.ratedUserId && task.rating.ratedUserId !== currentUserId) {
+    return false;
+  }
+
+  // 1. Personal task: must belong to the current user (never another user's personal task)
+  if (isPersonalTask(task)) {
+    return task.createdById === currentUserId || task.assignedToId === currentUserId;
+  }
+  if (isPersonalTask(task, currentUserId)) {
+    return task.createdById === currentUserId || task.assignedToId === currentUserId;
+  }
+
+  // 2. Directly assigned to the current user
+  return isTaskAssignedToUser(task, currentUserId, currentUserName);
+}
+
+/**
  * Checks if a task is a departmental task relevant to the user's department as a whole.
  * Individual tasks assigned to a specific person do NOT qualify as departmental tasks for other members.
  */
@@ -256,30 +305,52 @@ export function isTaskDepartmentalForUser(task: Task, userDepartment?: string): 
 }
 
 /**
+ * Checks if a task is an organisation-wide task relevant to the user's organisation.
+ */
+export function isTaskOrganisationalForUser(task: Task, userOrganisation?: string): boolean {
+  if (!task) return false;
+  if (isPersonalTask(task)) return false;
+
+  const isOrgTarget =
+    task.assignmentType === 'organization' ||
+    task.assignedToId === 'all' ||
+    (Array.isArray(task.assignedOrganisations) && task.assignedOrganisations.length > 0) ||
+    (typeof task.assignedToId === 'string' && task.assignedToId.startsWith('org-')) ||
+    (typeof task.assignedToName === 'string' && task.assignedToName.toLowerCase().includes('(whole org)'));
+
+  if (!isOrgTarget) return false;
+
+  const userOrg = (userOrganisation || 'WIPAHS').trim().toLowerCase();
+  if (Array.isArray(task.assignedOrganisations) && task.assignedOrganisations.length > 0) {
+    return task.assignedOrganisations.some(o => o.trim().toLowerCase() === userOrg);
+  }
+  if (task.assignedToId === 'all') return true;
+  const taskOrg = (task.organisation || 'WIPAHS').trim().toLowerCase();
+  return taskOrg === userOrg;
+}
+
+/**
  * Filters tasks visible in "All Tasks" view.
- * STRICT RULE:
- * "the tasks assigned to other members should not appear in my tasks or all tasks, the members tasks are mixing up fix that 
- * only the tasks i have assigned should appear in assigned by me, and all tasks should only include the tasks that are concernedwith the specific member keep strict rules regarding who able to view the tasks"
  *
- * For the logged-in member, "All Tasks" includes ONLY:
+ * For the logged-in member, "All Tasks" includes all tasks relevant to the user:
  * 1. Personal tasks belonging to the current user (never someone else's personal tasks).
  * 2. Tasks assigned directly to the current user.
- * 3. Departmental tasks assigned to the user's department as a whole.
- *
- * Tasks assigned to other members DO NOT appear in "All Tasks" or "My Tasks".
- * (Tasks assigned by the current user to others appear exclusively in the "Assigned By Me" tab).
+ * 3. Tasks assigned/created by the current user ("Assigned By Me").
+ * 4. Departmental tasks assigned to the user's department as a whole.
+ * 5. Organisation-wide tasks assigned to the user's organisation.
  */
 export function isTaskVisibleInAllTasks(
   task: Task,
   currentUserId: string,
   currentUserName?: string,
-  userDepartment?: string
+  userDepartment?: string,
+  userOrganisation?: string
 ): boolean {
   if (!task) return false;
 
-  // 1. Personal tasks: ONLY show if it belongs to current user.
-  if (isPersonalTask(task, currentUserId)) {
-    return task.createdById === currentUserId || task.assignedToId === currentUserId;
+  // 1. Personal tasks: ONLY show if it belongs to current user (strictly private to owner).
+  if (isPersonalTask(task) || isPersonalTask(task, currentUserId)) {
+    return Boolean(currentUserId) && (task.createdById === currentUserId || task.assignedToId === currentUserId);
   }
 
   // 2. Tasks assigned directly to the current user
@@ -287,12 +358,26 @@ export function isTaskVisibleInAllTasks(
     return true;
   }
 
-  // 3. Departmental tasks for the user's department (assigned to the department as a whole)
+  // 3. Tasks assigned/created by the current user (including delegated tasks)
+  if (
+    isTaskAssignedByMe(task, currentUserId) ||
+    (Boolean(currentUserId) &&
+      currentUserId !== 'usr-default' &&
+      currentUserId !== 'usr-guest' &&
+      task.createdById === currentUserId)
+  ) {
+    return true;
+  }
+
+  // 4. Departmental tasks for the user's department (assigned to the department as a whole)
   if (isTaskDepartmentalForUser(task, userDepartment)) {
     return true;
   }
 
-  // All other tasks belong to other members or were delegated to other members,
-  // and must NOT mix into this member's "All Tasks".
+  // 5. Organisation-wide tasks for the user's organisation
+  if (isTaskOrganisationalForUser(task, userOrganisation)) {
+    return true;
+  }
+
   return false;
 }
