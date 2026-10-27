@@ -166,3 +166,18 @@ test('office availability only changes after a confirmed save and updates the cu
   assert.equal(portalStore.getCurrentUser().status,'Offline');
  } finally {supabase.from=originalFrom;}
 });
+
+
+test('profile settings publish office availability only after a confirmed save', async () => {
+  initialize();
+  (supabase as any).from = () => { const q:any=query({data:null,error:null}); q.update=()=>q; q.single=async()=>({data:null,error:{message:'denied'}}); return q; };
+  try {
+    await assert.rejects(portalStore.updateCurrentUserProfile({outOfOffice:true}), /could not be saved/);
+    assert.notEqual(portalStore.getCurrentUser().outOfOffice, true);
+    (supabase as any).from = () => { const q:any=query({data:null,error:null}); q.update=()=>q; q.single=async()=>({data:{id:actor},error:null}); return q; };
+    await portalStore.updateCurrentUserProfile({outOfOffice:true});
+    assert.equal(portalStore.getCurrentUser().status, 'Out of Office');
+    await portalStore.updateCurrentUserProfile({outOfOffice:false});
+    assert.equal(portalStore.getCurrentUser().status, 'Offline');
+  } finally { supabase.from=originalFrom; }
+});
