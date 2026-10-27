@@ -49,6 +49,7 @@ export default function App() {
   const [selectedMeetingId, setSelectedMeetingId] = useState<string | null>(null);
   const [selectedApprovalId, setSelectedApprovalId] = useState<string | null>(null);
   const [authChecking, setAuthChecking] = useState(true);
+  const [authError, setAuthError] = useState(false);
 
   // Release Supabase's auth lock before resolving profiles or refreshing data.
   useEffect(() => {
@@ -59,26 +60,47 @@ export default function App() {
           return;
         }
         if (!session?.user) return;
-        const resolvedUser = await actions.syncAuthenticatedUserProfile(session.user);
+        const { data: verified, error } = await supabase.auth.getUser();
+        if (error || !verified.user) throw new Error('Account verification failed');
         if (!isCurrent()) return;
-        const mustChange = actions.shouldForcePasswordChange(session.user, resolvedUser, {
+        const resolvedUser = await actions.syncAuthenticatedUserProfile(verified.user);
+        if (!isCurrent()) return;
+        const mustChange = actions.shouldForcePasswordChange(verified.user, resolvedUser, {
           isRecoveryEvent: event === 'PASSWORD_RECOVERY',
           isSessionRestore: event !== 'PASSWORD_RECOVERY',
         });
         actions.loginUser(resolvedUser, mustChange, session.access_token);
+        setAuthError(false);
       } finally {
         if (isCurrent()) setAuthChecking(false);
       }
     }, () => {
       setAuthChecking(false);
+      setAuthError(true);
       console.warn('OfficeHub could not restore the current session. Please sign in again.');
     });
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(deferred.handle);
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      // Keep recovery intent even if a later auth event replaces the queued event.
+      if (event === 'PASSWORD_RECOVERY' && session?.user) actions.requirePasswordRecovery(session.user.id);
+      deferred.handle(event, session);
+    });
+    const recheck = () => {
+      if (document.visibilityState === 'hidden') return;
+      void supabase.auth.getSession().then(({data}) => {
+        if (data.session) deferred.handle('TOKEN_REFRESHED',data.session);
+      }).catch(() => {});
+    };
+    const timer=window.setInterval(recheck,60_000);
+    window.addEventListener('focus',recheck);
     return () => {
+      window.clearInterval(timer);
+      window.removeEventListener('focus',recheck);
       deferred.dispose();
       subscription.unsubscribe();
     };
   }, []);
+
+  if (authError) return <div className="min-h-screen flex flex-col items-center justify-center gap-4"><p>We could not verify your account. Please reconnect and try again.</p><button onClick={() => window.location.reload()}>Try again</button></div>;
 
   if (loading || authChecking) {
     return (
@@ -107,9 +129,7 @@ export default function App() {
       <ForcedPasswordChangeScreen
         user={currentUser}
         sessionToken={authSession.sessionToken}
-        onPasswordChanged={(updatedUser) => {
-          actions.completeForcedPasswordChange(updatedUser.temporaryPassword || 'updated');
-        }}
+        onPasswordChanged={(updatedUser) => actions.completeForcedPasswordChange(updatedUser)}
         onSignOut={() => {
           actions.logoutUser();
         }}

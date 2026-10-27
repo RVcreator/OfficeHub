@@ -17,9 +17,7 @@ const corsHeaders = {
 function generateTempPassword(): string {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789@#$%&*!';
   let pass = 'Wipahs#';
-  for (let i = 0; i < 8; i++) {
-    pass += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
+  for (const byte of crypto.getRandomValues(new Uint8Array(12))) pass += chars.charAt(byte % chars.length);
   return pass + '9!';
 }
 
@@ -28,6 +26,7 @@ serve(async (req: Request) => {
     return new Response('ok', { headers: corsHeaders });
   }
 
+  if(req.method!=='POST') return new Response(JSON.stringify({error:'Method not allowed'}),{status:405,headers:{...corsHeaders,'Content-Type':'application/json'}});
   try {
     const authHeader = req.headers.get('Authorization');
     if (!authHeader) {
@@ -104,11 +103,15 @@ serve(async (req: Request) => {
       });
     }
 
+    if(customPassword!==undefined && (typeof customPassword!=='string' || customPassword.length<8 || customPassword.length>128)) return new Response(JSON.stringify({error:'Temporary password must be 8 to 128 characters'}),{status:400,headers:{...corsHeaders,'Content-Type':'application/json'}});
     const tempPassword = customPassword || generateTempPassword();
 
     // 4. Update Auth password and set app_metadata.must_change_password = true
     const { data: targetAuthUser, error: getAuthError } = await supabaseAdmin.auth.admin.getUserById(targetUserId);
-    const existingAppMeta = targetAuthUser?.user?.app_metadata || {};
+    if (getAuthError || !targetAuthUser?.user) return new Response(JSON.stringify({error:'Target account was not found'}),{status:404,headers:{...corsHeaders,'Content-Type':'application/json'}});
+    const existingAppMeta = targetAuthUser.user.app_metadata || {};
+    const resetAt = new Date().toISOString();
+    const resetId = crypto.randomUUID();
 
     const { error: updateAuthError } = await supabaseAdmin.auth.admin.updateUserById(
       targetUserId,
@@ -117,7 +120,9 @@ serve(async (req: Request) => {
         app_metadata: {
           ...existingAppMeta,
           must_change_password: true,
-          password_reset_at: new Date().toISOString(),
+          password_reset_at: resetAt,
+          password_reset_id: resetId,
+          password_changed_at: null,
         },
       }
     );
@@ -130,16 +135,19 @@ serve(async (req: Request) => {
     }
 
     // 5. Update profiles table (must_change_password = true, temporary_password = tempPassword)
-    const { error: updateProfileError } = await supabaseAdmin
+    const {data:targetProfile,error:profileReadError}=await supabaseAdmin.from('profiles').select('app_metadata').eq('id',targetUserId).single();
+    if(profileReadError || !targetProfile) return new Response(JSON.stringify({error:'Password reset applied in Auth, but profile confirmation failed. Please retry.'}),{status:503,headers:{...corsHeaders,'Content-Type':'application/json'}});
+    const { data: updatedProfile, error: updateProfileError } = await supabaseAdmin
       .from('profiles')
       .update({
         must_change_password: true,
-        temporary_password: tempPassword,
+        temporary_password: null,
+        app_metadata:{...targetProfile.app_metadata,must_change_password:true,password_changed_at:null,password_reset_at:resetAt,password_reset_id:resetId},
       })
-      .eq('id', targetUserId);
+      .eq('id', targetUserId).select('id').single();
 
-    if (updateProfileError) {
-      return new Response(JSON.stringify({ error: `Failed to update profile record: ${updateProfileError.message}` }), {
+    if (updateProfileError || !updatedProfile) {
+      return new Response(JSON.stringify({ error: `Failed to update profile record: ${updateProfileError?.message || 'Profile not confirmed'}` }), {
         status: 500,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
@@ -163,3 +171,4 @@ serve(async (req: Request) => {
     });
   }
 });
+

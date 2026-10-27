@@ -88,11 +88,12 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
     setIsResetting(true);
 
     try {
-      await resetPasswordWithSupabase(cleanEmail);
+      const result = await resetPasswordWithSupabase(cleanEmail);
+      if (result.error) throw new Error(result.error.message);
       setResetSuccessMessage(`A password reset link has been sent to ${cleanEmail}. Please check your inbox.`);
       portalStore.logAudit('auth_password_reset_requested', `Password reset link requested for ${cleanEmail}`, 'purple');
     } catch (err: any) {
-      setResetSuccessMessage(`A password reset link has been sent to ${cleanEmail}. Please check your inbox.`);
+      setErrorMessage('The reset request could not be sent. Please check your connection and try again.');
     } finally {
       setIsResetting(false);
     }
