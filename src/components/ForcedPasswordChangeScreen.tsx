@@ -14,14 +14,14 @@ import {
   Check,
   X
 } from 'lucide-react';
-import { updatePasswordWithSupabase, invokeClearMustChangePasswordEdgeFunction } from '../services/supabaseClient';
+import { updatePasswordWithSupabase } from '../services/supabaseClient';
 import { portalStore } from '../services/store';
 import { StaffUser } from '../types';
 
 interface ForcedPasswordChangeScreenProps {
   user: StaffUser;
   sessionToken?: string;
-  onPasswordChanged: (updatedUser: StaffUser) => void;
+  onPasswordChanged: (updatedUser: StaffUser) => void | Promise<void>;
   onSignOut: () => void;
 }
 
@@ -62,7 +62,7 @@ export const ForcedPasswordChangeScreen: React.FC<ForcedPasswordChangeScreenProp
     }
 
     setIsSubmitting(true);
-    setStatusStep('Updating password in Supabase Auth...');
+    setStatusStep('Saving your new password...');
 
     try {
       // STEP 1: Update password and security metadata in Supabase Auth
@@ -75,26 +75,11 @@ export const ForcedPasswordChangeScreen: React.FC<ForcedPasswordChangeScreenProp
         return;
       }
 
-      // STEP 2: Attempt server-side app_metadata update via Edge Function using fresh rotated JWT
-      setStatusStep('Finalizing security profile...');
-      await invokeClearMustChangePasswordEdgeFunction(sessionToken);
-
+      if (!updateResult.data) throw new Error('Password change was not confirmed.');
       const updatedUser: StaffUser = {
-        ...user,
-        mustChangePassword: false,
-        temporaryPassword: undefined,
-        app_metadata: {
-          ...(user.app_metadata || {}),
-          must_change_password: false,
-          password_changed_at: new Date().toISOString()
-        }
+        ...user,mustChangePassword:false,temporaryPassword:undefined,
+        app_metadata:updateResult.data.app_metadata,
       };
-
-      portalStore.updateStaffMember(user.id, {
-        mustChangePassword: false,
-        temporaryPassword: undefined,
-        app_metadata: updatedUser.app_metadata
-      });
 
       portalStore.logAudit(
         'forced_password_changed',
@@ -104,10 +89,7 @@ export const ForcedPasswordChangeScreen: React.FC<ForcedPasswordChangeScreenProp
 
       setIsSuccess(true);
 
-      // Brief delay to display success animation, then proceed to app
-      setTimeout(() => {
-        onPasswordChanged(updatedUser);
-      }, 800);
+      await onPasswordChanged(updatedUser);
     } catch (err: any) {
       setErrorMessage(err?.message || 'An error occurred while updating your password. Please try again.');
       setIsSubmitting(false);
