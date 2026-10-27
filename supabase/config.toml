@@ -6,3 +6,6 @@ verify_jwt = true
 
 [functions.sharepoint-share]
 verify_jwt = true
+
+[functions.sharepoint-update-permissions]
+verify_jwt = true
