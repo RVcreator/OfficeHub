@@ -265,7 +265,7 @@ export const ProjectModal: React.FC<ProjectModalProps> = ({
   const ConfirmationModal = () => {
     if (!confirmDialog) return null;
     return (
-      <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+      <div className="oh-dialog fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
         <div className="bg-white rounded-lg p-6 max-w-sm w-full shadow-2xl border border-slate-200">
           <h3 className="text-sm font-bold text-slate-900 mb-4">{confirmDialog.title}</h3>
           <div className="flex gap-2 justify-end">
@@ -784,7 +784,7 @@ export const ProjectModal: React.FC<ProjectModalProps> = ({
 
   return (
     <div 
-      className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto"
+      className="oh-dialog fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto"
       onClick={onClose}
     >
       <div 
@@ -795,12 +795,12 @@ export const ProjectModal: React.FC<ProjectModalProps> = ({
         {/* Header */}
         <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/70 shrink-0">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-lg bg-[#00ad1d]/10 flex items-center justify-center text-[#00ad1d] font-bold text-sm">
+            <div className="hidden sm:flex shrink-0 w-9 h-9 rounded-lg bg-[#00ad1d]/10 items-center justify-center text-[#00ad1d] font-bold text-sm">
               {project.code ? project.code.slice(0, 3) : 'PRJ'}
             </div>
             <div>
-              <div className="flex items-center gap-2">
-                <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-slate-200 text-slate-700">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="shrink-0 whitespace-nowrap text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-slate-200 text-slate-700">
                   {project.code || 'INITIATIVE'}
                 </span>
                 <span className="text-xs font-semibold text-slate-500">{project.department}</span>
@@ -816,7 +816,7 @@ export const ProjectModal: React.FC<ProjectModalProps> = ({
                         }, 100);
                       }
                     }}
-                    className="px-2 py-0.5 text-slate-600 hover:text-slate-900 hover:bg-slate-200/70 rounded transition flex items-center gap-1 border border-slate-200 text-[10px] font-semibold"
+                    className="hidden sm:flex px-2 py-0.5 text-slate-600 hover:text-slate-900 hover:bg-slate-200/70 rounded transition items-center gap-1 border border-slate-200 text-[10px] font-semibold"
                     title={isEditing ? 'Hide Edit Section' : 'Edit Project Details (Appears at bottom)'}
                   >
                     <Pencil className="w-3 h-3 text-[#00ad1d]" />
@@ -2358,12 +2358,12 @@ export const ProjectModal: React.FC<ProjectModalProps> = ({
         </div>
 
         {/* Modal Footer */}
-        <div className="px-5 py-3 border-t border-slate-200 bg-slate-50/80 flex items-center justify-between shrink-0 text-xs">
+        <div className="oh-project-footer px-5 py-3 border-t border-slate-200 bg-slate-50/80 flex flex-col sm:flex-row gap-3 sm:items-center justify-between shrink-0 text-xs">
           <div className="flex items-center gap-2 text-slate-500">
             <span>Project Lead: <strong className="text-slate-800">{project.leadName || currentUser.name}</strong></span>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             {canEdit && project.status !== 'Completed' && (
               <button
                 type="button"
@@ -2425,7 +2425,7 @@ export const ProjectModal: React.FC<ProjectModalProps> = ({
 
       {/* Record Expense Modal */}
       {showExpenseModal && (
-        <div className="fixed inset-0 z-60 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+        <div className="oh-dialog fixed inset-0 z-60 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-lg max-w-md w-full shadow-2xl border border-slate-200 p-6 animate-in fade-in duration-150">
             <div className="flex items-center justify-between mb-4 border-b border-slate-100 pb-3">
               <div className="flex items-center gap-2">
@@ -2643,7 +2643,7 @@ export const ProjectModal: React.FC<ProjectModalProps> = ({
         };
 
         return (
-          <div className="fixed inset-0 z-60 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+          <div className="oh-dialog fixed inset-0 z-60 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
             <div className="bg-white rounded-lg max-w-2xl w-full shadow-2xl border border-slate-200 flex flex-col max-h-[90vh] overflow-hidden animate-in fade-in duration-150">
               
               {/* Header */}
@@ -2858,7 +2858,7 @@ export const ProjectModal: React.FC<ProjectModalProps> = ({
 
       {/* In-App Document Preview Modal */}
       {previewDoc && (
-        <div className="fixed inset-0 z-70 bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-4">
+        <div className="oh-dialog fixed inset-0 z-70 bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-lg max-w-3xl w-full shadow-2xl border border-slate-200 flex flex-col max-h-[90vh] overflow-hidden animate-in fade-in duration-150">
             <div className="px-5 py-3.5 border-b border-slate-200 bg-slate-50 flex items-center justify-between shrink-0">
               <div className="flex items-center gap-2.5 truncate">
@@ -2900,7 +2900,7 @@ export const ProjectModal: React.FC<ProjectModalProps> = ({
 
       {/* Add Project Member Modal */}
       {showAddMemberModal && (
-        <div className="fixed inset-0 z-60 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+        <div className="oh-dialog fixed inset-0 z-60 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-lg max-w-md w-full shadow-2xl border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
             <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between bg-slate-50/80">
               <div className="flex items-center gap-2">
