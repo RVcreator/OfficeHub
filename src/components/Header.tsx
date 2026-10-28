@@ -37,11 +37,13 @@ interface HeaderProps {
   onOpenQuickAction: () => void;
   onSearchSelect?: (tab: string) => void;
   onToggleMobileMenu?: () => void;
+  isNavigationOpen?: boolean;
   onSelectTask?: (taskId: string) => void;
   onSignOut?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
+  isNavigationOpen = false,
   onOpenSettings,
   onOpenSettingsTab,
   onOpenQuickAction,
@@ -154,13 +156,13 @@ export const Header: React.FC<HeaderProps> = ({
           }}
         />
       )}
-      <header className="sticky top-0 z-40 bg-white border-b border-[#cbd5e1] px-4 lg:px-6 h-14 flex items-center justify-between">
+      <header className="oh-header sticky top-0 z-40 bg-white border-b border-slate-200">
       {/* Left: Brand Identity */}
       <div className="flex items-center gap-3 min-w-0">
         <button
           onClick={onToggleMobileMenu}
           className="p-1.5 rounded-md text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition"
-          aria-label="Toggle navigation menu"
+          aria-label="Toggle navigation menu" aria-expanded={isNavigationOpen} aria-controls="officehub-navigation"
         >
           <Menu className="w-5 h-5" />
         </button>
@@ -185,7 +187,7 @@ export const Header: React.FC<HeaderProps> = ({
       </div>
 
       {/* Center: Search */}
-      <div className="relative flex-1 max-w-md mx-4" ref={searchContainerRef}>
+      <div className="oh-search relative min-w-0" ref={searchContainerRef}>
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
           <input
@@ -196,6 +198,7 @@ export const Header: React.FC<HeaderProps> = ({
               setShowSearchDropdown(e.target.value.length > 0);
             }}
             onFocus={() => setShowSearchDropdown(searchQuery.length > 0)}
+            aria-label="Search OfficeHub"
             placeholder="Search tasks, documents, staff, notices..."
             className="w-full pl-9 pr-4 py-1.5 bg-slate-50 hover:bg-slate-100/80 focus:bg-white text-xs text-slate-800 placeholder-slate-400 border border-slate-200 rounded-md focus:outline-none focus:ring-1 focus:ring-[#00ad1d] focus:border-[#00ad1d] transition"
           />
@@ -284,14 +287,15 @@ export const Header: React.FC<HeaderProps> = ({
       </div>
 
       {/* Right Controls */}
-      <div className="flex items-center gap-2 sm:gap-3">
+      <div className="oh-header-actions flex items-center">
         {/* Quick New Task / Item Button */}
         <button
           onClick={onOpenQuickAction}
-          className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 bg-[#00ad1d] hover:bg-[#009218] text-white rounded-md text-xs font-semibold shadow-xs transition"
+          aria-label="Create new record"
+          className="flex items-center gap-1.5 px-3 py-1.5 bg-[#00ad1d] hover:bg-[#009218] text-white rounded-md text-xs font-semibold shadow-xs transition"
         >
           <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
-          <span>New</span>
+          <span className="hidden sm:inline">New</span>
         </button>
 
         {/* Sync Status Button */}
@@ -321,8 +325,8 @@ export const Header: React.FC<HeaderProps> = ({
 
           {/* Notifications Flyout */}
           {notificationsOpen && (
-            <div className="absolute right-0 top-full mt-2 w-88 bg-white border border-slate-200 rounded-lg shadow-xl p-3 z-50 text-xs animate-in fade-in duration-150">
-              <div className="flex items-center justify-between pb-2 border-b border-slate-100 mb-2">
+            <div className="oh-notifications absolute right-0 top-full mt-2 w-88 bg-white border border-slate-200 rounded-lg shadow-xl p-3 z-50 text-xs animate-in fade-in duration-150">
+              <div className="flex flex-wrap gap-2 items-center justify-between pb-2 border-b border-slate-100 mb-2">
                 <div className="flex items-center gap-1.5">
                   <span className="font-bold text-slate-800">Notifications & Alerts</span>
                   {unreadNotifCount > 0 && (
@@ -538,6 +542,7 @@ export const Header: React.FC<HeaderProps> = ({
         <div className="relative" ref={presenceMenuRef}>
           <button
             onClick={() => setPresenceMenuOpen(!presenceMenuOpen)}
+            aria-label="Account and presence" aria-expanded={presenceMenuOpen}
             className="flex items-center gap-2 p-1 pl-1.5 rounded-md hover:bg-slate-100 transition text-left"
           >
             <div className="relative">
@@ -550,7 +555,7 @@ export const Header: React.FC<HeaderProps> = ({
                 className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full ring-2 ring-white ${currentPresence.color}`}
               ></span>
             </div>
-            <div className="hidden lg:block leading-tight">
+            <div className="hidden xl:block leading-tight">
               <div className="flex items-center gap-1.5">
                 <p className="text-xs font-semibold text-slate-800 leading-tight">
                   {formatStaffDisplayName(currentUser)}
@@ -576,7 +581,7 @@ export const Header: React.FC<HeaderProps> = ({
 
           {/* Presence Status Dropdown */}
           {presenceMenuOpen && (
-            <div className="absolute right-0 top-full mt-2 w-56 bg-white border border-slate-200 rounded-md shadow-lg p-2 z-50 text-xs">
+            <div className="oh-presence absolute right-0 top-full mt-2 w-56 bg-white border border-slate-200 rounded-md shadow-lg p-2 z-50 text-xs">
               <div className="px-2 py-1.5 border-b border-slate-100 mb-1">
                 <p className="font-semibold text-slate-800">{formatStaffDisplayName(currentUser)}</p>
                 <p className="text-[10px] text-[#008f18] font-medium">{formatStaffDisplayOrgDept(currentUser)}</p>
