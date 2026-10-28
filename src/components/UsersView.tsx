@@ -670,7 +670,7 @@ export const UsersView: React.FC<UsersViewProps> = ({ onAssignTaskToUser }) => {
 
       {/* Add / Edit Member Modal */}
       {(isAddModalOpen || editingUser) && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+        <div className="oh-dialog fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-lg max-w-lg w-full p-5 sm:p-6 shadow-xl border border-slate-200 space-y-4 animate-in fade-in duration-150 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
               <div className="flex items-center gap-2">
@@ -860,7 +860,7 @@ export const UsersView: React.FC<UsersViewProps> = ({ onAssignTaskToUser }) => {
 
               {!editingUser && (
                 <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-md text-[11px] text-slate-600">
-                  <span className="font-semibold">Security Note:</span> A temporary initial password (<code className="bg-slate-200 px-1 rounded">Wipahs@2026</code>) will be generated for the new member. They can change it via their profile settings upon logging in.
+                  <span className="font-semibold">Security Note:</span> A unique temporary password will be generated for the new member. They must choose a new password at first sign-in before accessing OfficeHub.
                 </div>
               )}
 
@@ -889,7 +889,7 @@ export const UsersView: React.FC<UsersViewProps> = ({ onAssignTaskToUser }) => {
 
       {/* Password Reset Modal */}
       {passwordResetInfo && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+        <div className="oh-dialog fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-lg max-w-md w-full p-5 sm:p-6 shadow-xl border border-slate-200 space-y-4 animate-in fade-in duration-150">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
               <div className="flex items-center gap-2">
@@ -961,7 +961,7 @@ export const UsersView: React.FC<UsersViewProps> = ({ onAssignTaskToUser }) => {
 
       {/* Delete Confirmation Modal */}
       {deleteConfirmUser && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+        <div className="oh-dialog fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-lg max-w-md w-full p-5 shadow-xl border border-slate-200 space-y-4 animate-in fade-in duration-150">
             <div className="flex items-center gap-2 text-rose-600 font-bold text-base pb-2 border-b border-slate-100">
               <Trash2 className="w-5 h-5" />
