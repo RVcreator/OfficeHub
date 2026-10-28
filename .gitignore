@@ -9,3 +9,4 @@ coverage/
 
 # Isolated responsive browser-test output
 .responsive-qa/
+.auth-qa/
