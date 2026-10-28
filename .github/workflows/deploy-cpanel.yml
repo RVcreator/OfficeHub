@@ -1,0 +1,70 @@
+name: Publish OfficeHub to cPanel
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: officehub-cpanel
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          package-manager-cache: false
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.4.4'
+      - name: Install locked dependencies
+        run: bun install --frozen-lockfile
+      - name: Check code
+        run: npm run lint
+      - name: Run tests
+        run: node --import tsx --test tests/*.test.ts
+      - name: Build website
+        run: npm run build
+
+      - name: Check hosting credentials
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        env:
+          FTP_SERVER: ${{ secrets.FTP_SERVER }}
+          FTP_USERNAME: ${{ secrets.FTP_USERNAME }}
+          FTP_PASSWORD: ${{ secrets.FTP_PASSWORD }}
+        run: |
+          for name in FTP_SERVER FTP_USERNAME FTP_PASSWORD; do
+            if [ -z "${!name}" ]; then
+              echo "::error::Add the $name repository secret before publishing."
+              exit 1
+            fi
+          done
+
+      - name: Publish built website using encrypted FTPS
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        uses: SamKirkland/FTP-Deploy-Action@v4.4.0
+        with:
+          server: ${{ secrets.FTP_SERVER }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          protocol: ftps
+          security: strict
+          port: 21
+          local-dir: ./dist/
+          server-dir: ./
+          dangerous-clean-slate: false
+          exclude: |
+            **/.git*
+            **/.git*/**
+            **/node_modules/**
