@@ -349,9 +349,9 @@ export const SharePointView: React.FC<{ onOpenUploadModal: () => void }> = ({ on
                   </span>
 
                   <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <p className="text-sm font-semibold text-slate-900 truncate">{doc.name}</p>
-                      <span className="text-[10px] px-1.5 py-0.2 rounded bg-slate-100 text-slate-600 font-medium">
+                    <div className="flex flex-wrap items-start gap-2">
+                      <p className="text-sm font-semibold text-slate-900 break-words">{doc.name}</p>
+                      <span className="text-[10px] px-1.5 py-0.2 rounded bg-slate-100 text-slate-600 font-medium shrink-0">
                         {doc.visibility || 'Everyone'}
                       </span>
                     </div>
@@ -375,7 +375,7 @@ export const SharePointView: React.FC<{ onOpenUploadModal: () => void }> = ({ on
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2 self-end sm:self-center shrink-0">
+                <div className="oh-document-actions flex flex-wrap items-center gap-2 self-start sm:self-center shrink-0 max-w-full">
                   <button
                     onClick={() => handleDeleteDocument(doc.id)}
                     className="p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded text-xs font-medium flex items-center justify-center transition cursor-pointer"
@@ -420,7 +420,7 @@ export const SharePointView: React.FC<{ onOpenUploadModal: () => void }> = ({ on
       {/* Document Preview Modal */}
       {activeDocPreview && (
         <div 
-          className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto"
+          className="oh-dialog fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto"
           onClick={() => setActiveDocPreview(null)}
         >
           <div 
@@ -456,8 +456,8 @@ export const SharePointView: React.FC<{ onOpenUploadModal: () => void }> = ({ on
               </div>
             </div>
 
-            <div className="mt-5 pt-3 border-t border-slate-100 flex items-center justify-between">
-              <div className="flex items-center gap-3">
+            <div className="mt-5 pt-3 border-t border-slate-100 flex flex-wrap gap-3 items-center justify-between">
+              <div className="flex flex-wrap items-center gap-3">
                 <span className="text-xs text-blue-700 flex items-center gap-1">
                   <ShieldCheck className="w-3.5 h-3.5" />
                   <span>SharePoint Online Verified</span>
@@ -493,7 +493,7 @@ export const SharePointView: React.FC<{ onOpenUploadModal: () => void }> = ({ on
       {/* Document Permissions Modal */}
       {permissionDoc && (
         <div 
-          className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto"
+          className="oh-dialog fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto"
           onClick={() => setPermissionDoc(null)}
         >
           <div 
@@ -627,7 +627,7 @@ export const SharePointView: React.FC<{ onOpenUploadModal: () => void }> = ({ on
       )}
 
       {isNewFolderModalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+        <div className="oh-dialog fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
           <div className="bg-white border border-slate-200 rounded-md shadow-xl max-w-sm w-full p-5 text-slate-800 my-auto">
             <h3 className="text-base font-bold text-slate-900 mb-4">Create New Folder</h3>
             <input
