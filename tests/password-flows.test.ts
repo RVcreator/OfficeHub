@@ -1,9 +1,15 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {passwordChangeRequired} from '../src/services/passwordPolicy';
+import {passwordChangeRequired,retainPasswordRequirement} from '../src/services/passwordPolicy';
 import {mapStaffRow} from '../src/services/supabaseMappers';
 import {completePassword,type PasswordCompletionDependencies} from '../supabase/functions/_shared/passwordCompletion';
 const account={id:'user',email:'staff@wipahs.org',app_metadata:{must_change_password:true,password_changed_at:'old',password_reset_at:'new',password_reset_id:'reset'}};
+test('stale sign-in events cannot dismiss an already required password screen',()=>{
+ const previous={isAuthenticated:true,userId:'user',mustChangePassword:true};
+ assert.equal(retainPasswordRequirement('user',false,previous),true);
+ assert.equal(retainPasswordRequirement('other',false,previous),false);
+ assert.equal(retainPasswordRequirement('user',false,{...previous,mustChangePassword:false}),false);
+});
 const request=(body:unknown={newPassword:'New-example-only-2026!'})=>new Request('https://example/complete',{method:'POST',headers:{authorization:'Bearer valid-token'},body:JSON.stringify(body)});
 function harness(){
  const calls:string[]=[];
