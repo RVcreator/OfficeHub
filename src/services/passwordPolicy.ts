@@ -7,3 +7,8 @@ export function passwordChangeRequired(authUser: any, profile?: any, recovery = 
   if (flag === false) return false;
   return profile?.mustChangePassword === true || profile?.app_metadata?.must_change_password === true;
 }
+
+/** Only confirmed password completion clears a requirement already shown this session. */
+export function retainPasswordRequirement(userId: string, required: boolean, previous: {isAuthenticated: boolean; userId: string | null; mustChangePassword: boolean}): boolean {
+  return required || (previous.isAuthenticated && previous.userId === userId && previous.mustChangePassword);
+}
