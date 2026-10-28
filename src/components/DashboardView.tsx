@@ -23,7 +23,6 @@ import { TabId } from './Sidebar';
 import { fetchAyahOfTheDay, QuranAyah } from '../services/quranService';
 import { useHijriDate } from '../utils/hijriDate';
 import { isMyPersonalOrAssignedTask } from '../utils/taskUtils';
-import { isMeetingArchived, isUserInvolvedInMeeting } from '../utils/archiveUtils';
 import { Project } from '../types';
 import { getProjectFinancials } from './ProjectsView';
 
@@ -78,51 +77,49 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   );
 
   const pendingApprovals = approvals.filter(a => a.status === 'Pending');
-  const upcomingMeetings = meetings.filter(
-    m => !isMeetingArchived(m) && m.status !== 'Cancelled' && m.status !== 'Completed' && isUserInvolvedInMeeting(m, currentUser)
-  );
+  const upcomingMeetings = meetings.filter(m => m.status === 'Scheduled');
 
   return (
     <div className="oh-dashboard space-y-5">
       {/* Banner */}
-      <div className="oh-welcome rounded-lg border border-slate-200 bg-white p-4 sm:p-6 text-slate-900 grid gap-5 xl:grid-cols-2">
+      <div className="oh-welcome rounded-lg bg-gradient-to-r from-[#005a9c] via-[#008f58] to-[#00a651] p-4 sm:p-6 text-white grid gap-5 xl:grid-cols-2">
         <div className="space-y-2 min-w-0">
-          <span className="inline-block bg-emerald-50 text-emerald-800 px-3 py-1 rounded text-[11px] font-semibold tracking-wider uppercase">My OfficeHub</span>
+          <span className="inline-block bg-white/20 px-3 py-1 rounded text-[11px] font-semibold tracking-wider uppercase">My OfficeHub</span>
           <h1 className="text-2xl sm:text-3xl font-bold">Welcome, {currentUser.name.split(' ')[0]}</h1>
           <p className="text-xs sm:text-sm opacity-90 font-medium flex items-center gap-2.5 flex-wrap">
             <span>{new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</span>
             {hijriDate && (
               <>
-                <span className="inline-block w-px h-3.5 bg-slate-300 self-center" />
-                <span className="text-emerald-700 font-medium">{hijriDate}</span>
+                <span className="inline-block w-px h-3.5 bg-white/35 self-center" />
+                <span className="text-emerald-100 font-medium">{hijriDate}</span>
               </>
             )}
           </p>
           <div className="flex flex-wrap gap-2 pt-1">
-            <span className="flex items-center gap-1.5 bg-slate-100 px-2.5 py-1 rounded text-xs font-medium"><ShieldCheck className="w-3.5 h-3.5"/> {currentUser.role}</span>
-            <span className="flex items-center gap-1.5 bg-slate-100 px-2.5 py-1 rounded text-xs font-medium"><Briefcase className="w-3.5 h-3.5"/> {currentUser.department}</span>
-            <span className="flex items-center gap-1.5 bg-emerald-50 px-2.5 py-1 rounded text-xs font-medium text-emerald-800"><BellRing className="w-3.5 h-3.5"/> You are all caught up</span>
+            <span className="flex items-center gap-1.5 bg-black/10 px-2.5 py-1 rounded text-xs font-medium"><ShieldCheck className="w-3.5 h-3.5"/> {currentUser.role}</span>
+            <span className="flex items-center gap-1.5 bg-black/10 px-2.5 py-1 rounded text-xs font-medium"><Briefcase className="w-3.5 h-3.5"/> {currentUser.department}</span>
+            <span className="flex items-center gap-1.5 bg-yellow-400/20 px-2.5 py-1 rounded text-xs font-medium text-yellow-50"><BellRing className="w-3.5 h-3.5"/> You are all caught up</span>
           </div>
         </div>
 
         {/* Ayah of the Day */}
         {ayah && (
-          <div className="min-w-0 rounded-lg bg-emerald-50/60 p-4 text-left font-sans space-y-2">
-            <p className="text-[10px] sm:text-[11px] font-bold uppercase tracking-widest text-emerald-800 flex items-center gap-1 md:justify-end">
-              <BookOpen className="w-3 h-3 text-emerald-700" />
+          <div className="min-w-0 border-t border-white/20 pt-4 xl:border-t-0 xl:border-l xl:pl-5 text-left font-sans space-y-2">
+            <p className="text-[10px] sm:text-[11px] font-bold uppercase tracking-widest text-emerald-100/90 flex items-center gap-1 md:justify-end">
+              <BookOpen className="w-3 h-3 text-emerald-200" />
               <span>Ayah of the Day</span>
             </p>
             <p
-              className="text-lg sm:text-xl font-semibold text-slate-800 leading-relaxed tracking-wide font-['Amiri',serif] drop-shadow-xs"
+              className="text-lg sm:text-xl font-semibold text-white/95 leading-relaxed tracking-wide font-['Amiri',serif] drop-shadow-xs"
               dir="rtl"
               style={{ fontFamily: "'Amiri', 'Scheherazade New', serif" }}
             >
               {ayah.arabicText}
             </p>
-            <p className="text-xs sm:text-sm text-slate-600 italic font-['Lora',serif] leading-snug drop-shadow-2xs">
+            <p className="text-xs sm:text-sm text-white/90 italic font-['Lora',serif] leading-snug drop-shadow-2xs">
               “{ayah.translation}”
             </p>
-            <p className="text-[10px] sm:text-[11px] font-bold text-slate-500 uppercase tracking-widest md:text-right">
+            <p className="text-[10px] sm:text-[11px] font-bold text-white/80 uppercase tracking-widest md:text-right">
               ― {ayah.citation} ({ayah.edition})
             </p>
           </div>
