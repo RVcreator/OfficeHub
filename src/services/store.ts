@@ -83,7 +83,8 @@ import { playNotificationSound } from '../utils/sound';
 import { NotificationChimeTracker, visibleNotifications, persistNotification, reconcileNotificationSnapshot } from './notificationDelivery';
 import { isPersonalTask } from '../utils/taskUtils';
 import { taskCreatedAlert } from './taskCreatedAlert';
-import { passwordChangeRequired } from './passwordPolicy';
+import { passwordChangeRequired, retainPasswordRequirement } from './passwordPolicy';
+import { issuedPassword } from './issuedPassword';
 import { cachePresence, effectivePresence, startPresence, presenceNow, type PresenceRecord } from './presence';
 import { convertTo24HourTime, convertTo12HourTime } from '../utils/meetingConflict';
 import {
@@ -273,7 +274,7 @@ async function invokeSharePointListSafe(body?: Record<string, any>): Promise<any
 }
 
 function stripOversizedAvatarForStorage<T extends Partial<StaffUser>>(user: T): Partial<StaffUser> {
-  const {temporaryPassword: _password, ...safe} = user;
+  const {temporaryPassword: _password, provisioningWarning: _warning, ...safe} = user;
   if (safe.avatar && safe.avatar.startsWith('data:') && safe.avatar.length > 65536) {
     const { avatar: _omitted, ...rest } = safe;
     return rest;
@@ -3759,13 +3760,14 @@ export const portalStore = {
     userData: Omit<StaffUser, 'id' | 'activityScore' | 'tasksCount' | 'lastActive'> & Partial<StaffUser>
   ): Promise<StaffUser | null> => {
     try {
-      const tempPass = (userData as any).temporaryPassword || (userData as any).password || generateTempPassword();
+      const requestedPassword = (userData as any).temporaryPassword || (userData as any).password;
       const res = await invokeCreateStaffUserEdgeFunction({
-        email:userData.email,tempPassword:tempPass,name:userData.name,role:userData.role || 'Staff Member',
+        email:userData.email,tempPassword:requestedPassword,name:userData.name,role:userData.role || 'Staff Member',
         department:userData.department || 'General',organisation:userData.organisation || 'WIPAHS',phone:userData.phone,
       });
       if (res.error || !res.data?.user?.id) throw new Error(res.error?.message || 'Account creation was not confirmed.');
       const createdId=res.data.user.id;
+      const tempPass=issuedPassword(res.data,createdId,'create');
 
       const createdUser: StaffUser = {
         id: createdId,
@@ -3784,16 +3786,19 @@ export const portalStore = {
         mustChangePassword: true,
       };
 
-      // Ensure user profile is saved to Supabase profiles table
+      // The server already saved the required profile. Optional display details must
+      // never turn a confirmed account creation into an error that hides its password.
       try {
-        const {error}=await supabase.from('profiles').upsert(mapStaffToRow({...createdUser,temporaryPassword:undefined}));
+        const {error}=await supabase.from('profiles').update({
+          avatar:createdUser.avatar,teams_handle:userData.teamsHandle || null,out_of_office:!!userData.outOfOffice,
+        }).eq('id',createdId);
         if(error) throw error;
-      } catch (upsertErr) {
-        throw new Error('Account was created, but some profile details could not be saved. Please use Edit Member to finish setup.');
+      } catch {
+        createdUser.provisioningWarning='The account and temporary password are ready. Some optional profile details could not be saved; use Edit Member to finish those details.';
       }
 
       const updatedStaff = [
-        {...createdUser,temporaryPassword:undefined},
+        {...createdUser,temporaryPassword:undefined,provisioningWarning:undefined},
         ...storeState.staff.filter(s => s.id !== createdUser.id && s.email.toLowerCase() !== createdUser.email.toLowerCase())
       ];
       setTableData('staff', updatedStaff);
@@ -4879,7 +4884,7 @@ export const portalStore = {
   requirePasswordRecovery: (userId: string): void => setPendingPasswordChangeFlag(userId, true),
 
   loginUser: (user: StaffUser, mustChangePassword: boolean, sessionToken?: string): void => {
-    const effectiveMustChange = Boolean(mustChangePassword);
+    const effectiveMustChange = retainPasswordRequirement(user.id, Boolean(mustChangePassword) || hasPendingPasswordChangeFlag(user.id), storeState.authSession);
     const authenticatedUser: StaffUser = { ...user, mustChangePassword: effectiveMustChange };
 
     const newIdentity = storeState.authSession.userId !== authenticatedUser.id || !storeState.authSession.isAuthenticated;
@@ -4948,14 +4953,14 @@ export const portalStore = {
   },
 
   resetUserPassword: async (id: string, customPass?: string): Promise<{ success: boolean; message: string }> => {
-    const tempPass = customPass || generateTempPassword();
     const session = (await supabase.auth.getSession()).data.session;
     if (!session?.access_token) throw new Error('Please sign in again before resetting a password.');
     const { data, error } = await supabase.functions.invoke('admin-reset-password', {
       headers: { Authorization: `Bearer ${session.access_token}` },
-      body: { userId: id, customPassword: tempPass },
+      body: { userId: id, ...(customPass !== undefined ? {customPassword:customPass} : {}) },
     });
     if (error || data?.error || data?.success !== true) throw new Error(data?.error || 'Password reset failed. No successful reset was confirmed.');
+    const tempPass=issuedPassword(data,id,'reset');
     const markPending = (s: StaffUser) => s.id === id ? { ...s, mustChangePassword:true, temporaryPassword:undefined,
       app_metadata:{...s.app_metadata,must_change_password:true,password_changed_at:null} } : s;
     setTableData('staff',storeState.staff.map(markPending));
