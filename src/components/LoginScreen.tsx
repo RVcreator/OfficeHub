@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Lock,
   Mail,
@@ -20,6 +20,8 @@ interface LoginScreenProps {
 }
 
 export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
+  const mounted=useRef(true);
+  useEffect(()=>{mounted.current=true;return ()=>{mounted.current=false;};},[]);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -46,6 +48,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
 
     try {
       const supabaseResult = await signInWithSupabase(cleanEmail, password);
+      if(!mounted.current) return;
 
       if (supabaseResult.error) {
         setErrorMessage(supabaseResult.error.message);
@@ -56,6 +59,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
       if (supabaseResult.data && supabaseResult.data.user) {
         const sbUser = supabaseResult.data.user;
         const matchedStaff = await portalStore.syncAuthenticatedUserProfile(sbUser);
+        if(!mounted.current) return;
         const mustChange = portalStore.shouldForcePasswordChange(sbUser, matchedStaff, {
           enteredPassword: password,
         });
@@ -68,9 +72,9 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
 
       setErrorMessage('Invalid email or password. Please verify your credentials and try again.');
     } catch (err: any) {
-      setErrorMessage(err.message || 'An unexpected error occurred during sign in.');
+      if(mounted.current) setErrorMessage(err.message || 'An unexpected error occurred during sign in.');
     } finally {
-      setIsLoading(false);
+      if(mounted.current) setIsLoading(false);
     }
   };
 
@@ -121,7 +125,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
               <div className="mb-6">
                 <h3 className="text-sm font-semibold text-slate-900">Sign in to your account</h3>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Enter your organization email and password
+                  Enter your organization email and password. New or reset accounts must use the temporary password provided by your administrator.
                 </p>
               </div>
 

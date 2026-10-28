@@ -53,9 +53,23 @@ export default function App() {
 
   // Release Supabase's auth lock before resolving profiles or refreshing data.
   useEffect(() => {
+    let passwordPolicyChannel: ReturnType<typeof supabase.channel> | undefined;
+    let watchedUserId: string | undefined;
+    const stopWatching = () => {
+      if (passwordPolicyChannel) void supabase.removeChannel(passwordPolicyChannel);
+      passwordPolicyChannel=undefined;watchedUserId=undefined;
+    };
+    const watchPasswordPolicy = (userId: string) => {
+      if(watchedUserId===userId) return;
+      stopWatching();watchedUserId=userId;
+      passwordPolicyChannel=supabase.channel(`officehub-password-policy-${userId}`)
+        .on('postgres_changes',{event:'UPDATE',schema:'public',table:'profiles',filter:`id=eq.${userId}`},()=>recheck())
+        .subscribe();
+    };
     const deferred = createDeferredAuthHandler<AuthChangeEvent, Session | null>(async (event, session, isCurrent) => {
       try {
         if (event === 'SIGNED_OUT') {
+          stopWatching();
           await actions.logoutUser(false);
           return;
         }
@@ -70,6 +84,7 @@ export default function App() {
           isSessionRestore: event !== 'PASSWORD_RECOVERY',
         });
         actions.loginUser(resolvedUser, mustChange, session.access_token);
+        watchPasswordPolicy(verified.user.id);
         setAuthError(false);
       } finally {
         if (isCurrent()) setAuthChecking(false);
@@ -90,11 +105,17 @@ export default function App() {
         if (data.session) deferred.handle('TOKEN_REFRESHED',data.session);
       }).catch(() => {});
     };
-    const timer=window.setInterval(recheck,60_000);
+    // Realtime is a hint; the server's current Auth claims decide the gate.
+    const timer=window.setInterval(recheck,30_000);
     window.addEventListener('focus',recheck);
+    window.addEventListener('online',recheck);
+    document.addEventListener('visibilitychange',recheck);
     return () => {
       window.clearInterval(timer);
       window.removeEventListener('focus',recheck);
+      window.removeEventListener('online',recheck);
+      document.removeEventListener('visibilitychange',recheck);
+      stopWatching();
       deferred.dispose();
       subscription.unsubscribe();
     };

@@ -282,6 +282,7 @@ export interface StaffUser {
   backupContactName?: string;
   mustChangePassword?: boolean;
   temporaryPassword?: string;
+  provisioningWarning?: string;
   deactivated?: boolean;
   app_metadata?: {
     must_change_password?: boolean;

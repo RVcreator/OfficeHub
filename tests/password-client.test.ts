@@ -1,7 +1,8 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {portalStore,setTableData,saveStaffToLocalStorage} from '../src/services/store';
-import {supabase,updatePasswordWithSupabase,invokeCreateStaffUserEdgeFunction} from '../src/services/supabaseClient';
+import {supabase,signInWithSupabase,updatePasswordWithSupabase,invokeCreateStaffUserEdgeFunction} from '../src/services/supabaseClient';
+import {issuedPassword} from '../src/services/issuedPassword';
 const id='10000000-0000-4000-8000-000000000001';
 const user:any={id,name:'Test Staff',email:'test@wipahs.org',app_metadata:{must_change_password:true,password_changed_at:'old'}};
 const originalSession=supabase.auth.getSession,originalRefresh=supabase.auth.refreshSession,originalFrom=supabase.from;
@@ -48,4 +49,39 @@ test('recovery requirement remains latched through later auth events until confi
  await portalStore.completeForcedPasswordChange(completed);
  assert.equal(portalStore.shouldForcePasswordChange(completed,completed,{isSessionRestore:true}),false);
  } finally {(globalThis as any).sessionStorage=old;}
+});
+
+test('confirmed account still returns its issued password when optional profile details fail',async()=>{
+ try {mockSession();mockInvoke(async(_name:string,options:any)=>{
+ assert.equal(options.body.tempPassword,undefined);
+ return {data:{success:true,user:{id},temporaryPassword:'Server-issued-example!'},error:null};});
+ (supabase as any).from=()=>({update:(body:any)=>{
+ assert.deepEqual(Object.keys(body).sort(),['avatar','out_of_office','teams_handle']);
+ return {eq:async()=>({error:{message:'optional field unavailable'}})};
+ }});
+ const created=await portalStore.addStaffMember({...user,role:'Staff Member',organisation:'WIPAHS',department:'IT'});
+ assert.equal(created?.temporaryPassword,'Server-issued-example!');assert.ok(created?.provisioningWarning);
+ } finally {restore();}
+});
+
+test('reset returns the password confirmed for the requested account',async()=>{
+ try {mockSession();mockInvoke(async(_name:string,options:any)=>{
+ assert.deepEqual(options.body,{userId:id});
+ return {data:{success:true,userId:id,message:'Server-reset-example!'},error:null};});
+ assert.equal((await portalStore.resetUserPassword(id)).message,'Server-reset-example!');
+ } finally {restore();}
+ for(const data of [{success:true,userId:'other',message:'Example-only-temp'}, {success:true,userId:id}, {success:false,userId:id,message:'Example-only-temp'}]) {
+ assert.throws(()=>issuedPassword(data,id,'reset'),/did not confirm/);
+ }
+});
+
+test('sign-in checks current server claims instead of the stale login response',async()=>{
+ const signIn=supabase.auth.signInWithPassword,getUser=supabase.auth.getUser;
+ try {
+ (supabase.auth as any).signInWithPassword=async()=>({data:{user:{...user,app_metadata:{must_change_password:false}},session:{access_token:'example-token'}},error:null});
+ (supabase.auth as any).getUser=async()=>({data:{user},error:null});
+ const result=await signInWithSupabase(user.email,'Example-only-temp');assert.equal(result.data?.mustChangePassword,true);
+ (supabase.auth as any).getUser=async()=>({data:{user:{id:'other'}},error:null});
+ assert.ok((await signInWithSupabase(user.email,'Example-only-temp')).error);
+ } finally {supabase.auth.signInWithPassword=signIn;supabase.auth.getUser=getUser;}
 });
