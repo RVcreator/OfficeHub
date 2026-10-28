@@ -357,7 +357,7 @@ export const NoticesView: React.FC<{
       {/* Circular Document Viewer Modal */}
       {selectedDocumentForPreview && (
         <div
-          className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150"
+          className="oh-dialog fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150"
           onClick={() => setSelectedDocumentForPreview(null)}
         >
           <div
