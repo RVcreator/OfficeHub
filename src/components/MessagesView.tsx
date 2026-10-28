@@ -424,7 +424,7 @@ export const MessagesView: React.FC = () => {
   };
 
   return (
-    <div className="flex flex-col lg:flex-row h-[calc(100vh-110px)] min-h-[580px] bg-white rounded-lg shadow-xs border border-slate-200 overflow-hidden text-xs relative">
+    <div className="oh-messages flex flex-col lg:flex-row h-[calc(100dvh-110px)] min-h-0 bg-white rounded-lg shadow-xs border border-slate-200 overflow-hidden text-xs relative">
       
       {/* ========================================================================= */}
       {/* 1. SIDEBAR: CONVERSATION LIST, SEARCH, FILTERING                          */}
@@ -1327,7 +1327,7 @@ export const MessagesView: React.FC = () => {
       {/* ========================================================================= */}
       {showFullMembersModal && conversation && conversation.type === 'group' && (
         <div
-          className="fixed inset-0 z-[80] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-100"
+          className="oh-dialog fixed inset-0 z-[80] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-100"
           onClick={() => {
             setShowFullMembersModal(false);
             setIsAddingMember(false);
@@ -1479,7 +1479,7 @@ export const MessagesView: React.FC = () => {
       {/* ========================================================================= */}
       {conversationToDelete && (
         <div
-          className="fixed inset-0 z-[90] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-100"
+          className="oh-dialog fixed inset-0 z-[90] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-100"
           onClick={() => setConversationToDelete(null)}
         >
           <div
