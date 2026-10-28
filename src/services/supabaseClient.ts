@@ -59,11 +59,15 @@ export async function signInWithSupabase(email: string, password: string): Promi
       return { data: null, error: { message: error.message, status: error.status } };
     }
 
-    if (data && data.user) {
-      const mustChangePassword = passwordChangeRequired(data.user);
+    if (data?.user && data.session?.access_token) {
+      const {data:verified,error:verificationError}=await supabase.auth.getUser();
+      if(verificationError || !verified.user || verified.user.id!==data.user.id) {
+        return {data:null,error:{message:'Your account could not be verified. Please reconnect and sign in again.'}};
+      }
+      const mustChangePassword = passwordChangeRequired(verified.user);
       return {
         data: {
-          user: data.user,
+          user: verified.user,
           session: data.session,
           mustChangePassword
         },
@@ -123,7 +127,7 @@ export async function updatePasswordWithSupabase(newPassword: string): Promise<A
  */
 export async function invokeCreateStaffUserEdgeFunction(userData: {
   email: string;
-  tempPassword: string;
+  tempPassword?: string;
   name: string;
   role: string;
   department: string;
