@@ -465,6 +465,7 @@ export function mapMeetingRow(row: any, attendees: MeetingAttendee[] = []): Meet
     title: row.title || '',
     department: row.department || 'General',
     date: row.date || '',
+    time: row.time || undefined,
     startTime: row.start_time || '',
     endTime: row.end_time || '',
     durationMinutes: row.duration_minutes ? Number(row.duration_minutes) : undefined,
@@ -492,6 +493,7 @@ export function mapMeetingToRow(meeting: Partial<Meeting>): Record<string, any> 
   if (meeting.title !== undefined) row.title = meeting.title;
   if (meeting.department !== undefined) row.department = meeting.department;
   if (meeting.date !== undefined) row.date = meeting.date;
+  if (meeting.time !== undefined) row.time = meeting.time;
   if (meeting.startTime !== undefined) row.start_time = meeting.startTime;
   if (meeting.endTime !== undefined) row.end_time = meeting.endTime;
   if (meeting.durationMinutes !== undefined) row.duration_minutes = meeting.durationMinutes;

@@ -1,4 +1,5 @@
 import { Meeting, StaffUser } from '../types';
+import { isMeetingArchived } from './archiveUtils';
 
 export interface MeetingConflict {
   userId: string;
@@ -129,9 +130,9 @@ export function detectMeetingConflicts(
     const userAvatar = staffMember?.avatar;
 
     for (const meeting of existingMeetings) {
-      // Ignore the meeting itself when editing, and ignore cancelled meetings
+      // Ignore the meeting itself when editing, and ignore cancelled or archived meetings
       if (excludeMeetingId && meeting.id === excludeMeetingId) continue;
-      if (meeting.status === 'Cancelled') continue;
+      if (meeting.status === 'Cancelled' || isMeetingArchived(meeting)) continue;
       if (meeting.date !== targetDate) continue;
 
       // Check if user is in this meeting as organizer or attendee

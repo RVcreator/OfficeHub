@@ -81,7 +81,7 @@ export const PersonalArchivePanel: React.FC<PersonalArchivePanelProps> = ({
                 </span>
               </div>
               <p className="text-xs text-slate-300 mt-0.5">
-                Completed and cancelled tasks and meetings automatically move into archives after 2 days (48 hours).
+                Completed or cancelled tasks, and all meetings 2 days (48 hours) after their scheduled date, automatically move into archives.
               </p>
             </div>
           </div>
@@ -153,7 +153,7 @@ export const PersonalArchivePanel: React.FC<PersonalArchivePanelProps> = ({
           </div>
           <h4 className="font-bold text-slate-700 text-sm">Your Personal Archive is Empty</h4>
           <p className="text-slate-500 text-xs max-w-md mx-auto">
-            Tasks and meetings that have been marked as completed or cancelled for more than 2 days will automatically appear here.
+            Completed or cancelled tasks after 2 days, and meetings 2 days after their scheduled time (whether joined or not), automatically appear here.
           </p>
         </div>
       ) : (
@@ -255,12 +255,13 @@ export const PersonalArchivePanel: React.FC<PersonalArchivePanelProps> = ({
               <div className="grid grid-cols-1 gap-2">
                 {archivedMeetings.map(meeting => {
                   const isCompleted = meeting.status === 'Completed';
+                  const isCancelled = meeting.status === 'Cancelled';
+                  const statusLabel = isCancelled ? 'Cancelled' : isCompleted ? 'Completed' : 'Archived';
                   return (
                     <div
                       key={meeting.id}
                       onClick={() => {
                         setSelectedMeetingDetail(meeting);
-                        if (onSelectMeeting) onSelectMeeting(meeting.id);
                       }}
                       className="p-3.5 bg-white rounded-lg border border-slate-200 shadow-2xs hover:border-blue-300 hover:shadow-xs transition cursor-pointer group"
                     >
@@ -272,12 +273,14 @@ export const PersonalArchivePanel: React.FC<PersonalArchivePanelProps> = ({
                             </span>
                             <span
                               className={`px-1.5 py-0.5 rounded text-[10px] font-bold border ${
-                                isCompleted
-                                  ? 'bg-blue-50 text-blue-800 border-blue-200'
-                                  : 'bg-rose-50 text-rose-800 border-rose-200'
+                                isCancelled
+                                  ? 'bg-rose-50 text-rose-800 border-rose-200'
+                                  : isCompleted
+                                  ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                                  : 'bg-blue-50 text-blue-800 border-blue-200'
                               }`}
                             >
-                              {meeting.status}
+                              {statusLabel}
                             </span>
                             <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-purple-50 text-purple-800 border border-purple-200">
                               {meeting.meetingType}

@@ -23,6 +23,7 @@ import { TabId } from './Sidebar';
 import { fetchAyahOfTheDay, QuranAyah } from '../services/quranService';
 import { useHijriDate } from '../utils/hijriDate';
 import { isMyPersonalOrAssignedTask } from '../utils/taskUtils';
+import { isMeetingArchived, isUserInvolvedInMeeting } from '../utils/archiveUtils';
 import { Project } from '../types';
 import { getProjectFinancials } from './ProjectsView';
 
@@ -77,7 +78,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   );
 
   const pendingApprovals = approvals.filter(a => a.status === 'Pending');
-  const upcomingMeetings = meetings.filter(m => m.status === 'Scheduled');
+  const upcomingMeetings = meetings.filter(
+    m => !isMeetingArchived(m) && m.status !== 'Cancelled' && m.status !== 'Completed' && isUserInvolvedInMeeting(m, currentUser)
+  );
 
   return (
     <div className="oh-dashboard space-y-5">

@@ -610,8 +610,8 @@ export function computeUserLivePresence(user: StaffUser, _meetings: Meeting[] = 
   return status;
 }
 
-import { isTaskArchived, isMeetingArchived } from '../utils/archiveUtils';
-export { isTaskArchived, isMeetingArchived };
+import { isTaskArchived, isMeetingArchived, isUserInvolvedInMeeting, ArchiveCheckOptions } from '../utils/archiveUtils';
+export { isTaskArchived, isMeetingArchived, isUserInvolvedInMeeting };
 
 export async function notifyTaskAssociatedUsers(task: Task, changeMessage: string) {
   // Silent notification logging without triggering global or tasks cascades
@@ -4704,23 +4704,24 @@ export const portalStore = {
   getUserArchive: (
     userId?: string,
     tasksList: Task[] = storeState.tasks,
-    meetingsList: Meeting[] = storeState.meetings
+    meetingsList: Meeting[] = storeState.meetings,
+    options?: ArchiveCheckOptions
   ): { tasks: Task[]; meetings: Meeting[] } => {
     const targetUid = userId || storeState.currentUser.id;
+    const targetEmail =
+      (targetUid === storeState.currentUser.id ? storeState.currentUser.email : undefined) ||
+      storeState.staff.find((s) => s.id === targetUid)?.email;
+
     const archivedTasks = tasksList.filter((t) => {
       const isPersonal =
         t.createdById === targetUid ||
         t.assignedToId === targetUid ||
         (t.assignedToIds && t.assignedToIds.includes(targetUid));
-      return isPersonal && isTaskArchived(t);
+      return isPersonal && isTaskArchived(t, options);
     });
 
     const archivedMeetings = meetingsList.filter((m) => {
-      const isPersonal =
-        m.organizerId === targetUid ||
-        m.chairId === targetUid ||
-        (m.attendees && m.attendees.some((a) => a.userId === targetUid));
-      return isPersonal && isMeetingArchived(m);
+      return isUserInvolvedInMeeting(m, { id: targetUid, email: targetEmail }) && isMeetingArchived(m, options);
     });
 
     return { tasks: archivedTasks, meetings: archivedMeetings };

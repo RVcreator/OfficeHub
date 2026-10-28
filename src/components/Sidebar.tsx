@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import { usePortalStore } from '../services/store';
 import { isMyPersonalOrAssignedTask, isTaskAssignedByMe, isTaskDepartmentalForUser } from '../utils/taskUtils';
+import { isMeetingArchived, isUserInvolvedInMeeting } from '../utils/archiveUtils';
 import { canUserViewDocument } from './SharePointView';
 
 export type TabId = 
@@ -108,7 +109,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
     return isTaskAssignedByMe(t, currentUser.id);
   }).length;
   const urgentNoticesCount = notices.filter(n => n.priority === 'Urgent').length;
-  const scheduledMeetingsCount = meetings.filter(m => m.status === 'Scheduled').length;
+  const scheduledMeetingsCount = meetings.filter(
+    m => !isMeetingArchived(m) && m.status !== 'Cancelled' && m.status !== 'Completed' && isUserInvolvedInMeeting(m, currentUser)
+  ).length;
   const pendingApprovalsCount = approvals.filter(a => a.status === 'Pending').length;
 
   const navigationGroup = [

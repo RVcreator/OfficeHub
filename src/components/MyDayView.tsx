@@ -12,6 +12,7 @@ import { TabId } from './Sidebar';
 import { fetchHadithOfTheDay, ShiaHadith } from '../services/hadithService';
 import { useHijriDate } from '../utils/hijriDate';
 import { isMyPersonalOrAssignedTask } from '../utils/taskUtils';
+import { isMeetingArchived, isUserInvolvedInMeeting } from '../utils/archiveUtils';
 
 interface MyDayViewProps {
   onSelectTab: (tab: TabId) => void;
@@ -38,7 +39,9 @@ export const MyDayView: React.FC<MyDayViewProps> = ({
     if (t.status === 'Done' || t.status === 'Cancelled') return false;
     return isMyPersonalOrAssignedTask(t, currentUser.id, currentUser.name);
   });
-  const todayMeetings = meetings.filter(m => m.status === 'Scheduled');
+  const todayMeetings = meetings.filter(
+    m => !isMeetingArchived(m) && m.status !== 'Cancelled' && m.status !== 'Completed' && isUserInvolvedInMeeting(m, currentUser)
+  );
 
   return (
     <div className="space-y-6">

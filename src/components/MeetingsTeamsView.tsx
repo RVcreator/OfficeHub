@@ -46,7 +46,7 @@ import { usePortalStore } from '../services/store';
 import { downloadCalendarInvite } from '../services/teamsSharePointService';
 import { formatStaffDisplayName, formatStaffDisplayOrgDept } from '../utils/staffHierarchy';
 import { detectMeetingConflicts } from '../utils/meetingConflict';
-import { isMeetingArchived } from '../utils/archiveUtils';
+import { isMeetingArchived, isUserInvolvedInMeeting } from '../utils/archiveUtils';
 import { StaffPickerTree } from './StaffPickerTree';
 import { parseUploadedFile, getAttachmentTabUrl, downloadAttachment } from '../utils/fileParser';
 import { CalendarOccasionDots } from './CalendarOccasionDots';
@@ -501,12 +501,19 @@ export const MeetingsTeamsView: React.FC<{
   }, [selectedMeetingId]);
 
   // Active live meeting sync on mount and while user views the meetings/calendar tab
+  const [archiveTick, setArchiveTick] = useState<number>(() => Date.now());
   useEffect(() => {
     actions.triggerLiveMeetingSync?.();
     const interval = setInterval(() => {
       actions.triggerLiveMeetingSync?.();
     }, 4000);
-    return () => clearInterval(interval);
+    const archiveTimer = setInterval(() => {
+      setArchiveTick(Date.now());
+    }, 60000);
+    return () => {
+      clearInterval(interval);
+      clearInterval(archiveTimer);
+    };
   }, [actions]);
 
   // Propose New Time modal state
@@ -850,9 +857,8 @@ export const MeetingsTeamsView: React.FC<{
 
   const filteredMeetings = useMemo(() => {
     return meetings.filter(m => {
-      if (isMeetingArchived(m)) return false;
-      const isMyCalendar = m.organizerId === currentUser.id || m.attendees.some(a => a.userId === currentUser.id || a.email === currentUser.email);
-      if (!isMyCalendar) return false;
+      if (isMeetingArchived(m, { nowMs: archiveTick })) return false;
+      if (!isUserInvolvedInMeeting(m, currentUser)) return false;
       if (departmentFilter !== 'All' && m.department !== departmentFilter) return false;
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
@@ -865,7 +871,7 @@ export const MeetingsTeamsView: React.FC<{
       }
       return true;
     });
-  }, [meetings, departmentFilter, searchQuery, currentUser]);
+  }, [meetings, departmentFilter, searchQuery, currentUser, archiveTick]);
 
   const calendarHeaderTitle = useMemo(() => {
     if (calendarSubView === 'day') {
@@ -1327,8 +1333,10 @@ export const MeetingsTeamsView: React.FC<{
 
   const monthName = currentDate.toLocaleString('default', { month: 'long', year: 'numeric' });
 
-  // Detail modal meeting instance
-  const selectedDetailMeeting = detailMeetingId ? meetings.find(m => m.id === detailMeetingId) : null;
+  // Detail modal meeting instance (exclude archived meetings from active views)
+  const selectedDetailMeeting = detailMeetingId
+    ? meetings.find(m => m.id === detailMeetingId && !isMeetingArchived(m, { nowMs: archiveTick }))
+    : null;
 
   return (
     <div className="space-y-5 max-w-7xl mx-auto">
@@ -2394,6 +2402,17 @@ export const MeetingsTeamsView: React.FC<{
           </div>
 
           {/* Meetings Grid */}
+          {filteredMeetings.length === 0 ? (
+            <div className="bg-white rounded-lg border border-dashed border-slate-200 p-10 text-center space-y-2 shadow-2xs">
+              <div className="w-11 h-11 rounded-full bg-slate-100 text-slate-400 flex items-center justify-center mx-auto">
+                <Video className="w-5 h-5" />
+              </div>
+              <h3 className="text-sm font-bold text-slate-800">No Active Meetings</h3>
+              <p className="text-xs text-slate-500 max-w-md mx-auto">
+                You have no upcoming or active sessions matching this view. Past meetings automatically move to your Personal Archive 2 days after their scheduled date.
+              </p>
+            </div>
+          ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {filteredMeetings.map((meeting) => {
               const summary = getRsvpSummary(meeting);
@@ -2677,6 +2696,7 @@ export const MeetingsTeamsView: React.FC<{
               );
             })}
           </div>
+          )}
         </>
       )}
 
