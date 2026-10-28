@@ -1351,7 +1351,7 @@ export const MeetingsTeamsView: React.FC<{
           </p>
         </div>
 
-        <div className="flex items-center gap-2 self-start sm:self-auto">
+        <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
           <div className="inline-flex rounded-md border border-slate-200 bg-slate-50 p-0.5 text-xs">
             <button
               onClick={() => setViewMode('list')}
@@ -1476,7 +1476,7 @@ export const MeetingsTeamsView: React.FC<{
                 </div>
 
                 {/* Sub-view switcher: Day | Week | Month | Year */}
-                <div className="inline-flex rounded-md border border-slate-200 bg-slate-50 p-0.5 text-xs">
+                <div className="oh-calendar-tabs grid grid-cols-2 sm:flex rounded-md border border-slate-200 bg-slate-50 p-0.5 text-xs">
                   {[
                     { id: 'day', label: 'Day', icon: Clock },
                     { id: 'week', label: 'Week', icon: Columns3 },
@@ -1696,7 +1696,9 @@ export const MeetingsTeamsView: React.FC<{
 
             {/* WEEK VIEW */}
             {calendarSubView === 'week' && (
-              <div className="mt-4 border border-slate-200 rounded-lg overflow-hidden bg-white">
+              <div className="mt-4 border border-slate-200 rounded-lg overflow-x-auto bg-white" tabIndex={0} role="region" aria-label="Weekly calendar; scroll horizontally to see all days">
+                <p className="sticky left-0 w-fit p-2 text-[11px] text-slate-500 xl:hidden">Scroll sideways to see all days</p>
+                <div className="min-w-[56rem]">
                 {/* 7 Day Column Headers */}
                 <div className="grid grid-cols-8 border-b border-slate-200 bg-slate-50 text-center divide-x divide-slate-200">
                   {/* Time label corner */}
@@ -1828,13 +1830,15 @@ export const MeetingsTeamsView: React.FC<{
                     </div>
                   ))}
                 </div>
+                </div>
               </div>
             )}
 
             {/* MONTH VIEW */}
             {calendarSubView === 'month' && (
-              <div className="mt-4">
-                <div className="grid grid-cols-7 gap-2 text-center">
+              <div className="mt-4 overflow-x-auto" tabIndex={0} role="region" aria-label="Monthly calendar; scroll horizontally to see all days">
+                <p className="sticky left-0 w-fit mb-2 text-[11px] text-slate-500 md:hidden">Scroll sideways to see all days</p>
+                <div className="grid grid-cols-7 gap-2 text-center min-w-[40rem]">
                   {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => (
                     <div key={day} className="text-xs font-bold text-slate-400 py-1">
                       {day}
@@ -2234,7 +2238,7 @@ export const MeetingsTeamsView: React.FC<{
 
                       {/* Organizer or Invitee Actions */}
                       {isCreator ? (
-                        <div className="p-2.5 bg-purple-50/80 rounded-md border border-purple-200 flex items-center justify-between">
+                        <div className="p-2.5 bg-purple-50/80 rounded-md border border-purple-200 flex flex-wrap gap-2 items-center justify-between">
                           <div className="flex items-center gap-1.5 text-purple-900 font-bold text-[11px]">
                             <ShieldCheck className="w-3.5 h-3.5 text-purple-700" />
                             <span>You are the Organizer</span>
@@ -2679,7 +2683,7 @@ export const MeetingsTeamsView: React.FC<{
       {/* MODAL 1: PROPOSE NEW TIME MODAL */}
       {proposingMeeting && (
         <div
-          className="fixed inset-0 z-[70] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4"
+          className="oh-dialog fixed inset-0 z-[70] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4"
           onClick={() => setProposingMeeting(null)}
         >
           <div
@@ -2780,7 +2784,7 @@ export const MeetingsTeamsView: React.FC<{
       {/* MODAL 2: FULL MEETING DETAIL VIEW MODAL */}
       {selectedDetailMeeting && (
         <div
-          className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4"
+          className="oh-dialog fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4"
           onClick={() => setDetailMeetingId(null)}
         >
           <div
@@ -3112,7 +3116,7 @@ export const MeetingsTeamsView: React.FC<{
       {/* MODAL 3: EDIT MEETING MODAL (Creator Only) */}
       {editingMeeting && (
         <div
-          className="fixed inset-0 z-[70] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4"
+          className="oh-dialog fixed inset-0 z-[70] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4"
           onClick={() => setEditingMeeting(null)}
         >
           <div
@@ -3342,7 +3346,7 @@ export const MeetingsTeamsView: React.FC<{
       {/* MODAL 4: DELETE CONFIRMATION MODAL (Creator Only) */}
       {deletingMeeting && (
         <div
-          className="fixed inset-0 z-[70] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4"
+          className="oh-dialog fixed inset-0 z-[70] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4"
           onClick={() => setDeletingMeeting(null)}
         >
           <div
@@ -3432,7 +3436,7 @@ export const MeetingsTeamsView: React.FC<{
       {/* TASK DETAIL POPUP MODAL FOR CALENDAR TASKS */}
       {selectedTaskDetail && (
         <div
-          className="fixed inset-0 z-[80] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150"
+          className="oh-dialog fixed inset-0 z-[80] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150"
           onClick={() => setSelectedTaskDetail(null)}
         >
           <div
@@ -3603,7 +3607,7 @@ export const MeetingsTeamsView: React.FC<{
         <div
           ref={quickCreateRef}
           onClick={(e) => e.stopPropagation()}
-          className="fixed z-[95] w-84 sm:w-[350px] bg-white rounded-xl shadow-2xl border border-slate-200 p-4 text-xs space-y-3 animate-in fade-in zoom-in-95 duration-150"
+          className="fixed z-[95] w-84 sm:w-[350px] max-w-[calc(100vw-2rem)] max-h-[calc(100dvh-2rem)] overflow-y-auto bg-white rounded-xl shadow-2xl border border-slate-200 p-4 text-xs space-y-3 animate-in fade-in zoom-in-95 duration-150"
           style={{
             left: `${quickCreate.x}px`,
             top: `${quickCreate.y}px`,

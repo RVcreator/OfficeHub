@@ -212,7 +212,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   return (
     <div 
-      className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4"
+      className="oh-dialog fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4"
       onClick={onClose}
     >
       <div 
@@ -220,7 +220,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header (Sticky) */}
-        <div className="p-4 sm:p-5 border-b border-slate-200 flex items-center justify-between bg-slate-50/90 shrink-0 sticky top-0 z-20">
+        <div className="p-4 sm:p-5 border-b border-slate-200 flex items-center justify-between bg-slate-50/90 shrink-0 z-20">
           <div className="flex items-center gap-2.5">
             <span className="p-2 rounded-md bg-[#00ad1d]/10 text-[#008f18]">
               <Sliders className="w-5 h-5" />
@@ -233,6 +233,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
           <button
             onClick={onClose}
+            aria-label="Close settings"
             className="p-1.5 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition cursor-pointer"
           >
             <X className="w-5 h-5" />
@@ -240,7 +241,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         </div>
 
         {/* Tab Selection (Sticky) */}
-        <div className="flex items-center border-b border-slate-200 bg-white px-4 text-xs overflow-x-auto shrink-0 sticky top-[65px] z-10">
+        <div className="oh-tabs flex items-center border-b border-slate-200 bg-white px-4 text-xs overflow-x-auto shrink-0 z-10" tabIndex={0} aria-label="Settings sections">
           <button
             onClick={() => setActiveTab('profile')}
             className={`flex items-center gap-2 py-3 px-4 font-semibold border-b-2 whitespace-nowrap transition cursor-pointer ${

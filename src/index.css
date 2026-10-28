@@ -1,5 +1,60 @@
 @import "tailwindcss";
 
+/* Layout boundaries belong to panels, so wide data never pushes the page wider. */
+.oh-main { width: 0; overflow-wrap: anywhere; }
+.oh-main > * { max-width: 100%; }
+.oh-main :is(.grid, .flex) > * { min-width: 0; }
+.oh-main .flex:has(> h1) { flex-wrap: wrap; }
+.oh-header { display: grid; grid-template-columns: auto minmax(8rem, 28rem) auto; gap: 1rem; align-items: center; padding: .5rem 1.5rem; min-height: 4rem; }
+.oh-header-actions { justify-content: flex-end; gap: .5rem; }
+.oh-header-actions > button, .oh-header-actions > .relative > button,
+.oh-header > div:first-child > button { min-width: 2.5rem; min-height: 2.5rem; justify-content: center; flex-shrink: 0; }
+.oh-header input { min-height: 2.5rem; }
+.oh-tabs { min-width: 0; max-width: 100%; overflow-x: auto; }
+.oh-tabs > button { flex-shrink: 0; white-space: nowrap; min-height: 2.5rem; }
+.oh-calendar-tabs button { white-space: nowrap; min-height: 2.5rem; }
+.oh-document-actions > * { flex-shrink: 0; white-space: nowrap; min-height: 2.5rem; }
+.oh-dialog > div:not(.flex) { overflow-y: auto; }
+.oh-notifications, .oh-presence { max-height: calc(100dvh - 5rem); overflow-y: auto; max-width: calc(100vw - 1.5rem); }
+.oh-dialog { padding: clamp(.5rem, 2vw, 1.5rem); overflow-y: auto; overscroll-behavior: contain; }
+.oh-dialog > div { min-width: 0; max-height: calc(100dvh - 3rem); margin-block: auto; overflow-wrap: anywhere; }
+.oh-dialog :is(.flex, .grid) > * { min-width: 0; }
+.oh-dialog .overflow-y-auto { min-height: 0; overscroll-behavior: contain; }
+.oh-dialog .overflow-x-auto > button { flex-shrink: 0; white-space: nowrap; }
+.oh-project-footer button { flex-shrink: 0; white-space: nowrap; min-height: 2.5rem; }
+.oh-dialog button:has(> svg:only-child) { flex-shrink: 0; min-width: 2.5rem; min-height: 2.5rem; }
+.oh-messages { min-height: 24rem; }
+:where(button, a, input, select, textarea, [tabindex]):focus-visible { outline: 2px solid #008f58; outline-offset: 3px; }
+
+@media (min-width: 1280px) { .oh-main { padding-inline: clamp(1.5rem, 2.5vw, 3rem); } }
+@media (max-width: 767px) {
+  .oh-header { grid-template-columns: minmax(0, 1fr) auto; gap: .5rem; padding: .75rem; }
+  .oh-search { grid-row: 2; grid-column: 1 / -1; }
+  .oh-header-actions { gap: .125rem; }
+  .oh-header-actions > button, .oh-header-actions > .relative > button { padding: .375rem; }
+  .oh-notifications, .oh-presence { position: fixed; top: 7.75rem; right: .75rem; max-height: calc(100dvh - 8.5rem); }
+  .oh-dialog > div { max-height: calc(100dvh - 1rem); }
+  .oh-dialog :is(input:not([type="checkbox"]):not([type="radio"]):not([type="file"]), select, textarea),
+  .oh-header input { font-size: 16px; min-height: 2.75rem; }
+  .sidebar-nav-item { min-height: 2.75rem; }
+  .oh-messages { height: calc(100dvh - 9rem); min-height: 18rem; }
+}
+@media (max-width: 479px) {
+  .oh-task-content { display: grid; grid-template-columns: 2rem minmax(0, 1fr); align-items: center; }
+  .oh-task-content > :nth-child(3) { grid-column: 1 / -1; }
+  .oh-task-content > button { min-width: 1.75rem; min-height: 1.75rem; }
+  .oh-header > div:first-child { gap: .25rem; }
+  .oh-header > div:first-child > div { gap: 0; }
+  .oh-header > div:first-child > div > div { display: none; }
+  .oh-header > div:first-child img { max-width: 2rem; }
+  .oh-dialog .grid-cols-2 { grid-template-columns: minmax(0, 1fr); }
+  .oh-dialog .grid-cols-2.sm\:grid-cols-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .oh-dashboard > .grid.grid-cols-2 > button:last-child { grid-column: 1 / -1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; transition-duration: .01ms !important; }
+}
+
 @layer base {
   :root {
     --background: 220 14% 96%;

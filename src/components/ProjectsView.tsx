@@ -361,7 +361,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({ onOpenNewProjectModa
       {/* Header Banner */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-4 sm:p-5 rounded-lg border border-slate-200 shadow-2xs">
         <div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <h1 className="text-xl font-bold text-[#19232d]">Projects & Strategic Workflows</h1>
             <span className="text-xs px-2 py-0.5 rounded bg-emerald-50 text-emerald-800 font-semibold border border-emerald-200">
               {filteredProjects.length} {filteredProjects.length === 1 ? 'initiative' : 'initiatives'}
@@ -536,7 +536,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({ onOpenNewProjectModa
           <div className="bg-slate-50 p-3 rounded-md border border-slate-200">
             <div className="flex items-center justify-between">
               <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Portfolio Burn Rate</span>
-              <span className="text-[10px] font-bold font-mono text-slate-700">{portfolioFinancials.portfolioBurn}%</span>
+              <span className="text-[10px] font-bold font-mono text-slate-700 shrink-0">{portfolioFinancials.portfolioBurn}%</span>
             </div>
             <div className="w-full bg-slate-200 h-2 rounded-full overflow-hidden mt-2">
               <div
@@ -1105,7 +1105,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({ onOpenNewProjectModa
 
       {/* Requirement 9: Export Report Modal */}
       {isExportModalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+        <div className="oh-dialog fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-lg max-w-md w-full p-5 shadow-2xl border border-slate-200 space-y-4 animate-in fade-in duration-150">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
               <div className="flex items-center gap-2">

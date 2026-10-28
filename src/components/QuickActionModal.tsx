@@ -648,7 +648,7 @@ export const QuickActionModal: React.FC<QuickActionModalProps> = ({
 
   return (
     <div 
-      className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4"
+      className="oh-dialog fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4"
       onClick={onClose}
     >
       <div 
@@ -668,6 +668,7 @@ export const QuickActionModal: React.FC<QuickActionModalProps> = ({
 
           <button
             onClick={onClose}
+            aria-label="Close new record"
             className="p-1 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-100"
           >
             <X className="w-5 h-5" />
@@ -675,7 +676,7 @@ export const QuickActionModal: React.FC<QuickActionModalProps> = ({
         </div>
 
         {/* Tab Selection */}
-        <div className="grid grid-cols-4 gap-1 p-1 bg-slate-100 rounded-md text-xs font-semibold shrink-0">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-1 p-1 bg-slate-100 rounded-md text-xs font-semibold shrink-0">
           <button
             onClick={() => setActiveTab('task')}
             className={`py-1.5 px-2 rounded-md flex items-center justify-center gap-1.5 transition ${

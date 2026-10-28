@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   LayoutDashboard,
   CheckSquare,
@@ -66,6 +66,33 @@ export const Sidebar: React.FC<SidebarProps> = ({
   isSidebarVisible = true,
   onCloseSidebar
 }) => {
+  const navigationRef = useRef<HTMLElement>(null);
+  const closeRef = useRef(onCloseSidebar);
+  closeRef.current = onCloseSidebar;
+  const [isCompact, setIsCompact] = useState(() => window.matchMedia('(max-width: 1279px)').matches);
+  useEffect(() => {
+    const media = window.matchMedia('(max-width: 1279px)');
+    const update = () => setIsCompact(media.matches);
+    media.addEventListener('change', update);
+    return () => media.removeEventListener('change', update);
+  }, []);
+  useEffect(() => {
+    if (!isSidebarVisible || !isCompact) return;
+    const previousFocus = document.activeElement as HTMLElement | null;
+    const oldOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const focusable = () => Array.from(navigationRef.current?.querySelectorAll<HTMLElement>('button, a[href], [tabindex="0"]') || []).filter(el => !el.hasAttribute('disabled'));
+    focusable()[0]?.focus();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') closeRef.current?.();
+      if (event.key !== 'Tab') return;
+      const items = focusable(), first = items[0], last = items[items.length - 1];
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => { document.body.style.overflow = oldOverflow; document.removeEventListener('keydown', onKeyDown); previousFocus?.focus(); };
+  }, [isSidebarVisible, isCompact]);
   const { tasks, notices, meetings, sharePointDocs, currentUser, approvals, decisions } = usePortalStore();
 
   const myTasksCount = tasks.filter(t => {
@@ -207,18 +234,22 @@ export const Sidebar: React.FC<SidebarProps> = ({
       {isSidebarVisible && (
         <div
           onClick={onCloseSidebar}
-          className="fixed inset-0 z-40 bg-slate-900/40 backdrop-blur-xs lg:hidden"
+          className="fixed inset-0 z-40 bg-slate-900/40 backdrop-blur-xs xl:hidden"
         />
       )}
 
       <aside
+        id="officehub-navigation" ref={navigationRef} aria-label="Main navigation" aria-hidden={!isSidebarVisible}
+        role={isCompact && isSidebarVisible ? 'dialog' : undefined}
+        aria-modal={isCompact && isSidebarVisible ? true : undefined}
         className={`
-          fixed lg:static inset-y-0 left-0 z-40
+          fixed xl:static inset-y-0 left-0 z-50
           bg-[#edf3ee] border-r border-[#cbd5e1] text-[#19232d] flex flex-col shrink-0 select-none overflow-hidden
           transition-all duration-300 ease-in-out
-          ${isSidebarVisible ? 'w-60 translate-x-0' : 'w-0 -translate-x-full lg:w-0'}
+          ${isSidebarVisible ? 'w-60 translate-x-0' : 'w-0 -translate-x-full xl:w-0 invisible'}
         `}
       >
+        <button onClick={onCloseSidebar} aria-label="Close navigation" className="xl:hidden m-2 p-3 rounded-md text-left text-sm font-semibold hover:bg-slate-200">Close menu</button>
         {/* Navigation Groups */}
         <nav className="flex-1 overflow-y-auto px-2 py-3 space-y-1">
           <p className="section-label">Navigation</p>

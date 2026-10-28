@@ -1035,7 +1035,7 @@ export const TasksView: React.FC<TasksViewProps> = ({
         }`}
       >
         {/* Left: Checkbox box, Priority badge box & Title & stacked metadata */}
-        <div className="flex items-start gap-2.5 min-w-0 flex-1">
+        <div className="oh-task-content flex items-start gap-2.5 min-w-0 flex-1">
           <button
             type="button"
             disabled={savingTaskIds.has(task.id)}
@@ -1295,7 +1295,7 @@ export const TasksView: React.FC<TasksViewProps> = ({
       <div className="bg-white border border-slate-200 rounded-md shadow-2xs overflow-hidden">
         {/* Category Tabs Header */}
         <div className="p-3 sm:p-4 border-b border-slate-200 bg-slate-50/70 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
-          <div className="flex items-center gap-1.5 bg-slate-200/80 p-1 rounded-md text-xs font-medium">
+          <div className="oh-tabs flex items-center gap-1.5 bg-slate-200/80 p-1 rounded-md text-xs font-medium">
             <button
               onClick={() => handleSelectCategory('my-work')}
               className={`px-3 py-1.5 rounded-sm transition ${
