@@ -245,7 +245,7 @@ export const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+    <div className="oh-dialog fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
       <div className="bg-white rounded-lg max-w-3xl w-full shadow-2xl border border-slate-200 my-6 flex flex-col max-h-[92vh] overflow-hidden animate-in fade-in duration-150">
         
         {/* Header */}
@@ -369,7 +369,7 @@ export const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
                   </span>
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <button
                     type="button"
                     onClick={() => {
