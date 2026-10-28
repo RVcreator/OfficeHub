@@ -70,7 +70,7 @@ export const UsersView: React.FC<UsersViewProps> = ({ onAssignTaskToUser }) => {
   // Modals state
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<StaffUser | null>(null);
-  const [passwordResetInfo, setPasswordResetInfo] = useState<{ user: StaffUser; tempPass: string; isNewAccount?: boolean } | null>(null);
+  const [passwordResetInfo, setPasswordResetInfo] = useState<{ user: StaffUser; tempPass: string; isNewAccount?: boolean; warning?: string } | null>(null);
   const [copiedPass, setCopiedPass] = useState(false);
   const [deleteConfirmUser, setDeleteConfirmUser] = useState<StaffUser | null>(null);
 
@@ -184,7 +184,8 @@ export const UsersView: React.FC<UsersViewProps> = ({ onAssignTaskToUser }) => {
         setPasswordResetInfo({
           user: newStaff,
           tempPass: newStaff.temporaryPassword,
-          isNewAccount: true
+          isNewAccount: true,
+          warning: newStaff.provisioningWarning
         });
         setCopiedPass(false);
       }
@@ -942,9 +943,10 @@ export const UsersView: React.FC<UsersViewProps> = ({ onAssignTaskToUser }) => {
               <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-md text-[11px] text-amber-800 flex items-start gap-2">
                 <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
                 <span>
-                  <strong>Forced Password Change Active:</strong> This account has been provisioned with <code className="bg-amber-100/70 px-1 py-0.2 rounded font-mono text-amber-900">app_metadata: &#123; must_change_password: true &#125;</code>. Upon first sign-in, the user will be presented with a full-screen prompt to set a new permanent password before entering the portal.
+                  <strong>Password change required:</strong> Share this temporary password privately with the user. They must use this exact password to sign in, then choose a new permanent password before entering OfficeHub. An older default password will not work.
                 </span>
               </div>
+              {passwordResetInfo.warning && <p role="status" className="text-xs text-amber-800">{passwordResetInfo.warning}</p>}
             </div>
 
             <div className="flex justify-end pt-3 border-t border-slate-100">
