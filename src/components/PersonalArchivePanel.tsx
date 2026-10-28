@@ -316,7 +316,7 @@ export const PersonalArchivePanel: React.FC<PersonalArchivePanelProps> = ({
       {/* ========================================================================= */}
       {selectedTaskDetail && (
         <div
-          className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150"
+          className="oh-dialog fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150"
           onClick={() => setSelectedTaskDetail(null)}
         >
           <div
@@ -494,7 +494,7 @@ export const PersonalArchivePanel: React.FC<PersonalArchivePanelProps> = ({
       {/* ========================================================================= */}
       {selectedMeetingDetail && (
         <div
-          className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150"
+          className="oh-dialog fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150"
           onClick={() => setSelectedMeetingDetail(null)}
         >
           <div
@@ -621,7 +621,7 @@ export const PersonalArchivePanel: React.FC<PersonalArchivePanelProps> = ({
       {/* CONFIRM CLEAR ARCHIVE MODAL */}
       {showClearConfirmModal && (
         <div
-          className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-100"
+          className="oh-dialog fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-100"
           onClick={() => setShowClearConfirmModal(false)}
         >
           <div
