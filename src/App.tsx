@@ -210,13 +210,14 @@ export default function App() {
         onOpenSettings={() => handleOpenSettingsWithTab('integrations')}
         onOpenSettingsTab={handleOpenSettingsWithTab}
         onToggleMobileMenu={() => setIsSidebarOpen(!isSidebarOpen)}
+        isNavigationOpen={isSidebarOpen}
         onSearchSelect={(tab: string) => setActiveTab(tab as TabId)}
         onSelectTask={handleSelectTask}
         onSignOut={() => actions.logoutUser()}
       />
 
       {/* Main Body with Sidebar and Content */}
-      <div className="flex-1 flex">
+      <div className="flex-1 flex min-w-0">
         {/* Authentic Sidebar */}
         <Sidebar
           currentTab={activeTab}
@@ -226,7 +227,7 @@ export default function App() {
             setSelectedNoticeId(null);
             setSelectedMeetingId(null);
             setSelectedApprovalId(null);
-            if (window.innerWidth < 1024) setIsSidebarOpen(false);
+            if (window.innerWidth < 1280) setIsSidebarOpen(false);
             window.scrollTo({ top: 0, behavior: 'smooth' });
           }}
           onOpenQuickAction={() => handleOpenQuickAction('task')}
@@ -237,7 +238,7 @@ export default function App() {
         />
 
         {/* Content View */}
-        <main className="flex-1 min-w-0 p-4 lg:p-6 overflow-y-auto">{notificationError && <div role="alert" className="mb-4 rounded-lg border border-amber-300 bg-amber-50 p-3 text-amber-900">{notificationError}</div>}<AppErrorBoundary key={activeTab} onReturn={() => setActiveTab('dashboard')}><Suspense fallback={<div className="p-6 text-slate-500">Loading view...</div>}>
+        <main className="oh-main flex-1 min-w-0 p-3 sm:p-5 xl:p-6">{notificationError && <div role="alert" className="mb-4 rounded-lg border border-amber-300 bg-amber-50 p-3 text-amber-900">{notificationError}</div>}<AppErrorBoundary key={activeTab} onReturn={() => setActiveTab('dashboard')}><Suspense fallback={<div className="p-6 text-slate-500">Loading view...</div>}>
           {/* Active View Router */}
 
             {activeTab === 'dashboard' && (
