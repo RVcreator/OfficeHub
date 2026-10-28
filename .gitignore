@@ -6,3 +6,6 @@ coverage/
 *.log
 .env*
 !.env.example
+
+# Isolated responsive browser-test output
+.responsive-qa/
