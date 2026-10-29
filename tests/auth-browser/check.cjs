@@ -36,6 +36,7 @@ const fs=require('fs'),path=require('path'),assert=require('assert/strict');
  await page.getByRole('button',{name:'Reject completion',exact:true}).click();
  await page.getByLabel('New Password',{exact:true}).fill('Fixture-second-password!');await page.getByLabel('Confirm New Password',{exact:true}).fill('Fixture-second-password!');await page.locator('button[type=submit]').click();
  await page.getByText('Failed to update password: Password change could not be confirmed. Please try again.',{exact:true}).waitFor();assert.equal(await page.getByRole('heading',{name:'Fixture dashboard'}).count(),0);
+ await page.getByRole('button',{name:'Simulate account deletion',exact:true}).click();await page.getByRole('button',{name:'Sign In',exact:true}).waitFor();assert.equal(await page.getByRole('heading',{name:'Set a New Password'}).count(),0);
  assert.deepEqual(errors,[]);console.log('PASS: clipboard failure never reports copied, confirmed clipboard success, first login gate, confirmed completion, reset in active session, untrusted hint, failed completion stays gated; zero page errors; network blocked.');
  } finally {await browser.close();}
 })().catch(e=>{console.error(e);process.exitCode=1;});
