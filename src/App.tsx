@@ -1,5 +1,5 @@
 import type {SettingsTabType} from './components/SettingsModal';
-import React, { useState, useEffect, Suspense, lazy } from 'react';
+import React, { useState, useEffect, useRef, useTransition, Suspense, lazy } from 'react';
 import { usePortalStore } from './services/store';
 import { supabase } from './services/supabaseClient';
 import type { AuthChangeEvent, Session } from '@supabase/supabase-js';
@@ -31,10 +31,29 @@ import { ForcedPasswordChangeScreen } from './components/ForcedPasswordChangeScr
 import { Project, StaffUser, Task } from './types';
 import { isTaskAssignedByMe } from './utils/taskUtils';
 
+function warmPage(tab:TabId){
+ const name=tab.startsWith('tasks-')?'tasks':tab==='calendar'?'meetings':tab;
+ const pages:Record<string,()=>Promise<unknown>>={
+  'my-day':()=>import('./components/MyDayView'),tasks:()=>import('./components/TasksView'),
+  documents:()=>import('./components/SharePointView'),meetings:()=>import('./components/MeetingsTeamsView'),
+  notices:()=>import('./components/NoticesView'),projects:()=>import('./components/ProjectsView'),
+  approvals:()=>import('./components/ApprovalsView'),departments:()=>import('./components/DepartmentsView'),
+  'roles-permissions':()=>import('./components/RolesPermissionsView'),users:()=>import('./components/UsersView'),
+  messages:()=>import('./components/MessagesView'),staff:()=>import('./components/StaffDirectoryView'),
+  'teams-notifications':()=>import('./components/TeamsNotificationsView'),decisions:()=>import('./components/DecisionsView'),
+  'audit-log':()=>import('./components/AuditLogView'),
+ };
+ void pages[name]?.().catch(()=>{});
+}
+
 export default function App() {
   const { authSession, currentUser, tasks, staff, actions, loading, notificationError } = usePortalStore(['authSession', 'currentUser', 'tasks', 'staff', 'loading', 'notificationError']);
 
-  const [activeTab, setActiveTab] = useState<TabId>('dashboard');
+  const [activeTab, setRenderedTab] = useState<TabId>('dashboard');
+  const [isNavigating,startNavigation]=useTransition();
+  const mainRef=useRef<HTMLElement>(null);
+  const setActiveTab=(tab:TabId)=>startNavigation(()=>setRenderedTab(tab));
+  useEffect(()=>{mainRef.current?.scrollTo({top:0});},[activeTab]);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isQuickActionOpen, setIsQuickActionOpen] = useState(false);
   const [quickActionInitialTab, setQuickActionInitialTab] = useState<'task' | 'meeting' | 'notice' | 'sharepoint'>('task');
@@ -229,7 +248,7 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-[#f1f5f9] text-[#19232d] flex flex-col font-sans">
+    <div className="oh-shell h-dvh overflow-hidden bg-[#f1f5f9] text-[#19232d] flex flex-col font-sans">
       {/* Top Header */}
       <Header
         onOpenQuickAction={() => handleOpenQuickAction('task')}
@@ -243,10 +262,11 @@ export default function App() {
       />
 
       {/* Main Body with Sidebar and Content */}
-      <div className="flex-1 flex min-w-0">
+      <div className="flex-1 flex min-w-0 min-h-0 overflow-hidden">
         {/* Authentic Sidebar */}
         <Sidebar
           currentTab={activeTab}
+          onWarmTab={warmPage}
           onSelectTab={(tab: TabId) => {
             setActiveTab(tab);
             setSelectedTaskId(null);
@@ -254,7 +274,6 @@ export default function App() {
             setSelectedMeetingId(null);
             setSelectedApprovalId(null);
             if (window.innerWidth < 1280) setIsSidebarOpen(false);
-            window.scrollTo({ top: 0, behavior: 'smooth' });
           }}
           onOpenQuickAction={() => handleOpenQuickAction('task')}
           onOpenSettings={() => setIsSettingsOpen(true)}
@@ -264,7 +283,7 @@ export default function App() {
         />
 
         {/* Content View */}
-        <main className="oh-main flex-1 min-w-0 p-3 sm:p-5 xl:p-6">{notificationError && <div role="alert" className="mb-4 rounded-lg border border-amber-300 bg-amber-50 p-3 text-amber-900">{notificationError}</div>}{loading ? <div role="status" className="p-6 text-slate-500">Loading your workspace…</div> : <AppErrorBoundary key={activeTab} onReturn={() => setActiveTab('dashboard')}><Suspense fallback={<div className="p-6 text-slate-500">Loading view...</div>}>
+        <main ref={mainRef} aria-busy={isNavigating} className="oh-main flex-1 min-w-0 min-h-0 overflow-y-auto p-3 sm:p-5 xl:p-6">{notificationError && <div role="alert" className="mb-4 rounded-lg border border-amber-300 bg-amber-50 p-3 text-amber-900">{notificationError}</div>}{loading ? <div role="status" className="p-6 text-slate-500">Loading your workspace…</div> : <Suspense fallback={<div role="status" className="p-6 text-slate-500">Loading your workspace…</div>}><AppErrorBoundary key={activeTab} onReturn={() => setActiveTab('dashboard')}>
           {/* Active View Router */}
 
             {activeTab === 'dashboard' && (
@@ -443,7 +462,7 @@ export default function App() {
             {activeTab === 'messages' && (
               <MessagesView />
             )}
-          </Suspense></AppErrorBoundary>}
+          </AppErrorBoundary></Suspense>}
         </main>
       </div>
 

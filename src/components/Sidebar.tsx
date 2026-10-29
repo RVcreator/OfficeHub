@@ -52,6 +52,7 @@ export type TabId =
 interface SidebarProps {
   currentTab: TabId;
   onSelectTab: (tab: TabId) => void;
+  onWarmTab?: (tab:TabId)=>void;
   onOpenQuickAction: () => void;
   onOpenSettings: () => void;
   isSidebarVisible?: boolean;
@@ -62,6 +63,7 @@ interface SidebarProps {
 export const Sidebar: React.FC<SidebarProps> = ({
   currentTab,
   onSelectTab,
+  onWarmTab,
   onOpenQuickAction,
   onOpenSettings,
   isSidebarVisible = true,
@@ -212,6 +214,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
         return (
           <button
             key={item.id}
+            onMouseEnter={()=>onWarmTab?.(item.id)}
+            onFocus={()=>onWarmTab?.(item.id)}
+            onPointerDown={()=>onWarmTab?.(item.id)}
             onClick={() => {
               onSelectTab(item.id);
               onCloseSidebar?.();
@@ -247,14 +252,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
         aria-modal={isCompact && isSidebarVisible ? true : undefined}
         className={`
           fixed xl:static inset-y-0 left-0 z-50
-          bg-[#edf3ee] border-r border-[#cbd5e1] text-[#19232d] flex flex-col shrink-0 select-none overflow-hidden
+          bg-[#edf3ee] border-r border-[#cbd5e1] text-[#19232d] flex flex-col min-h-0 shrink-0 select-none overflow-hidden
           transition-all duration-300 ease-in-out
           ${isSidebarVisible ? 'w-60 translate-x-0' : 'w-0 -translate-x-full xl:w-0 invisible'}
         `}
       >
         <button onClick={onCloseSidebar} aria-label="Close navigation" className="xl:hidden m-2 p-3 rounded-md text-left text-sm font-semibold hover:bg-slate-200">Close menu</button>
         {/* Navigation Groups */}
-        <nav className="flex-1 overflow-y-auto px-2 py-3 space-y-1">
+        <nav className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-2 py-3 space-y-1">
           <p className="section-label">Navigation</p>
           {renderNavGroup(navigationGroup)}
 

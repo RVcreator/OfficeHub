@@ -133,3 +133,8 @@
   color: hsl(var(--muted-foreground));
   padding: 0.6rem 0.75rem 0.25rem;
 }
+
+/* Keep archive records reachable when its fixed banner consumes a short viewport. */
+@media (max-height: 500px) {
+  .oh-settings-archive-body { padding-block: .5rem; }
+}
