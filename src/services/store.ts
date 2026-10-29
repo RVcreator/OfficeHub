@@ -1,10 +1,12 @@
+import {createReadQueue} from './syncPolicy';
+import {sameValue,tableSnapshot} from './storeSnapshot';
 // =========================================================================
 // WIPAHS OfficeHub Store
 // Scoped per-table state management with isolated per-table setters.
 // ZERO global cascade refetches. ZERO reliance on mock data or local storage.
 // =========================================================================
 
-import { useEffect, useSyncExternalStore } from 'react';
+import { useEffect, useMemo, useSyncExternalStore } from 'react';
 import {
   Department,
   Meeting,
@@ -435,6 +437,7 @@ export function setTableData<K extends TableKey>(key: K, data: StoreData[K], sou
     data = rows as StoreData[K];
     ring = notificationChimes.observe(rows, user.id, source === 'created');
   }
+  if (sameValue(storeState[key],data)) return;
   storeState[key] = data;
   tableListeners[key]?.forEach((fn) => {
     try {
@@ -462,11 +465,15 @@ export function useTableState<K extends TableKey>(key: K): StoreData[K] {
 // -------------------------------------------------------------------------
 let isStoreInitialized = false;
 let storeInitPromise: Promise<void> | null = null;
+let storeInitGeneration=0;
 
 export async function initStoreOnce(): Promise<void> {
+  if (!storeState.authSession.isAuthenticated) {setTableData('loading',false);return;}
   if (isStoreInitialized) return;
   if (storeInitPromise) return storeInitPromise;
 
+  const identity=storeState.authSession.userId,generation=storeInitGeneration;
+  setTableData('loading',true);
   console.time('initStoreOnce');
   storeInitPromise = (async () => {
     try {
@@ -477,30 +484,23 @@ export async function initStoreOnce(): Promise<void> {
         noticesData,
         meetingsData,
         approvalsData,
-        docsData,
-        foldersData,
       ] = await Promise.all([
-        portalStore.getStaff(),
+        storeState.staff.length ? Promise.resolve(storeState.staff) : portalStore.getStaff(),
         portalStore.getTasks(200, 0),
         portalStore.getNotices(25, 0),
         portalStore.getMeetings(25, 0),
         portalStore.getApprovals(25, 0),
-        portalStore.getSharePointDocs(),
-        portalStore.getFolderList(),
       ]);
 
+      if(!storeState.authSession.isAuthenticated||identity!==storeState.authSession.userId||generation!==storeInitGeneration)return;
       setTableData('staff', staffData);
       setTableData('tasks', tasksData);
       setTableData('notices', noticesData);
       setTableData('meetings', meetingsData);
       setTableData('approvals', approvalsData);
-      if (docsData && docsData.length > 0) {
-        setTableData('sharePointDocs', docsData);
-      }
-      if (foldersData && foldersData.length > 0) {
-        setTableData('folderList', foldersData);
-      }
-      
+      // Search/sidebar documents hydrate after useful content; Graph listing never gates startup.
+      setTimeout(()=>{if(storeState.authSession.isAuthenticated&&identity===storeState.authSession.userId)void portalStore.getSharePointDocs();},1000);
+
       // Projects, Audit Logs, etc. are now deferred on-demand
       isStoreInitialized = true;
       if (storeState.authSession.isAuthenticated) {
@@ -510,7 +510,7 @@ export async function initStoreOnce(): Promise<void> {
       console.error('Error during initStoreOnce:', err);
     } finally {
       console.timeEnd('initStoreOnce');
-      setTableData('loading', false);
+      if(identity===storeState.authSession.userId&&generation===storeInitGeneration){setTableData('loading', false);storeInitPromise=null;}
     }
   })();
 
@@ -717,14 +717,8 @@ export const portalStore = {
   // -----------------------------------------------------------------------
   getTasks: async (limit: number = 200, offset: number = 0): Promise<Task[]> => {
     try {
-      let [tasksRes, subtasksRes] = await Promise.all([
-        supabase
-          .from('tasks')
-          .select(TASK_SELECT_COLUMNS)
-          .order('created_at', { ascending: false })
-          .range(offset, offset + limit - 1),
-        supabase.from('task_subtasks').select('*').limit(1000),
-      ]);
+      let tasksRes = await supabase.from('tasks').select(TASK_SELECT_COLUMNS)
+        .order('created_at', {ascending:false}).range(offset,offset+limit-1);
 
       // If a transient network glitch or stream cutoff occurred, retry fetching tasks once
       if (tasksRes.error && isNetworkOrTransientError(tasksRes.error)) {
@@ -762,6 +756,8 @@ export const portalStore = {
         }
       }
 
+      const taskIds=(tasksRes.data||[]).map(row=>row.id);
+      const subtasksRes=taskIds.length ? await supabase.from('task_subtasks').select('*').in('task_id',taskIds) : {data:[],error:null};
       if (subtasksRes.error) {
         if (isNetworkOrTransientError(subtasksRes.error)) {
           console.warn('Supabase getSubtasks transient condition, proceeding with tasks and empty subtasks.');
@@ -895,10 +891,7 @@ export const portalStore = {
 
   getNotices: async (limit: number = 50, offset: number = 0): Promise<Notice[]> => {
     try {
-      const [noticesRes, acksRes] = await Promise.all([
-        supabase.from('notices').select(NOTICE_SELECT_COLUMNS).order('pinned', { ascending: false }).range(offset, offset + limit - 1),
-        supabase.from('notice_acknowledgements').select('*').limit(500),
-      ]);
+      const noticesRes=await supabase.from('notices').select(NOTICE_SELECT_COLUMNS).order('pinned', {ascending:false}).range(offset,offset+limit-1);
 
       if (noticesRes.error) {
         if (isNetworkOrTransientError(noticesRes.error)) {
@@ -909,6 +902,8 @@ export const portalStore = {
         return storeState.notices;
       }
 
+      const parentIds=(noticesRes.data||[]).map(row=>row.id);
+      const acksRes=parentIds.length ? await supabase.from('notice_acknowledgements').select('*').in('notice_id',parentIds) : {data:[],error:null};
       const acksByNotice: Record<string, string[]> = {};
       (acksRes.data || []).forEach((row) => {
         if (!acksByNotice[row.notice_id]) acksByNotice[row.notice_id] = [];
@@ -1122,10 +1117,7 @@ export const portalStore = {
 
   getMeetings: async (limit: number = 50, offset: number = 0): Promise<Meeting[]> => {
     try {
-      const [meetRes, attRes] = await Promise.all([
-        supabase.from('meetings').select('*').order('date', { ascending: false }).range(offset, offset + limit - 1),
-        supabase.from('meeting_attendees').select(MEETING_ATTENDEE_SELECT_COLUMNS).limit(500),
-      ]);
+      const meetRes=await supabase.from('meetings').select('*').order('date', {ascending:false}).range(offset,offset+limit-1);
 
       if (meetRes.error) {
         if (isNetworkOrTransientError(meetRes.error)) {
@@ -1136,6 +1128,8 @@ export const portalStore = {
         return storeState.meetings;
       }
 
+      const parentIds=(meetRes.data||[]).map(row=>row.id);
+      const attRes=parentIds.length ? await supabase.from('meeting_attendees').select(MEETING_ATTENDEE_SELECT_COLUMNS).in('meeting_id',parentIds) : {data:[],error:null};
       const attByMeeting: Record<string, any[]> = {};
       (attRes.data || []).forEach((row) => {
         if (!attByMeeting[row.meeting_id]) attByMeeting[row.meeting_id] = [];
@@ -1232,6 +1226,7 @@ export const portalStore = {
   },
 
   getSharePointDocs: async (): Promise<SharePointDocument[]> => {
+    const identity=storeState.authSession.userId;
     const deletedDocs = getDeletedDocumentIds();
     try {
       const localDocs = getDocumentsFromLocalStorage().filter((d) => !deletedDocs.has(d.id));
@@ -1250,7 +1245,10 @@ export const portalStore = {
         console.warn('Supabase getSharePointDocs error:', err);
       }
 
+      if(identity!==storeState.authSession.userId)return [];
+      setTableData('sharePointDocs',dbDocs.length ? dbDocs : localDocs);
       const fnDocuments = await invokeSharePointListSafe();
+      if(identity!==storeState.authSession.userId)return [];
       if (fnDocuments && fnDocuments.length > 0) {
         const fnDocs = fnDocuments.map(mapSharePointDocRow).filter((d: SharePointDocument) => !deletedDocs.has(d.id));
         fnDocs.forEach((d: SharePointDocument) => {
@@ -4901,16 +4899,16 @@ export const portalStore = {
     initRealtimeSubscription();
     if (newIdentity) startUserPresence();
 
-    // Refresh tasks and notifications with the newly authenticated user context
-    portalStore.getTasks().then((freshTasks) => {
-      setTableData('tasks', freshTasks);
-    }).catch(console.warn);
-    portalStore.getNotifications(authenticatedUser.id).catch(() => {});
+    if(newIdentity){
+      void initStoreOnce();
+      portalStore.getNotifications(authenticatedUser.id).catch(()=>{});
+    }
   },
 
   logoutUser: async (signOut = true): Promise<void> => {
     const prevId = storeState.currentUser?.id;
     stopRealtimeEngine();
+    isStoreInitialized=false;storeInitPromise=null;storeInitGeneration++;
     await presenceController?.stop();
     presenceController = undefined;
     presenceCache.clear();
@@ -5049,6 +5047,13 @@ export const portalStore = {
   actions: null as any,
 };
 
+// Deduplicate independent view, realtime and focus consumers per identity and page.
+const reads=createReadQueue();
+for(const method of ['getTasks','getNotices','getMeetings','getStaff','getApprovals','getConversations','getSharePointDocs','getNotifications'] as const){
+ const read=portalStore[method] as (...args:any[])=>Promise<any>;
+ (portalStore as any)[method]=(...args:any[])=>reads.run(JSON.stringify([method,storeState.authSession.userId,...args]),()=>read(...args));
+}
+
 // Bind actions back to portalStore so portalStore.actions and portalStore are identical
 (portalStore as any).actions = portalStore;
 
@@ -5059,59 +5064,18 @@ export const portalStore = {
 // Updates to 'notices' only re-render components that consume notices.
 // =========================================================================
 
-export function usePortalStore() {
-  const tasks = useTableState('tasks');
-  const notices = useTableState('notices');
-  const projects = useTableState('projects');
-  const meetings = useTableState('meetings');
-  const staff = useTableState('staff');
-  const sharePointDocs = useTableState('sharePointDocs');
-  const folderList = useTableState('folderList');
-  const teamsRules = useTableState('teamsRules');
-  const auditLogs = useTableState('auditLogs');
-  const currentUser = useTableState('currentUser');
-  const decisions = useTableState('decisions');
-  const approvals = useTableState('approvals');
-  const departments = useTableState('departments');
-  const roles = useTableState('roles');
-  const conversations = useTableState('conversations');
-  const messages = useTableState('messages');
-  const notifications = useTableState('notifications');
-  const notificationError = useTableState('notificationError');
-  const dispatchedEmails = useTableState('dispatchedEmails');
-  const authSession = useTableState('authSession');
-  const loading = useTableState('loading');
-
-  useEffect(() => {
-    initStoreOnce();
-  }, []);
-
-  return {
-    tasks,
-    notices,
-    projects,
-    meetings,
-    staff,
-    sharePointDocs,
-    folderList,
-    teamsRules,
-    auditLogs,
-    currentUser,
-    decisions,
-    approvals,
-    departments,
-    roles,
-    conversations,
-    messages,
-    notifications,
-    notificationError,
-    dispatchedEmails,
-    authSession,
-    loading,
-    isLoading: loading,
-    actions: portalStore,
-    refetch: initStoreOnce,
-  };
+export function usePortalStore(keys?: readonly TableKey[]) {
+  const signature=(keys || Object.keys(storeState) as TableKey[]).join('|');
+  const selection=useMemo(()=>{
+    const selected=(signature ? signature.split('|') : []) as TableKey[];
+    return {
+      subscribe:(callback:()=>void)=>{const cleanups=selected.map(key=>subscribeTable(key,callback));return ()=>cleanups.forEach(cleanup=>cleanup());},
+      snapshot:tableSnapshot(()=>storeState,selected),
+    };
+  },[signature]);
+  useSyncExternalStore(selection.subscribe,selection.snapshot);
+  useEffect(()=>{void initStoreOnce();},[]);
+  return {...storeState,isLoading:storeState.loading,actions:portalStore,refetch:initStoreOnce};
 }
 
 function generateTempPassword(): string {

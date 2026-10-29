@@ -37,7 +37,7 @@ export const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
   onClose,
   onProjectCreated,
 }) => {
-  const { actions, currentUser, staff, projects, departments } = usePortalStore();
+  const { actions, currentUser, staff, projects, departments } = usePortalStore(['currentUser', 'staff', 'projects', 'departments']);
 
   const availableDepartments = useMemo(() => {
     const fromStore = (departments || []).map(d => d.name);

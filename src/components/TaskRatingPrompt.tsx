@@ -24,7 +24,7 @@ export const TaskRatingPrompt: React.FC<TaskRatingPromptProps> = ({
   onRatingSubmitted,
   className = '',
 }) => {
-  const { currentUser, actions } = usePortalStore();
+  const { currentUser, actions } = usePortalStore(['currentUser']);
 
   const isAssigner =
     (Boolean(task.createdById) && task.createdById === currentUser.id && task.createdById !== 'usr-default' && task.createdById !== 'usr-guest') ||

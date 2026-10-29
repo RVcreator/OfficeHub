@@ -20,7 +20,7 @@ import { RolePermission } from '../types';
 import { UserAvatar } from './UserAvatar';
 
 export const RolesPermissionsView: React.FC = () => {
-  const { roles, staff, actions, departments } = usePortalStore();
+  const { roles, staff, actions, departments } = usePortalStore(['roles', 'staff', 'departments']);
   const [selectedRoleId, setSelectedRoleId] = useState(roles[0]?.id || 'role-01');
 
   // Modals state

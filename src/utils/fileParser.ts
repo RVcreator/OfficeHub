@@ -1,5 +1,3 @@
-import * as XLSX from 'xlsx';
-import mammoth from 'mammoth';
 import { MessageAttachment } from '../types';
 import {
   saveAttachmentToStorage,
@@ -246,6 +244,7 @@ export async function parseUploadedFile(file: File): Promise<MessageAttachment> 
     } else if (isDocx) {
       type = 'docx';
       try {
+        const {default:mammoth} = await import('mammoth');
         const arrayBuffer = await file.arrayBuffer();
         const result = await mammoth.convertToHtml({ arrayBuffer });
         textContent = result.value || '';
@@ -259,6 +258,7 @@ export async function parseUploadedFile(file: File): Promise<MessageAttachment> 
     } else if (isXlsx) {
       type = 'xlsx';
       try {
+        const XLSX = await import('xlsx');
         const arrayBuffer = await file.arrayBuffer();
         const workbook = XLSX.read(arrayBuffer, { type: 'array' });
         sheetData = workbook.SheetNames.map(sheetName => {

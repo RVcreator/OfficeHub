@@ -56,7 +56,7 @@ export const ProjectModal: React.FC<ProjectModalProps> = ({
   project: propProject,
   initialTab = 'milestones'
 }) => {
-  const { actions, currentUser, tasks, staff, departments, sharePointDocs, projects } = usePortalStore();
+  const { actions, currentUser, tasks, staff, departments, sharePointDocs, projects } = usePortalStore(['currentUser', 'tasks', 'staff', 'departments', 'sharePointDocs', 'projects']);
   const project = projects.find(p => p.id === propProject?.id) || propProject || {} as Project;
 
   const availableDepartments = React.useMemo(() => {

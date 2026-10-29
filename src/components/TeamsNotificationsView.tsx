@@ -36,7 +36,7 @@ const emailStatusLabel: Record<DispatchedEmail['status'], string> = {
 export const TeamsNotificationsView: React.FC<{
   onSelectTask?: (taskId: string) => void;
 }> = ({ onSelectTask }) => {
-  const { notifications, currentUser, actions, tasks } = usePortalStore();
+  const { notifications, currentUser, actions, tasks } = usePortalStore(['notifications', 'currentUser', 'tasks']);
   const [dispatchedEmails, setDispatchedEmails] = useState<DispatchedEmail[]>([]);
 
   const [activeTab, setActiveTab] = useState<'notifications' | 'emails'>('notifications');

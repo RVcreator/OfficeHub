@@ -17,6 +17,7 @@ export class AppErrorBoundary extends Component<Props, { failed: boolean }> {
           if (this.props.onReturn) this.props.onReturn();
           else window.location.reload();
         }}>{this.props.onReturn ? 'Return to dashboard' : 'Reload OfficeHub'}</button>
+        {this.props.onReturn && <button className="ml-3 rounded-lg border border-slate-300 px-4 py-2" onClick={()=>window.location.reload()}>Reload OfficeHub</button>}
       </section>
     );
   }

@@ -24,7 +24,7 @@ import { fetchAyahOfTheDay, QuranAyah } from '../services/quranService';
 import { useHijriDate } from '../utils/hijriDate';
 import { isMyPersonalOrAssignedTask } from '../utils/taskUtils';
 import { Project } from '../types';
-import { getProjectFinancials } from './ProjectsView';
+import { getProjectFinancials } from '../utils/projectFinancials';
 
 interface DashboardViewProps {
   onSelectTab: (tab: TabId) => void;
@@ -45,7 +45,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   onSelectMeeting,
   onSelectProject,
 }) => {
-  const { tasks, notices, currentUser, approvals, meetings, projects } = usePortalStore();
+  const { tasks, notices, currentUser, approvals, meetings, projects } = usePortalStore(['tasks', 'notices', 'currentUser', 'approvals', 'meetings', 'projects']);
   const [ayah, setAyah] = useState<QuranAyah | null>(null);
   const hijriDate = useHijriDate();
 

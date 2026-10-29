@@ -1,3 +1,4 @@
+import {brandLogo} from '../utils/brandLogo';
 import { isNotificationForUser } from '../services/notificationDelivery';
 import React, { useState, useEffect, useRef } from 'react';
 import { UserAvatar } from './UserAvatar';
@@ -29,7 +30,7 @@ import { formatStaffDisplayName, formatStaffDisplayOrgDept } from '../utils/staf
 import { UserRatingDisplay } from './UserRatingDisplay';
 import { SettingsTabType } from './SettingsModal';
 import { isPersonalTask } from '../utils/taskUtils';
-import { canUserViewDocument } from './SharePointView';
+import { canUserViewDocument } from '../utils/documentAccess';
 
 interface HeaderProps {
   onOpenSettings: () => void;
@@ -52,7 +53,7 @@ export const Header: React.FC<HeaderProps> = ({
   onSelectTask,
   onSignOut,
 }) => {
-  const { currentUser, staff, actions, notices, tasks, meetings, sharePointDocs, notifications } = usePortalStore();
+  const { currentUser, staff, actions, notices, tasks, meetings, sharePointDocs, notifications } = usePortalStore(['currentUser', 'staff', 'notices', 'tasks', 'meetings', 'sharePointDocs', 'notifications']);
   const [presenceMenuOpen, setPresenceMenuOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [showSearchDropdown, setShowSearchDropdown] = useState(false);
@@ -170,7 +171,8 @@ export const Header: React.FC<HeaderProps> = ({
         <div className="flex items-center gap-2.5 min-w-0">
           <span className="inline-flex items-center justify-center overflow-hidden rounded-md bg-white shrink-0 h-9 w-9 border border-slate-200">
             <img
-              src="/wipahs-logo.jpg"
+              src={brandLogo}
+              width={36} height={36} decoding="async"
               alt="WIPAHS OfficeHub"
               className="h-full w-full object-cover object-top"
               onError={(e) => {

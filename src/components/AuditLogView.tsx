@@ -13,7 +13,7 @@ import {
 import { usePortalStore, setTableData } from '../services/store';
 
 export const AuditLogView: React.FC = () => {
-  const { auditLogs, actions } = usePortalStore();
+  const { auditLogs, actions } = usePortalStore(['auditLogs']);
 
   useEffect(() => {
     if (auditLogs.length === 0) {

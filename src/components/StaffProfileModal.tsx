@@ -38,7 +38,7 @@ export const StaffProfileModal: React.FC<StaffProfileModalProps> = ({
   onSelectTask,
   onSelectMeeting
 }) => {
-  const { tasks, currentUser } = usePortalStore();
+  const { tasks, currentUser } = usePortalStore(['tasks', 'currentUser']);
 
   if (!isOpen || !staffMember) return null;
 

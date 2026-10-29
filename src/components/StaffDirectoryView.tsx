@@ -34,7 +34,7 @@ interface StaffDirectoryViewProps {
 export const StaffDirectoryView: React.FC<StaffDirectoryViewProps> = ({
   onAssignTaskToUser
 }) => {
-  const { staff } = usePortalStore();
+  const { staff } = usePortalStore(['staff']);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [organisationFilter, setOrganisationFilter] = useState<string>('All');

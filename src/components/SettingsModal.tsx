@@ -49,7 +49,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onSelectTask,
   onSelectMeeting
 }) => {
-  const { actions, currentUser, departments, tasks, staff } = usePortalStore();
+  const { actions, currentUser, departments, tasks, staff } = usePortalStore(['currentUser', 'departments', 'tasks', 'staff']);
   const ratingSummary = getUserRatingSummary(currentUser.id, tasks, currentUser);
 
   const [activeTab, setActiveTab] = useState<SettingsTabType>(initialTab);

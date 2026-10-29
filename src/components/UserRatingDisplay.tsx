@@ -22,7 +22,7 @@ export const UserRatingDisplay: React.FC<UserRatingDisplayProps> = ({
   showZeroState = false,
   onClick,
 }) => {
-  const { tasks, staff } = usePortalStore();
+  const { tasks, staff } = usePortalStore(['tasks', 'staff']);
 
   let avg = propAverage ?? 0;
   let count = propCount ?? 0;

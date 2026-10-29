@@ -1,3 +1,4 @@
+import type {SettingsTabType} from './components/SettingsModal';
 import React, { useState, useEffect, Suspense, lazy } from 'react';
 import { usePortalStore } from './services/store';
 import { supabase } from './services/supabaseClient';
@@ -7,12 +8,12 @@ import { AppErrorBoundary } from './components/AppErrorBoundary';
 import { Header } from './components/Header';
 import { Sidebar, TabId } from './components/Sidebar';
 import { DashboardView } from './components/DashboardView';
-import { MyDayView } from './components/MyDayView';
-import { TasksView } from './components/TasksView';
-import { SharePointView } from './components/SharePointView';
-import { MeetingsTeamsView } from './components/MeetingsTeamsView';
-import { NoticesView } from './components/NoticesView';
-import { ProjectsView } from './components/ProjectsView';
+const MyDayView = lazy(() => import('./components/MyDayView').then(m => ({default:m.MyDayView})));
+const TasksView = lazy(() => import('./components/TasksView').then(m => ({default:m.TasksView})));
+const SharePointView = lazy(() => import('./components/SharePointView').then(m => ({default:m.SharePointView})));
+const MeetingsTeamsView = lazy(() => import('./components/MeetingsTeamsView').then(m => ({default:m.MeetingsTeamsView})));
+const NoticesView = lazy(() => import('./components/NoticesView').then(m => ({default:m.NoticesView})));
+const ProjectsView = lazy(() => import('./components/ProjectsView').then(m => ({default:m.ProjectsView})));
 const AuditLogView = lazy(() => import('./components/AuditLogView').then(m => ({ default: m.AuditLogView })));
 const ApprovalsView = lazy(() => import('./components/ApprovalsView').then(m => ({ default: m.ApprovalsView })));
 const DepartmentsView = lazy(() => import('./components/DepartmentsView').then(m => ({ default: m.DepartmentsView })));
@@ -22,16 +23,16 @@ const MessagesView = lazy(() => import('./components/MessagesView').then(m => ({
 const StaffDirectoryView = lazy(() => import('./components/StaffDirectoryView').then(m => ({ default: m.StaffDirectoryView })));
 const TeamsNotificationsView = lazy(() => import('./components/TeamsNotificationsView').then(m => ({ default: m.TeamsNotificationsView })));
 const DecisionsView = lazy(() => import('./components/DecisionsView').then(m => ({ default: m.DecisionsView })));
-import { QuickActionModal } from './components/QuickActionModal';
-import { ProjectModal } from './components/ProjectModal';
-import { SettingsModal, SettingsTabType } from './components/SettingsModal';
+const QuickActionModal = lazy(() => import('./components/QuickActionModal').then(m => ({default:m.QuickActionModal})));
+const ProjectModal = lazy(() => import('./components/ProjectModal').then(m => ({default:m.ProjectModal})));
+const SettingsModal = lazy(() => import('./components/SettingsModal').then(m => ({default:m.SettingsModal})));
 import { LoginScreen } from './components/LoginScreen';
 import { ForcedPasswordChangeScreen } from './components/ForcedPasswordChangeScreen';
 import { Project, StaffUser, Task } from './types';
 import { isTaskAssignedByMe } from './utils/taskUtils';
 
 export default function App() {
-  const { authSession, currentUser, tasks, staff, actions, loading, notificationError } = usePortalStore();
+  const { authSession, currentUser, tasks, staff, actions, loading, notificationError } = usePortalStore(['authSession', 'currentUser', 'tasks', 'staff', 'loading', 'notificationError']);
 
   const [activeTab, setActiveTab] = useState<TabId>('dashboard');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -127,7 +128,7 @@ export default function App() {
 
   if (authError) return <div className="min-h-screen flex flex-col items-center justify-center gap-4"><p>We could not verify your account. Please reconnect and try again.</p><button onClick={() => window.location.reload()}>Try again</button></div>;
 
-  if (loading || authChecking) {
+  if (authChecking) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50">
         <div className="text-[#00ad1d] font-bold text-lg">Loading WIPAHS OfficeHub...</div>
@@ -263,7 +264,7 @@ export default function App() {
         />
 
         {/* Content View */}
-        <main className="oh-main flex-1 min-w-0 p-3 sm:p-5 xl:p-6">{notificationError && <div role="alert" className="mb-4 rounded-lg border border-amber-300 bg-amber-50 p-3 text-amber-900">{notificationError}</div>}<AppErrorBoundary key={activeTab} onReturn={() => setActiveTab('dashboard')}><Suspense fallback={<div className="p-6 text-slate-500">Loading view...</div>}>
+        <main className="oh-main flex-1 min-w-0 p-3 sm:p-5 xl:p-6">{notificationError && <div role="alert" className="mb-4 rounded-lg border border-amber-300 bg-amber-50 p-3 text-amber-900">{notificationError}</div>}{loading ? <div role="status" className="p-6 text-slate-500">Loading your workspace…</div> : <AppErrorBoundary key={activeTab} onReturn={() => setActiveTab('dashboard')}><Suspense fallback={<div className="p-6 text-slate-500">Loading view...</div>}>
           {/* Active View Router */}
 
             {activeTab === 'dashboard' && (
@@ -442,34 +443,38 @@ export default function App() {
             {activeTab === 'messages' && (
               <MessagesView />
             )}
-          </Suspense></AppErrorBoundary>
+          </Suspense></AppErrorBoundary>}
         </main>
       </div>
 
       {/* Global Modals */}
-      <QuickActionModal
+      <AppErrorBoundary key={`${isQuickActionOpen}-${isSettingsOpen}-${isProjectModalOpen}`} onReturn={()=>{setIsQuickActionOpen(false);setIsSettingsOpen(false);setIsProjectModalOpen(false);}}>
+      <Suspense fallback={<div role="status" className="fixed bottom-4 right-4 rounded bg-white p-3 shadow">Loading…</div>}>
+      {isQuickActionOpen && <QuickActionModal
         isOpen={isQuickActionOpen}
         initialTab={quickActionInitialTab}
         initialDate={quickActionInitialDate}
         defaultAssignee={selectedStaffAssignee}
         onSelectTask={handleSelectTask}
         onClose={() => setIsQuickActionOpen(false)}
-      />
+      />}
 
-      <SettingsModal
+      {isSettingsOpen && <SettingsModal
         isOpen={isSettingsOpen}
         initialTab={settingsInitialTab}
         onSelectTask={handleSelectTask}
         onSelectMeeting={handleSelectMeeting}
         onClose={() => setIsSettingsOpen(false)}
-      />
+      />}
 
-      <ProjectModal
+      {isProjectModalOpen && <ProjectModal
         isOpen={isProjectModalOpen}
         project={selectedProject}
         initialTab={projectModalInitialTab}
         onClose={() => { setSelectedProject(undefined); setIsProjectModalOpen(false); }}
-      />
+      />}
+      </Suspense>
+      </AppErrorBoundary>
     </div>
   );
 }
