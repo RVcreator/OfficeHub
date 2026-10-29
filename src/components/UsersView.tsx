@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import {
   Users,
   Mail,
@@ -31,18 +31,12 @@ import { UserRatingDisplay } from './UserRatingDisplay';
 import { StaffProfileModal } from './StaffProfileModal';
 import { getUserRatingSummary } from '../utils/staffRatings';
 import { TemporaryPasswordField } from './TemporaryPasswordField';
+import {useDepartmentDirectory} from '../hooks/useDepartmentDirectory';
+import {departmentNamesForOrganisation,organisationName,sameOrganisation,selectedDepartment} from '../utils/departmentDirectory';
 
 interface UsersViewProps {
   onAssignTaskToUser?: (user: StaffUser) => void;
 }
-
-const COMMON_DEPTS_BY_ORG: Record<string, string[]> = {
-  WIPAHS: ['Top management', 'IT', 'Finance', 'Marketing', 'Logistics and Operations', 'Tabligh'],
-  HO: ['Top management', 'IT', 'Finance', 'Marketing', 'Logistics and Operations', 'Tabligh'],
-  HOP: ['Top management', 'IT', 'Finance', 'Marketing'],
-  WEC: ['Top management', 'IT', 'Finance', 'Marketing'],
-  MEDEWELL: ['Top management', 'IT', 'Finance', 'Marketing']
-};
 
 export const UsersView: React.FC<UsersViewProps> = ({ onAssignTaskToUser }) => {
   const { staff, actions, currentUser, tasks, departments } = usePortalStore(['staff', 'currentUser', 'tasks', 'departments']);
@@ -81,7 +75,7 @@ export const UsersView: React.FC<UsersViewProps> = ({ onAssignTaskToUser }) => {
     email: '',
     role: '',
     organisation: 'WIPAHS',
-    department: 'Top management',
+    department: '',
     phone: '+255 778 123 456',
     outOfOffice: false,
     status: 'Online' as UserPresenceStatus,
@@ -89,10 +83,23 @@ export const UsersView: React.FC<UsersViewProps> = ({ onAssignTaskToUser }) => {
     avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80'
   });
 
+  const directory=useDepartmentDirectory(`${isAddModalOpen}:${editingUser?.id||''}`);
+  const departmentOptions=useMemo(()=>departmentNamesForOrganisation(departments,formData.organisation),[departments,formData.organisation]);
+  const validDepartment=departmentOptions.includes(formData.department);
+  useEffect(()=>{
+    if(!(isAddModalOpen||editingUser)||directory.loading||directory.error)return;
+    setFormData(previous=>{
+      // Preserve an existing assignment if its directory row is missing; never silently reassign staff.
+      if(editingUser&&sameOrganisation(previous.organisation,editingUser.organisation)&&previous.department===editingUser.department&&!departmentOptions.includes(previous.department))return previous;
+      const department=selectedDepartment(departmentOptions,previous.department);
+      return department===previous.department?previous:{...previous,department};
+    });
+  },[departmentOptions,isAddModalOpen,editingUser,directory.loading,directory.error]);
+
   const availableOrganisations = useMemo(() => {
-    const raw = Array.from(new Set(staff.map(s => s.organisation || 'WIPAHS')));
+    const raw = Array.from(new Set([...staff.map(s=>organisationName(s.organisation)),...departments.map(d=>organisationName(d.organisation))]));
     return sortOrganisations(raw);
-  }, [staff]);
+  }, [staff,departments]);
 
   const availableDepartments = useMemo(() => {
     const relevantStaff = organisationFilter === 'All'
@@ -107,7 +114,7 @@ export const UsersView: React.FC<UsersViewProps> = ({ onAssignTaskToUser }) => {
       email: '',
       role: '',
       organisation: 'WIPAHS',
-      department: 'Top management',
+      department: '',
       phone: '+255 778 123 456',
       outOfOffice: false,
       status: 'Online',
@@ -128,7 +135,7 @@ export const UsersView: React.FC<UsersViewProps> = ({ onAssignTaskToUser }) => {
       name: user.name,
       email: user.email,
       role: user.role,
-      organisation: user.organisation || 'WIPAHS',
+      organisation: organisationName(user.organisation),
       department: user.department || 'General',
       phone: user.phone,
       outOfOffice: isOoo,
@@ -145,10 +152,13 @@ export const UsersView: React.FC<UsersViewProps> = ({ onAssignTaskToUser }) => {
       return;
     }
 
+    if(directory.loading||directory.error||!validDepartment){
+      window.alert(directory.error||'Choose a saved department for this organisation. Create it in Departments first if needed.');return;
+    }
     const isOoo = formData.outOfOffice;
 
     if (editingUser) {
-      await actions.updateStaffMember(editingUser.id, {
+      try{await actions.updateStaffMember(editingUser.id, {
         name: formData.name.trim(),
         email: formData.email.trim(),
         role: formData.role.trim(),
@@ -161,6 +171,7 @@ export const UsersView: React.FC<UsersViewProps> = ({ onAssignTaskToUser }) => {
         avatar: formData.avatar
       });
       setEditingUser(null);
+      }catch(error){window.alert(error instanceof Error?error.message:'Member changes could not be saved.');return;}
     } else {
       let newStaff: StaffUser | null;
       try {
@@ -745,6 +756,8 @@ export const UsersView: React.FC<UsersViewProps> = ({ onAssignTaskToUser }) => {
                 </div>
               </div>
 
+              {directory.error&&<div role="alert" className="text-xs text-rose-700">{directory.error} <button type="button" onClick={directory.retry} className="underline">Retry department connection</button></div>}
+              {!directory.loading&&!directory.error&&departmentOptions.length===0&&<p role="status" className="text-xs text-slate-600">No saved departments in {formData.organisation}. Add one in Departments before assigning a member.</p>}
               {/* Organisation and Department */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 bg-slate-50 border border-slate-200 rounded-lg">
                 <div>
@@ -752,14 +765,15 @@ export const UsersView: React.FC<UsersViewProps> = ({ onAssignTaskToUser }) => {
                     Organisation (ORG) <span className="text-rose-500">*</span>
                   </label>
                   <select
+                    aria-label="Member organisation"
                     value={formData.organisation}
                     onChange={(e) => {
                       const newOrg = e.target.value;
-                      const suggestedDepts = COMMON_DEPTS_BY_ORG[newOrg] || ['General'];
+                      const suggestedDepts = departmentNamesForOrganisation(departments,newOrg);
                       setFormData({
                         ...formData,
                         organisation: newOrg,
-                        department: suggestedDepts[0] || 'General'
+                        department: suggestedDepts[0] || ''
                       });
                     }}
                     className="w-full px-3 py-1.5 rounded-md border border-slate-200 text-xs bg-white font-semibold focus:outline-none focus:ring-1 focus:ring-[#00ad1d]"
@@ -779,23 +793,15 @@ export const UsersView: React.FC<UsersViewProps> = ({ onAssignTaskToUser }) => {
                   </label>
                   <select
                     required
+                    aria-label="Member department"
+                    disabled={directory.loading||Boolean(directory.error)}
                     value={formData.department}
                     onChange={(e) => setFormData({ ...formData, department: e.target.value })}
                     className="w-full px-3 py-1.5 rounded-md border border-slate-200 text-xs bg-white font-semibold focus:outline-none focus:ring-1 focus:ring-[#00ad1d]"
                   >
-                    {departments
-                      .filter(d => !formData.organisation || (d.organisation || 'WIPAHS') === formData.organisation)
-                      .map(d => (
-                        <option key={d.id} value={d.name}>{d.name}</option>
-                      ))}
-                    {departments.filter(d => !formData.organisation || (d.organisation || 'WIPAHS') === formData.organisation).length === 0 && (
-                      (COMMON_DEPTS_BY_ORG[formData.organisation] || ['General']).map(d => (
-                        <option key={d} value={d}>{d}</option>
-                      ))
-                    )}
-                    {!departments.some(d => d.name.toLowerCase() === formData.department.toLowerCase()) && (
-                      <option value={formData.department}>{formData.department}</option>
-                    )}
+                    <option value="" disabled>{directory.loading?'Loading saved departments…':departmentOptions.length?'Choose department':'No saved departments in this organisation'}</option>
+                    {departmentOptions.map(name=><option key={name} value={name}>{name}</option>)}
+                    {formData.department&&!validDepartment&&<option value={formData.department} disabled>{formData.department} (not in saved directory)</option>}
                   </select>
                 </div>
               </div>
@@ -884,7 +890,7 @@ export const UsersView: React.FC<UsersViewProps> = ({ onAssignTaskToUser }) => {
                   Cancel
                 </button>
                 <button
-                  type="submit"
+                  type="submit" disabled={directory.loading||Boolean(directory.error)||!validDepartment}
                   className="px-4 py-1.5 bg-[#00ad1d] hover:bg-[#009218] text-white font-semibold rounded-md text-xs shadow-2xs"
                 >
                   {editingUser ? 'Update Member' : 'Create Member Account'}

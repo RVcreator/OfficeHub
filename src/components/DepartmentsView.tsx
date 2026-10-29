@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useRef } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import {
   Building2,
   Users,
@@ -12,13 +12,15 @@ import {
   Filter,
   Layers
 } from 'lucide-react';
-import { usePortalStore, setTableData } from '../services/store';
+import { usePortalStore } from '../services/store';
 import { Department, DepartmentInfo, StaffUser } from '../types';
 import {
   sortOrganisations,
   FIXED_ORGANISATION_ORDER
 } from '../utils/staffHierarchy';
 import { UserAvatar } from './UserAvatar';
+import {useDepartmentDirectory} from '../hooks/useDepartmentDirectory';
+import {organisationName,sameOrganisation,belongsToDepartment,departmentName} from '../utils/departmentDirectory';
 
 interface DepartmentsViewProps {
   onSelectDepartmentTasks?: (dept: string) => void;
@@ -29,7 +31,7 @@ export const DepartmentsView: React.FC<DepartmentsViewProps> = ({ onSelectDepart
   const [dataError,setDataError]=useState<string|null>(null);
   const [saving,setSaving]=useState(false);
   const savePending=useRef(false);
-  useEffect(()=>{let active=true;actions.getDepartments().then(rows=>{if(active)setTableData('departments',rows);}).catch(error=>{if(active)setDataError(error.message);});return()=>{active=false;};},[actions]);
+  const directory=useDepartmentDirectory();
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedOrgFilter, setSelectedOrgFilter] = useState<string>('All');
   const [groupByOrg, setGroupByOrg] = useState<boolean>(true);
@@ -50,10 +52,10 @@ export const DepartmentsView: React.FC<DepartmentsViewProps> = ({ onSelectDepart
     const orgsSet = new Set<string>();
     FIXED_ORGANISATION_ORDER.forEach((org: string) => orgsSet.add(org));
     departments.forEach(d => {
-      if (d.organisation) orgsSet.add(d.organisation);
+      orgsSet.add(organisationName(d.organisation));
     });
     staff.forEach(s => {
-      if (s.organisation) orgsSet.add(s.organisation);
+      orgsSet.add(organisationName(s.organisation));
     });
     return sortOrganisations(Array.from(orgsSet));
   }, [departments, staff]);
@@ -133,15 +135,15 @@ export const DepartmentsView: React.FC<DepartmentsViewProps> = ({ onSelectDepart
   // Filter departments by organization and search query
   const filteredDepartments = useMemo(() => {
     return departments.filter(dept => {
-      const org = dept.organisation || 'WIPAHS';
-      const matchesOrg = selectedOrgFilter === 'All' || org === selectedOrgFilter;
+      const org = organisationName(dept.organisation);
+      const matchesOrg = selectedOrgFilter === 'All' || sameOrganisation(org,selectedOrgFilter);
       if (!matchesOrg) return false;
 
       if (!searchQuery.trim()) return true;
       const q = searchQuery.toLowerCase();
       const matchesDept = dept.name.toLowerCase().includes(q);
       const matchesOrgName = org.toLowerCase().includes(q);
-      const deptMembers = staff.filter(s => (s.organisation || 'WIPAHS') === org && s.department.toLowerCase() === dept.name.toLowerCase());
+      const deptMembers = staff.filter(s => belongsToDepartment(s,dept));
       const matchesStaff = deptMembers.some(m => m.name.toLowerCase().includes(q) || m.role.toLowerCase().includes(q));
       return matchesDept || matchesOrgName || matchesStaff;
     });
@@ -151,7 +153,7 @@ export const DepartmentsView: React.FC<DepartmentsViewProps> = ({ onSelectDepart
   const groupedDepartments = useMemo(() => {
     const map = new Map<string, DepartmentInfo[]>();
     filteredDepartments.forEach(dept => {
-      const org = dept.organisation || 'WIPAHS';
+      const org = organisationName(dept.organisation);
       if (!map.has(org)) {
         map.set(org, []);
       }
@@ -167,6 +169,8 @@ export const DepartmentsView: React.FC<DepartmentsViewProps> = ({ onSelectDepart
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
+      {directory.loading&&<p role="status" className="text-sm text-slate-500">Loading departments from Supabase…</p>}
+      {directory.error&&<p role="alert" className="rounded border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">{directory.error} <button onClick={directory.retry} className="underline">Retry department connection</button></p>}
       {dataError&&<p role="alert" className="rounded border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">{dataError}</p>}
       {/* Header Banner */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-5 rounded-lg border border-slate-200 shadow-xs">
@@ -228,7 +232,7 @@ export const DepartmentsView: React.FC<DepartmentsViewProps> = ({ onSelectDepart
             All Organisations ({departments.length})
           </button>
           {availableOrgs.map(org => {
-            const count = departments.filter(d => (d.organisation || 'WIPAHS') === org).length;
+            const count = departments.filter(d => sameOrganisation(d.organisation,org)).length;
             const isSelected = selectedOrgFilter === org;
             return (
               <button
@@ -269,7 +273,7 @@ export const DepartmentsView: React.FC<DepartmentsViewProps> = ({ onSelectDepart
       </div>
 
       {/* Render Department Cards */}
-      {filteredDepartments.length === 0 ? (
+      {filteredDepartments.length === 0 && directory.loading ? null : filteredDepartments.length === 0 ? (
         <div className="bg-white rounded-lg border border-slate-200 p-12 text-center shadow-xs">
           <Building2 className="w-10 h-10 text-slate-300 mx-auto mb-3" />
           <p className="text-sm font-bold text-slate-700">No departments found</p>
@@ -445,8 +449,8 @@ export const DepartmentsView: React.FC<DepartmentsViewProps> = ({ onSelectDepart
 
   // Department Card Render Helper
   function renderDepartmentCard(dept: DepartmentInfo) {
-    const org = dept.organisation || 'WIPAHS';
-    const deptMembers = staff.filter(s => (s.organisation || 'WIPAHS') === org && s.department.toLowerCase() === dept.name.toLowerCase())
+    const org = organisationName(dept.organisation);
+    const deptMembers = staff.filter(s => belongsToDepartment(s,dept))
                              .sort((a, b) => a.name.localeCompare(b.name));
 
     const deptTasks = tasks.filter(t => {
@@ -525,7 +529,7 @@ export const DepartmentsView: React.FC<DepartmentsViewProps> = ({ onSelectDepart
                           {member.name} — {member.role}
                         </p>
                         <p className="text-[11px] text-[#008f18] font-medium truncate">
-                          {member.organisation || 'WIPAHS'} • {member.department}
+                          {organisationName(member.organisation)} • {departmentName(member.department,member.organisation)}
                         </p>
                       </div>
                     </div>
