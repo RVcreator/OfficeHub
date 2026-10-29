@@ -498,6 +498,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     <label className="font-semibold text-slate-700 block mb-1">Email Address</label>
                     <input
                       type="email"
+                      readOnly
                       required
                       value={profileData.email}
                       onChange={(e) => setProfileData({ ...profileData, email: e.target.value })}

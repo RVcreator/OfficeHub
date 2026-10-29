@@ -1,5 +1,5 @@
 import { UserAvatar } from './UserAvatar';
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   KeyRound,
   Lock,
@@ -31,6 +31,7 @@ export const ForcedPasswordChangeScreen: React.FC<ForcedPasswordChangeScreenProp
   onPasswordChanged,
   onSignOut
 }) => {
+  const submittingRef=useRef(false);
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showNewPassword, setShowNewPassword] = useState(false);
@@ -48,6 +49,7 @@ export const ForcedPasswordChangeScreen: React.FC<ForcedPasswordChangeScreenProp
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if(submittingRef.current)return;
     setErrorMessage(null);
 
     // Basic Validation: minimum 8 characters, confirm matches
@@ -61,6 +63,7 @@ export const ForcedPasswordChangeScreen: React.FC<ForcedPasswordChangeScreenProp
       return;
     }
 
+    submittingRef.current=true;
     setIsSubmitting(true);
     setStatusStep('Saving your new password...');
 
@@ -87,14 +90,14 @@ export const ForcedPasswordChangeScreen: React.FC<ForcedPasswordChangeScreenProp
         'emerald'
       );
 
-      setIsSuccess(true);
-
       await onPasswordChanged(updatedUser);
+      setIsSuccess(true);
     } catch (err: any) {
+      setIsSuccess(false);
       setErrorMessage(err?.message || 'An error occurred while updating your password. Please try again.');
       setIsSubmitting(false);
       setStatusStep(null);
-    }
+    }finally{submittingRef.current=false;}
   };
 
   return (

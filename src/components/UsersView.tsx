@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import {
   Users,
   Mail,
@@ -204,14 +204,18 @@ export const UsersView: React.FC<UsersViewProps> = ({ onAssignTaskToUser }) => {
     finally{setDeleting(false);}
   };
 
+  const resettingRef=useRef(false);
+  const [resettingUserId,setResettingUserId]=useState<string|null>(null);
   const handleResetPassword = async (user: StaffUser) => {
+    if(resettingRef.current)return;
+    resettingRef.current=true;setResettingUserId(user.id);
     try {
       const res = await actions.resetUserPassword(user.id);
       if (!res.success || !res.message) throw new Error('Password reset was not confirmed.');
       setPasswordResetInfo({user,tempPass:res.message,isNewAccount:false});
     } catch(error) {
       window.alert(error instanceof Error ? error.message : 'Password reset failed. Please try again.');
-    }
+    }finally{resettingRef.current=false;setResettingUserId(null);}
   };
 
   const filteredStaff = useMemo(() => {
@@ -629,6 +633,7 @@ export const UsersView: React.FC<UsersViewProps> = ({ onAssignTaskToUser }) => {
 
                                       <button
                                         onClick={() => handleResetPassword(member)}
+                                        disabled={resettingUserId!==null}
                                         className="inline-flex items-center gap-1 text-[11px] text-amber-700 bg-amber-50 hover:bg-amber-100 px-2 py-1 rounded font-medium transition"
                                         title="Reset Password"
                                       >
@@ -730,6 +735,7 @@ export const UsersView: React.FC<UsersViewProps> = ({ onAssignTaskToUser }) => {
                   </label>
                   <input
                     type="email"
+                    readOnly={!!editingUser}
                     required
                     placeholder="name@wipahs.org"
                     value={formData.email}

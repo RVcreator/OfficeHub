@@ -109,6 +109,13 @@ serve(async (req: Request) => {
     // 4. Update Auth password and set app_metadata.must_change_password = true
     const { data: targetAuthUser, error: getAuthError } = await supabaseAdmin.auth.admin.getUserById(targetUserId);
     if (getAuthError || !targetAuthUser?.user) return new Response(JSON.stringify({error:'Target account was not found'}),{status:404,headers:{...corsHeaders,'Content-Type':'application/json'}});
+    // Validate the same UUID/email before touching Auth. A profile label is not a sign-in identity.
+    const {data:targetProfile,error:profileReadError}=await supabaseAdmin.from('profiles').select('id,email,app_metadata').eq('id',targetUserId).single();
+    if(profileReadError||!targetProfile)return new Response(JSON.stringify({error:'This sign-in account has no matching staff profile. Repair the account before resetting its password.'}),{status:409,headers:{...corsHeaders,'Content-Type':'application/json'}});
+    const canonicalEmail=(targetAuthUser.user.email||'').trim().toLowerCase();
+    if(!canonicalEmail||canonicalEmail!==(targetProfile.email||'').trim().toLowerCase()
+      ||(body.expectedEmail!==undefined&&(typeof body.expectedEmail!=='string'||body.expectedEmail.trim().toLowerCase()!==canonicalEmail)))
+      return new Response(JSON.stringify({error:'The staff email and Supabase sign-in email do not match. No password was changed. Repair the account identity first.'}),{status:409,headers:{...corsHeaders,'Content-Type':'application/json'}});
     const existingAppMeta = targetAuthUser.user.app_metadata || {};
     const resetAt = new Date().toISOString();
     const resetId = crypto.randomUUID();
@@ -135,8 +142,6 @@ serve(async (req: Request) => {
     }
 
     // 5. Update profiles table (must_change_password = true, temporary_password = tempPassword)
-    const {data:targetProfile,error:profileReadError}=await supabaseAdmin.from('profiles').select('app_metadata').eq('id',targetUserId).single();
-    if(profileReadError || !targetProfile) return new Response(JSON.stringify({error:'Password reset applied in Auth, but profile confirmation failed. Please retry.'}),{status:503,headers:{...corsHeaders,'Content-Type':'application/json'}});
     const { data: updatedProfile, error: updateProfileError } = await supabaseAdmin
       .from('profiles')
       .update({
@@ -158,6 +163,7 @@ serve(async (req: Request) => {
         success: true,
         message: tempPassword,
         userId: targetUserId,
+        email:canonicalEmail,
       }),
       {
         status: 200,
