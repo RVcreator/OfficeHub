@@ -17,7 +17,7 @@ import {
   mapConversationRow,
   MESSAGE_SELECT_COLUMNS,
 } from './supabaseMappers';
-import { ChatMessage, Meeting, Notice, Task, ChatConversation, AppNotification, Approval } from '../types';
+import { ChatMessage, Meeting, Notice, Task, ChatConversation, AppNotification, Approval, DepartmentInfo, RolePermission, Decision } from '../types';
 
 export interface RealtimeBridge {
   getState: () => {
@@ -38,6 +38,9 @@ export interface RealtimeBridge {
   getTasks: () => Promise<Task[]>;
   getNotifications?: (userId?: string) => Promise<AppNotification[]>;
   getApprovals?: () => Promise<Approval[]>;
+  getDepartments?:()=>Promise<DepartmentInfo[]>;
+  getRoles?:()=>Promise<RolePermission[]>;
+  getDecisions?:()=>Promise<Decision[]>;
   getPendingTaskStatus?: (taskId: string) => Task['status'] | undefined;
 }
 
@@ -462,6 +465,9 @@ function setupRealtimeChannel() {
         }
       }
     )
+    .on('postgres_changes',{event:'*',schema:'public',table:'departments'},()=>{void syncReferenceData();})
+    .on('postgres_changes',{event:'*',schema:'public',table:'role_permissions'},()=>{void syncReferenceData();})
+    .on('postgres_changes',{event:'*',schema:'public',table:'decisions'},()=>{void syncReferenceData();})
     .subscribe((status, err) => {
       if(!isStarted||generation!==channelGeneration)return;
       if(status==='SUBSCRIBED'){
@@ -510,15 +516,27 @@ function startLiveSyncPoller() {
 /**
  * Handle tab visibility and window focus: sync immediately when user switches back to tab
  */
+function syncReferenceData(){
+ const bridge=activeBridge,generation=channelGeneration,identity=bridge?.getState().currentUser.id;
+ if(!bridge||!isStarted||!isBridgeAuthenticated())return Promise.resolve();
+ return refreshGate.run(`references-${generation}`,async()=>{
+  const entries=[['departments',bridge.getDepartments],['roles',bridge.getRoles],['decisions',bridge.getDecisions]] as const;
+  await Promise.allSettled(entries.map(async([table,read])=>{
+   if(!read)return;const rows=await read();
+   if(isStarted&&activeBridge===bridge&&generation===channelGeneration&&identity===bridge.getState().currentUser.id)bridge.setTableData(table,rows);
+  }));
+ });
+}
 async function reconcileVisibleData(){
   if(!activeBridge||!isStarted||!isBridgeAuthenticated())return;
   const bridge=activeBridge,identity=bridge.getState().currentUser.id,generation=channelGeneration;
-  await Promise.allSettled([triggerLiveMessageSync(),triggerLiveMeetingSync(),triggerLiveNotificationSync(),
+  await Promise.allSettled([triggerLiveMessageSync(),triggerLiveMeetingSync(),triggerLiveNotificationSync(),syncReferenceData(),
     refreshGate.run(`tables-${generation}`,async()=>{
-      const [notices,tasks,approvals]=await Promise.all([bridge.getNotices(),bridge.getTasks(),bridge.getApprovals?.()]);
+      const [notices,tasks,approvals,conversations]=await Promise.all([bridge.getNotices(),bridge.getTasks(),bridge.getApprovals?.(),bridge.getConversations()]);
       if(!isStarted||activeBridge!==bridge||generation!==channelGeneration||bridge.getState().currentUser.id!==identity)return;
       bridge.setTableData('notices',notices);bridge.setTableData('tasks',tasks);
       if(approvals)bridge.setTableData('approvals',approvals);
+      bridge.setTableData('conversations',conversations);
     })]);
 }
 function handleWindowFocus(){

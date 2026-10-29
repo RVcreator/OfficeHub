@@ -14,7 +14,7 @@ import {
   AlertCircle,
   X
 } from 'lucide-react';
-import { usePortalStore } from '../services/store';
+import { usePortalStore, setTableData } from '../services/store';
 import { Decision } from '../types';
 
 interface DecisionsViewProps {
@@ -23,6 +23,7 @@ interface DecisionsViewProps {
 
 export const DecisionsView: React.FC<DecisionsViewProps> = () => {
   const { decisions, actions, currentUser } = usePortalStore(['decisions', 'currentUser']);
+  useEffect(()=>{let active=true;actions.getDecisions().then(rows=>{if(active)setTableData('decisions',rows);}).catch(console.warn);return()=>{active=false;};},[actions]);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedDept, setSelectedDept] = useState<string>('All');
   const [selectedStatus, setSelectedStatus] = useState<string>('All');

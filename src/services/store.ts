@@ -464,6 +464,7 @@ export function useTableState<K extends TableKey>(key: K): StoreData[K] {
 // -------------------------------------------------------------------------
 // Single Initial Bootloader (Executes only once across entire app lifecycle)
 // -------------------------------------------------------------------------
+let departmentMutationVersion=0;
 let isStoreInitialized = false;
 let storeInitPromise: Promise<void> | null = null;
 let storeInitGeneration=0;
@@ -501,6 +502,7 @@ export async function initStoreOnce(): Promise<void> {
       setTableData('approvals', approvalsData);
       // Search/sidebar documents hydrate after useful content; Graph listing never gates startup.
       setTimeout(()=>{if(storeState.authSession.isAuthenticated&&identity===storeState.authSession.userId)void portalStore.getSharePointDocs();},1000);
+      void portalStore.getDepartments().then(rows=>{if(identity===storeState.authSession.userId&&generation===storeInitGeneration)setTableData('departments',rows);}).catch(console.warn);
 
       // Projects, Audit Logs, etc. are now deferred on-demand
       isStoreInitialized = true;
@@ -540,6 +542,9 @@ export function initRealtimeSubscription(): void {
     getTasks: () => portalStore.getTasks(),
     getNotifications: (userId?: string) => portalStore.getNotifications(userId || storeState.currentUser?.id),
     getApprovals: () => portalStore.getApprovals(),
+    getDepartments:()=>portalStore.getDepartments(),
+    getRoles:()=>portalStore.getRoles(),
+    getDecisions:()=>portalStore.getDecisions(),
     getPendingTaskStatus: (taskId: string) => getPendingTaskStatus(taskId),
   });
 }
@@ -1435,55 +1440,18 @@ export const portalStore = {
   },
 
   getDepartments: async (): Promise<DepartmentInfo[]> => {
-    try {
-      const deletedIds = getDeletedDepartmentIds();
-      const localDepts = getDepartmentsFromLocalStorage();
-
-      const { data, error } = await supabase
-        .from('departments')
-        .select('*')
-        .order('name');
-
-      const dbDepts = (!error && data) ? data.map(mapDepartmentRow) : [];
-
-      const map = new Map<string, DepartmentInfo>();
-      // 1. Add DEFAULT_DEPARTMENTS only if not deleted
-      DEFAULT_DEPARTMENTS.forEach(d => {
-        const idLower = d.id.toLowerCase();
-        const nameLower = d.name.toLowerCase();
-        if (!deletedIds.has(d.id) && !deletedIds.has(idLower) && !deletedIds.has(nameLower)) {
-          map.set(nameLower, d);
-        }
-      });
-
-      // 2. Add localDepts only if not deleted
-      localDepts.forEach(d => {
-        const idLower = d.id.toLowerCase();
-        const nameLower = d.name.toLowerCase();
-        if (!deletedIds.has(d.id) && !deletedIds.has(idLower) && !deletedIds.has(nameLower)) {
-          map.set(nameLower, d);
-        }
-      });
-
-      // 3. Add dbDepts only if not deleted
-      dbDepts.forEach(d => {
-        const idLower = d.id.toLowerCase();
-        const nameLower = d.name.toLowerCase();
-        if (!deletedIds.has(d.id) && !deletedIds.has(idLower) && !deletedIds.has(nameLower)) {
-          map.set(nameLower, d);
-        }
-      });
-
-      const result = Array.from(map.values());
-      saveDepartmentsToLocalStorage(result);
-      return result;
-    } catch (err) {
-      console.error('getDepartments exception:', err);
-      const deletedIds = getDeletedDepartmentIds();
-      return (storeState.departments.length > 0 ? storeState.departments : DEFAULT_DEPARTMENTS).filter(
-        d => !deletedIds.has(d.id) && !deletedIds.has(d.id.toLowerCase()) && !deletedIds.has(d.name.toLowerCase())
-      );
-    }
+    let data:any[],version:number;
+    do{
+      version=departmentMutationVersion;
+      const response=await supabase.from('departments').select('*').order('name');
+      if(response.error)throw new Error('Departments could not load from Supabase. Please reconnect and try again.');
+      data=response.data||[];
+    }while(version!==departmentMutationVersion);
+    // A successful database snapshot is authoritative, including an empty list.
+    // Browser-local name tombstones must not hide another administrator's rows.
+    const rows=(data||[]).map(mapDepartmentRow);
+    saveDepartmentsToLocalStorage(rows);
+    return rows;
   },
 
   getRoles: async (): Promise<RolePermission[]> => {
@@ -1576,6 +1544,21 @@ export const portalStore = {
       }
       return storeState.messages;
     }
+  },
+
+  loadConversationMessages:async(conversationId:string):Promise<void>=>{
+    const identity=storeState.authSession.userId;
+    const before=new Map(storeState.messages.filter(m=>m.conversationId===conversationId).map(m=>[m.id,m]));
+    const rows=await portalStore.getMessages(conversationId);
+    if(!storeState.authSession.isAuthenticated||identity!==storeState.authSession.userId)return;
+    const current=new Map(storeState.messages.filter(m=>m.conversationId===conversationId).map(m=>[m.id,m]));
+    const result=new Map<string,ChatMessage>();
+    for(const row of rows.filter(row=>row.conversationId===conversationId)){
+      if(before.has(row.id)&&!current.has(row.id))continue;
+      result.set(row.id,before.has(row.id)&&current.get(row.id)!==before.get(row.id)?current.get(row.id)!:row);
+    }
+    for(const row of current.values())if(!before.has(row.id)&&!result.has(row.id))result.set(row.id,row);
+    setTableData('messages',[...storeState.messages.filter(m=>m.conversationId!==conversationId),...result.values()].sort((a,b)=>Date.parse(a.timestamp)-Date.parse(b.timestamp)));
   },
 
   getNotifications: async (userId?: string): Promise<AppNotification[]> => {
@@ -4185,102 +4168,31 @@ export const portalStore = {
   // Actions: Departments & Roles (UPDATES DEPARTMENTS/ROLES ONLY)
   // -----------------------------------------------------------------------
   addDepartment: async (
-    deptData: Omit<DepartmentInfo, 'id' | 'staffCount' | 'activeProjectsCount' | 'openTasksCount'>
-  ): Promise<DepartmentInfo | null> => {
-    try {
-      const id = `dept-${Date.now()}`;
-      const newDept: DepartmentInfo = {
-        ...deptData,
-        id,
-        staffCount: 0,
-        activeProjectsCount: 0,
-        openTasksCount: 0,
-        budget: deptData.budget || '$100,000',
-        description: deptData.description || '',
-        organisation: deptData.organisation || 'WIPAHS',
-      };
-
-      // Un-delete if previously deleted
-      const deletedIds = getDeletedDepartmentIds();
-      deletedIds.delete(newDept.id);
-      deletedIds.delete(newDept.id.toLowerCase());
-      deletedIds.delete(newDept.name.toLowerCase());
-      saveDeletedDepartmentIds(deletedIds);
-
-      const updated = [...storeState.departments, newDept];
-      setTableData('departments', updated);
-      saveDepartmentsToLocalStorage(updated);
-
-      try {
-        const row = mapDepartmentToRow(newDept);
-        await supabase.from('departments').insert(row);
-      } catch (sbErr) {
-        console.warn('Supabase addDepartment note:', sbErr);
-      }
-
-      return newDept;
-    } catch (err: any) {
-      console.error('addDepartment error:', err);
-      throw err;
-    }
+    deptData: Omit<DepartmentInfo,'id'|'staffCount'|'activeProjectsCount'|'openTasksCount'>
+  ): Promise<DepartmentInfo> => {
+    const row=mapDepartmentToRow({...deptData,id:`dept-${crypto.randomUUID()}`,name:deptData.name.trim() as Department,
+      organisation:deptData.organisation?.trim()||'WIPAHS',staffCount:0});
+    const {data,error}=await supabase.from('departments').insert(row).select('*').single();
+    if(error||!data)throw new Error(error?.code==='23505'?'A department with this name already exists in that organisation.':error?.message||'Department creation was not confirmed.');
+    departmentMutationVersion++;
+    const saved=mapDepartmentRow(data);
+    const rows=[...storeState.departments.filter(d=>d.id!==saved.id),saved];
+    setTableData('departments',rows);saveDepartmentsToLocalStorage(rows);return saved;
   },
-
-  updateDepartment: async (id: string, updates: Partial<DepartmentInfo>): Promise<void> => {
-    try {
-      const updated = storeState.departments.map((d) => (d.id === id ? { ...d, ...updates } : d));
-      setTableData('departments', updated);
-      saveDepartmentsToLocalStorage(updated);
-
-      try {
-        const rowUpdates = mapDepartmentToRow(updates);
-        await supabase.from('departments').update(rowUpdates).eq('id', id);
-      } catch (sbErr) {
-        console.warn('Supabase updateDepartment note:', sbErr);
-      }
-    } catch (err: any) {
-      console.error('updateDepartment error:', err);
-      throw err;
-    }
+  updateDepartment: async(id:string,updates:Partial<DepartmentInfo>):Promise<void>=>{
+    const {data,error}=await supabase.from('departments').update(mapDepartmentToRow(updates)).eq('id',id).select('*').single();
+    if(error||!data)throw new Error(error?.message||'Department update was not confirmed.');
+    departmentMutationVersion++;
+    const saved=mapDepartmentRow(data),rows=storeState.departments.map(d=>d.id===id?saved:d);
+    setTableData('departments',rows);saveDepartmentsToLocalStorage(rows);
   },
-
-  deleteDepartment: async (id: string): Promise<void> => {
-    try {
-      const targetDept = storeState.departments.find((d) => d.id === id);
-      const deletedIds = getDeletedDepartmentIds();
-      deletedIds.add(id);
-      deletedIds.add(id.toLowerCase());
-      if (targetDept?.name) {
-        deletedIds.add(targetDept.name.toLowerCase());
-      }
-      saveDeletedDepartmentIds(deletedIds);
-
-      const remainingDepts = storeState.departments.filter(
-        (d) => d.id !== id && (!targetDept?.name || d.name.toLowerCase() !== targetDept.name.toLowerCase())
-      );
-      setTableData('departments', remainingDepts);
-      saveDepartmentsToLocalStorage(remainingDepts);
-
-      // Reassign staff in this department to 'General'
-      if (targetDept?.name) {
-        const updatedStaff = storeState.staff.map((s) =>
-          s.department.toLowerCase() === targetDept.name.toLowerCase() ? { ...s, department: 'General' } : s
-        );
-        setTableData('staff', updatedStaff);
-        saveStaffToLocalStorage(updatedStaff);
-      }
-
-      // Safely attempt Supabase delete in background
-      try {
-        await supabase.from('departments').delete().eq('id', id);
-        if (targetDept?.name) {
-          await supabase.from('departments').delete().eq('name', targetDept.name);
-        }
-      } catch (sbErr) {
-        console.warn('Supabase deleteDepartment note:', sbErr);
-      }
-    } catch (err: any) {
-      console.error('deleteDepartment error:', err);
-    }
+  deleteDepartment: async(id:string):Promise<void>=>{
+    const {data,error}=await supabase.from('departments').delete().eq('id',id).select('id').single();
+    if(error||!data||data.id!==id)throw new Error(error?.message||'Department deletion was not confirmed.');
+    departmentMutationVersion++;
+    // Only the confirmed row is removed. Never delete by a name shared by other rows/organisations.
+    const rows=storeState.departments.filter(d=>d.id!==id);
+    setTableData('departments',rows);saveDepartmentsToLocalStorage(rows);
   },
 
   updateRolePermission: async (
@@ -4974,7 +4886,7 @@ export const portalStore = {
 
 // Deduplicate independent view, realtime and focus consumers per identity and page.
 const reads=createReadQueue();
-for(const method of ['getTasks','getNotices','getMeetings','getStaff','getApprovals','getConversations','getSharePointDocs','getNotifications'] as const){
+for(const method of ['getTasks','getNotices','getMeetings','getStaff','getDepartments','getRoles','getDecisions','getMessages','getApprovals','getConversations','getSharePointDocs','getNotifications'] as const){
  const read=portalStore[method] as (...args:any[])=>Promise<any>;
  (portalStore as any)[method]=(...args:any[])=>reads.run(JSON.stringify([method,storeState.authSession.userId,...args]),()=>read(...args));
 }

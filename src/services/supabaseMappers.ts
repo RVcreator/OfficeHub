@@ -710,14 +710,15 @@ export function mapDepartmentRow(row: any): DepartmentInfo {
   return {
     id: row.id,
     name: row.name || 'General',
+    organisation:row.organisation||'WIPAHS',
     description: row.description || '',
     headName: row.head_name || 'Department Head',
-    headRole: 'Head of Department',
-    headAvatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
+    headRole:row.head_role||'Head of Department',
+    headAvatar:row.head_avatar||'',
     staffCount: Number(row.member_count ?? 0),
     activeProjectsCount: 0,
     openTasksCount: 0,
-    budget: '$50,000',
+    budget:row.budget||'$50,000',
   };
 }
 
@@ -728,6 +729,10 @@ export function mapDepartmentToRow(dept: Partial<DepartmentInfo>): Record<string
   if (dept.description !== undefined) row.description = dept.description;
   if (dept.headName !== undefined) row.head_name = dept.headName;
   if (dept.staffCount !== undefined) row.member_count = dept.staffCount;
+  if(dept.organisation!==undefined)row.organisation=dept.organisation;
+  if(dept.budget!==undefined)row.budget=dept.budget;
+  if(dept.headRole!==undefined)row.head_role=dept.headRole;
+  if(dept.headAvatar!==undefined)row.head_avatar=dept.headAvatar;
   return row;
 }
 
