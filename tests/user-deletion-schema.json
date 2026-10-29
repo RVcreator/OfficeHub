@@ -1,0 +1,302 @@
+[
+  {
+    "table": "approvals",
+    "parent": "profiles",
+    "columns": [
+      {
+        "name": "requested_by_id",
+        "not_null": false
+      }
+    ],
+    "on_delete": "a",
+    "constraint": "approvals_requested_by_id_fkey"
+  },
+  {
+    "table": "audit_log",
+    "parent": "profiles",
+    "columns": [
+      {
+        "name": "actor_id",
+        "not_null": false
+      }
+    ],
+    "on_delete": "a",
+    "constraint": "audit_log_actor_id_fkey"
+  },
+  {
+    "table": "conversation_participants",
+    "parent": "profiles",
+    "columns": [
+      {
+        "name": "user_id",
+        "not_null": true
+      }
+    ],
+    "on_delete": "c",
+    "constraint": "conversation_participants_user_id_fkey"
+  },
+  {
+    "table": "decisions",
+    "parent": "profiles",
+    "columns": [
+      {
+        "name": "author_id",
+        "not_null": false
+      }
+    ],
+    "on_delete": "a",
+    "constraint": "decisions_author_id_fkey"
+  },
+  {
+    "table": "departments",
+    "parent": "profiles",
+    "columns": [
+      {
+        "name": "head_id",
+        "not_null": false
+      }
+    ],
+    "on_delete": "a",
+    "constraint": "departments_head_id_fkey"
+  },
+  {
+    "table": "meeting_attendees",
+    "parent": "profiles",
+    "columns": [
+      {
+        "name": "user_id",
+        "not_null": true
+      }
+    ],
+    "on_delete": "c",
+    "constraint": "meeting_attendees_user_id_fkey"
+  },
+  {
+    "table": "meetings",
+    "parent": "profiles",
+    "columns": [
+      {
+        "name": "chair_id",
+        "not_null": false
+      }
+    ],
+    "on_delete": "a",
+    "constraint": "meetings_chair_id_fkey"
+  },
+  {
+    "table": "meetings",
+    "parent": "profiles",
+    "columns": [
+      {
+        "name": "organizer_id",
+        "not_null": false
+      }
+    ],
+    "on_delete": "a",
+    "constraint": "meetings_organizer_id_fkey"
+  },
+  {
+    "table": "messages",
+    "parent": "profiles",
+    "columns": [
+      {
+        "name": "sender_id",
+        "not_null": false
+      }
+    ],
+    "on_delete": "a",
+    "constraint": "messages_sender_id_fkey"
+  },
+  {
+    "table": "notice_acknowledgements",
+    "parent": "profiles",
+    "columns": [
+      {
+        "name": "user_id",
+        "not_null": true
+      }
+    ],
+    "on_delete": "c",
+    "constraint": "notice_acknowledgements_user_id_fkey"
+  },
+  {
+    "table": "notices",
+    "parent": "profiles",
+    "columns": [
+      {
+        "name": "author_id",
+        "not_null": false
+      }
+    ],
+    "on_delete": "a",
+    "constraint": "notices_author_id_fkey"
+  },
+  {
+    "table": "notification_dismissals",
+    "parent": "auth.users",
+    "columns": [
+      {
+        "name": "user_id",
+        "not_null": true
+      }
+    ],
+    "on_delete": "c",
+    "constraint": "notification_dismissals_user_id_fkey"
+  },
+  {
+    "table": "notifications",
+    "parent": "profiles",
+    "columns": [
+      {
+        "name": "actor_id",
+        "not_null": false
+      }
+    ],
+    "on_delete": "a",
+    "constraint": "notifications_actor_id_fkey"
+  },
+  {
+    "table": "officehub_document_grants",
+    "parent": "profiles",
+    "columns": [
+      {
+        "name": "recipient_id",
+        "not_null": true
+      }
+    ],
+    "on_delete": "c",
+    "constraint": "officehub_document_grants_recipient_id_fkey"
+  },
+  {
+    "table": "officehub_email_outbox",
+    "parent": "profiles",
+    "columns": [
+      {
+        "name": "recipient_id",
+        "not_null": true
+      }
+    ],
+    "on_delete": "c",
+    "constraint": "officehub_email_outbox_recipient_id_fkey"
+  },
+  {
+    "table": "profiles",
+    "parent": "auth.users",
+    "columns": [
+      {
+        "name": "id",
+        "not_null": true
+      }
+    ],
+    "on_delete": "c",
+    "constraint": "profiles_id_fkey"
+  },
+  {
+    "table": "profiles",
+    "parent": "profiles",
+    "columns": [
+      {
+        "name": "backup_contact_id",
+        "not_null": false
+      }
+    ],
+    "on_delete": "a",
+    "constraint": "profiles_backup_contact_id_fkey"
+  },
+  {
+    "table": "project_members",
+    "parent": "profiles",
+    "columns": [
+      {
+        "name": "user_id",
+        "not_null": true
+      }
+    ],
+    "on_delete": "c",
+    "constraint": "project_members_user_id_fkey"
+  },
+  {
+    "table": "projects",
+    "parent": "profiles",
+    "columns": [
+      {
+        "name": "leader_id",
+        "not_null": false
+      }
+    ],
+    "on_delete": "a",
+    "constraint": "projects_leader_id_fkey"
+  },
+  {
+    "table": "sharepoint_documents",
+    "parent": "profiles",
+    "columns": [
+      {
+        "name": "created_by_id",
+        "not_null": false
+      }
+    ],
+    "on_delete": "n",
+    "constraint": "sharepoint_documents_created_by_id_fkey"
+  },
+  {
+    "table": "task_assignees",
+    "parent": "profiles",
+    "columns": [
+      {
+        "name": "user_id",
+        "not_null": true
+      }
+    ],
+    "on_delete": "c",
+    "constraint": "task_assignees_user_id_fkey"
+  },
+  {
+    "table": "task_ratings",
+    "parent": "profiles",
+    "columns": [
+      {
+        "name": "rated_by_id",
+        "not_null": false
+      }
+    ],
+    "on_delete": "a",
+    "constraint": "task_ratings_rated_by_id_fkey"
+  },
+  {
+    "table": "task_ratings",
+    "parent": "profiles",
+    "columns": [
+      {
+        "name": "rated_user_id",
+        "not_null": false
+      }
+    ],
+    "on_delete": "c",
+    "constraint": "task_ratings_rated_user_id_fkey"
+  },
+  {
+    "table": "tasks",
+    "parent": "profiles",
+    "columns": [
+      {
+        "name": "created_by_id",
+        "not_null": false
+      }
+    ],
+    "on_delete": "a",
+    "constraint": "tasks_created_by_id_fkey"
+  },
+  {
+    "table": "tasks",
+    "parent": "profiles",
+    "columns": [
+      {
+        "name": "assigned_to_id",
+        "not_null": false
+      }
+    ],
+    "on_delete": "a",
+    "constraint": "tasks_assigned_to_id_fkey"
+  }
+]
