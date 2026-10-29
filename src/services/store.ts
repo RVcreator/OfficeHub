@@ -273,6 +273,7 @@ async function invokeSharePointListSafe(body?: Record<string, any>): Promise<any
   return null;
 }
 
+const confirmedDeletedStaffIds=new Set<string>();
 function stripOversizedAvatarForStorage<T extends Partial<StaffUser>>(user: T): Partial<StaffUser> {
   const {temporaryPassword: _password, provisioningWarning: _warning, ...safe} = user;
   if (safe.avatar && safe.avatar.startsWith('data:') && safe.avatar.length > 65536) {
@@ -299,7 +300,7 @@ export function saveStaffToLocalStorage(staffList: StaffUser[]): void {
     );
     localStorage.setItem(
       'wipahs_registered_staff',
-      JSON.stringify(cleanList.map((s) => stripOversizedAvatarForStorage(s)))
+      JSON.stringify(cleanList.filter(s=>!confirmedDeletedStaffIds.has(s.id)).map((s) => stripOversizedAvatarForStorage(s)))
     );
   } catch {}
 }
@@ -422,7 +423,7 @@ export function setTableData<K extends TableKey>(key: K, data: StoreData[K], sou
     const row = presenceCache.get(user.id);
     return { ...user, outOfOffice: row && row.officeUntil > presenceNow() ? row.outOfOffice : user.outOfOffice, status: computeUserLivePresence(user) };
   };
-  if (key === 'staff') data = (data as StaffUser[]).map(withPresence) as StoreData[K];
+  if (key === 'staff') data = (data as StaffUser[]).filter(user=>!confirmedDeletedStaffIds.has(user.id)).map(withPresence) as StoreData[K];
   if (key === 'currentUser') {
     const user = data as StaffUser;
     data = withPresence(user) as StoreData[K];
@@ -1216,7 +1217,7 @@ export const portalStore = {
         }
       });
 
-      const finalStaff = Array.from(combinedMap.values()).filter((s) => !s.deactivated);
+      const finalStaff = Array.from(combinedMap.values()).filter((s) => !s.deactivated&&!confirmedDeletedStaffIds.has(s.id));
 
       return finalStaff;
     } catch (err) {
@@ -3867,6 +3868,7 @@ export const portalStore = {
       throw new Error(message);
     }
     // Only remove the confirmed UUID. A new registration may reuse the email.
+    confirmedDeletedStaffIds.add(id);
     const remaining=storeState.staff.filter(user=>user.id!==id);
     setTableData('staff',remaining);saveStaffToLocalStorage(remaining);presenceCache.delete(id);
   },
