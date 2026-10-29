@@ -3,6 +3,7 @@ import React, {useState} from 'react';
 import {createRoot} from 'react-dom/client';
 import '../../src/index.css';
 import {portalStore, setTableData} from '../../src/services/store';
+import {supabase} from '../../src/services/supabaseClient';
 import {Header} from '../../src/components/Header';
 import {Sidebar} from '../../src/components/Sidebar';
 import {DashboardView} from '../../src/components/DashboardView';
@@ -26,12 +27,20 @@ import {ProjectModal} from '../../src/components/ProjectModal';
 const user:any={id:'layout-user',name:'Amina Example',email:'layout@example.invalid',organisation:'WIPAHS',department:'Logistics and Operations',role:'Super Admin',status:'Online',avatar:'',tasksCount:3,activityScore:85,lastActive:'Just now',phone:''};
 const tasks:any[]=Array.from({length:4},(_,i)=>({id:`layout-${i}`,title:i===0?'Prepare the quarterly community programme and detailed implementation schedule':'Coordinate departmental planning and review',description:'A deliberately long description to check wrapping and readable spacing.',department:user.department,organisation:'WIPAHS',status:'To Do',priority:'High',assignedToId:user.id,assignedToName:user.name,assignedById:user.id,assignedByName:user.name,assignmentType:'personal',dueDate:'2026-10-30',createdAt:'2026-10-28T09:00:00Z',subtasks:[],attachments:[],updates:[]}));
 const data:any={Staff:[user],Tasks:tasks,Notices:[],Meetings:[],Approvals:[],SharePointDocs:[],FolderList:['General','Finance and operational planning documents'],Projects:[],AuditLogs:[],Departments:[],Conversations:[],Messages:[],Notifications:[],Decisions:[]};
+if(new URLSearchParams(location.search).has('deletion-test')){
+ data.Staff.push({...user,id:'10000000-0000-4000-8000-000000000002',name:'Deletion Fixture',email:'delete-fixture@example.invalid',role:'Staff Member'});
+ (supabase.auth as any).getSession=async()=>({data:{session:{access_token:'fixture-token'}},error:null});
+ let calls=0;Object.defineProperty(supabase,'functions',{configurable:true,value:{invoke:async(name:string,options:any)=>{
+  if(name!=='admin-delete-user'||options.body.confirmEmail!=='delete-fixture@example.invalid')throw Error('Unexpected fixture request');
+  return ++calls===1?{data:{error:'Fixture deletion blocked'},error:null}:{data:{success:true,userId:options.body.userId,deletedEmail:options.body.confirmEmail,emailReleased:true},error:null};
+ }}});
+}
 data.Projects=[{id:'project-layout',name:'Community services and infrastructure improvement programme',description:'Sample project for layout checks only.',department:user.department,leadId:user.id,leadName:user.name,status:'On Track',progress:35,startDate:'2026-10-01',targetDate:'2026-12-01',membersCount:3,sharePointFolderUrl:'',activeTasksCount:4,overdueTasksCount:0,milestones:[],budgetBreakdown:[],impactMetrics:[],expenses:[]}];
 data.Meetings=[{id:'meeting-layout',title:'Programme coordination and departmental planning review',department:user.department,date:'2026-10-28',startTime:'10:00',endTime:'11:00',organizerId:user.id,organizerName:user.name,attendees:[],agenda:['Review progress'],meetingType:'Microsoft Teams',status:'Scheduled'}];
 data.SharePointDocs=[{id:'doc-layout',name:'Community programme operational planning and implementation guidelines.docx',folder:'General',fileType:'docx',size:'25 KB',uploadedBy:user.name,uploadedById:user.id,uploadedAt:'2026-10-28',lastModified:'2026-10-28',visibility:'Everyone',allowedUserIds:[],editableUserIds:[],url:'#',syncStatus:'Synced'}];
 for(const [name,rows] of Object.entries(data)) (portalStore as any)[`get${name}`]=async()=>rows;
 for(const name of ['initRealtime','markAllNotificationsAsRead']) (portalStore as any)[name]=async()=>{};
-setTableData('currentUser',user);setTableData('tasks',tasks);setTableData('staff',[user]);setTableData('loading',false);
+setTableData('currentUser',user);setTableData('tasks',tasks);setTableData('staff',data.Staff);setTableData('loading',false);
 setTableData('projects',data.Projects);setTableData('sharePointDocs',data.SharePointDocs);
 function Fixture(){
  const params=new URLSearchParams(location.search);const [tab,setTab]=useState(params.get('view')||'dashboard');const [nav,setNav]=useState(false);const [modal,setModal]=useState(params.get('modal')||'');
