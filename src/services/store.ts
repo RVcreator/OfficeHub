@@ -1175,6 +1175,7 @@ export const portalStore = {
     try {
       const res = await fetchPublicProfiles();
       const dbProfiles = (res.data && res.data.length > 0) ? res.data.map(mapStaffRow) : [];
+      const authoritativeSnapshot=!res.error&&Array.isArray(res.data);
 
       let localStaff: StaffUser[] = [];
       try {
@@ -1210,7 +1211,7 @@ export const portalStore = {
             avatar: existing.avatar || s.avatar,
             mustChangePassword: existing.mustChangePassword,
           });
-        } else {
+        } else if(!authoritativeSnapshot) {
           combinedMap.set(s.id, { ...s, mustChangePassword: false });
         }
       });
@@ -3851,43 +3852,33 @@ export const portalStore = {
     }
   },
 
-  removeStaffMember: async (id: string): Promise<void> => {
-    try {
-      const targetUser = storeState.staff.find((s) => s.id === id);
-
-      const remainingStaff = storeState.staff.filter(
-        (s) => s.id !== id && (!targetUser?.email || s.email.toLowerCase() !== targetUser.email.toLowerCase())
-      );
-      setTableData('staff', remainingStaff);
-
-      saveStaffToLocalStorage(remainingStaff);
-
-      // Soft delete: store deactivated flag inside app_metadata (profiles has no top-level deactivated column)
-      try {
-        const nextMeta = { ...(targetUser?.app_metadata || {}), deactivated: true };
-        const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
-        if (isUuid) {
-          const { error } = await supabase.from('profiles').update({ app_metadata: nextMeta }).eq('id', id);
-          if (error) console.warn('Supabase profile deactivation note:', error.message);
-        } else if (targetUser?.email) {
-          const { error } = await supabase.from('profiles').update({ app_metadata: nextMeta }).eq('email', targetUser.email);
-          if (error) console.warn('Supabase profile deactivation note:', error.message);
-        }
-      } catch (sbErr) {
-        console.warn('Supabase profile deactivation warning:', sbErr);
-      }
-    } catch (err: any) {
-      console.error('removeStaffMember error:', err);
+  removeStaffMember: async (id: string, confirmEmail: string): Promise<void> => {
+    const target=storeState.staff.find(user=>user.id===id);
+    if(id===storeState.currentUser.id) throw new Error('You cannot delete your own signed-in account.');
+    if(!target||confirmEmail?.trim().toLowerCase()!==target.email.toLowerCase()) throw new Error('Type the selected user’s email to confirm deletion.');
+    const {data:session,error:sessionError}=await supabase.auth.getSession();
+    if(sessionError||!session.session?.access_token) throw new Error('Please sign in again before deleting an account.');
+    const {data,error}=await supabase.functions.invoke('admin-delete-user',{
+      headers:{Authorization:`Bearer ${session.session.access_token}`},body:{userId:id,confirmEmail:confirmEmail.trim()},
+    });
+    if(error||data?.error||data?.success!==true||data?.userId!==id||data?.deletedEmail?.toLowerCase()!==target.email.toLowerCase()||data?.emailReleased!==true){
+      let message=data?.error||'Account deletion was not confirmed. The member remains in this list.';
+      try {if(error?.context){const details=await error.context.json();message=details?.error||message;}}catch{}
+      throw new Error(message);
     }
+    // Only remove the confirmed UUID. A new registration may reuse the email.
+    const remaining=storeState.staff.filter(user=>user.id!==id);
+    setTableData('staff',remaining);saveStaffToLocalStorage(remaining);presenceCache.delete(id);
   },
 
   syncStaffFromSupabase: async (): Promise<void> => {
     try {
       const res = await fetchPublicProfiles();
-      if (res.data && res.data.length > 0) {
+      if (!res.error&&Array.isArray(res.data)) {
         const staffMapped = res.data.map(mapStaffRow);
         const filtered = staffMapped.filter(s => !s.deactivated);
         setTableData('staff', filtered);
+        saveStaffToLocalStorage(filtered);
       }
     } catch (err) {
       console.error('syncStaffFromSupabase error:', err);
