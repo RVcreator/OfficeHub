@@ -2,7 +2,7 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {transformSync} from 'esbuild';
-import {portalStore,setTableData} from '../src/services/store';
+import {portalStore,setTableData,saveStaffToLocalStorage} from '../src/services/store';
 import {supabase} from '../src/services/supabaseClient';
 const actor='10000000-0000-4000-8000-000000000001',target='10000000-0000-4000-8000-000000000002';
 const email='fixture@example.invalid';
@@ -47,6 +47,7 @@ test('client retains staff on failure and removes only the confirmed UUID on suc
   invoke(async()=>({data:null,error:{message:'denied'}}));await assert.rejects(portalStore.removeStaffMember(target,email),/not confirmed/);assert.equal(storage.has('wipahs_registered_staff'),false);
   invoke(async(name:string,options:any)=>{assert.equal(name,'admin-delete-user');assert.deepEqual(options.body,{userId:target,confirmEmail:email});return {data:{success:true,userId:target,deletedEmail:email,emailReleased:true},error:null};});
   await portalStore.removeStaffMember(target,email);const saved=JSON.parse(storage.get('wipahs_registered_staff')!);assert.equal(saved.length,1);assert.equal(saved[0].id,replacement.id);
+  saveStaffToLocalStorage([old,replacement] as any);assert.deepEqual(JSON.parse(storage.get('wipahs_registered_staff')!).map((user:any)=>user.id),[replacement.id],'a stale snapshot cannot cache a confirmed deleted UUID');
  }finally{supabase.auth.getSession=originalSession;if(descriptor)Object.defineProperty(supabase,'functions',descriptor);else delete (supabase as any).functions;(globalThis as any).localStorage=previousStorage;}
 });
 
