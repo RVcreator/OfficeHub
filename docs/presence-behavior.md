@@ -7,3 +7,5 @@ Returning to a tab immediately renews activity. Other members see changes at the
 Refresh all open OfficeHub tabs once after deployment; older tabs still run the previous logic.
 
 Verification includes presence unit tests for visibility, inactivity, lifecycle races and cleanup, plus PostgreSQL tests for session withdrawal, multiple-tab aggregation and existing access controls.
+
+The v2 heartbeat endpoint is reserved for clients that distinguish hidden tabs from visible idle tabs. Legacy false heartbeats withdraw their own session rather than extending Away. Legacy true heartbeats still report activity. Deploy the v2 SQL migration before releasing the client. Frozen legacy leases expire within 120 seconds; no staff account or saved availability is changed.

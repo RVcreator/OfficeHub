@@ -322,7 +322,7 @@ function startUserPresence(): void {
   const identity = storeState.authSession.userId;
   presenceController = startPresence({
     heartbeat: async (session, active) => {
-      const { error } = await supabase.rpc('officehub_presence_heartbeat', { p_session: session, p_active: active });
+      const { error } = await supabase.rpc('officehub_presence_heartbeat_v2', { p_session: session, p_active: active });
       if (error) throw error;
     },
     leave: async session => {
