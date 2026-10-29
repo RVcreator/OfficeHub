@@ -1,3 +1,4 @@
+import {departmentName} from '../utils/departmentDirectory';
 import {functionError} from './functionError';
 import {createReadQueue} from './syncPolicy';
 import {sameValue,tableSnapshot} from './storeSnapshot';
@@ -384,7 +385,7 @@ const storeState: StoreData = {
   },
   decisions: [],
   approvals: [],
-  departments: DEFAULT_DEPARTMENTS,
+  departments: [],
   roles: [],
   conversations: [],
   messages: [],
@@ -1443,7 +1444,7 @@ export const portalStore = {
     let data:any[],version:number;
     do{
       version=departmentMutationVersion;
-      const response=await supabase.from('departments').select('*').order('name');
+      const response=await supabase.from('departments').select('*').is('archived_at',null).order('name');
       if(response.error)throw new Error('Departments could not load from Supabase. Please reconnect and try again.');
       data=response.data||[];
     }while(version!==departmentMutationVersion);
@@ -3759,7 +3760,7 @@ export const portalStore = {
         email: userData.email,
         role: userData.role || 'Staff Member',
         organisation: userData.organisation || 'WIPAHS',
-        department: normalizeDepartmentName(userData.department),
+        department: departmentName(userData.department,userData.organisation),
         status: userData.status || 'Offline',
         avatar: userData.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
         phone: userData.phone || '+255 778 123 456',
@@ -3799,41 +3800,14 @@ export const portalStore = {
   updateStaffMember: async (id: string, updates: Partial<StaffUser>): Promise<void> => {
     const previous=storeState.staff.find(user=>user.id===id);
     if(updates.email!==undefined&&updates.email.trim().toLowerCase()!==previous?.email?.trim().toLowerCase())throw new Error('Sign-in email cannot be changed through a profile edit. Contact your account administrator.');
-    try {
-      // 1. Immediately update local state
-      const targetUser = storeState.staff.find((s) => s.id === id);
-      const updatedStaff = storeState.staff.map((s) =>
-        s.id === id || (targetUser?.email && s.email?.toLowerCase() === targetUser.email.toLowerCase())
-          ? { ...s, ...updates }
-          : s
-      );
-      setTableData('staff', updatedStaff);
-
-      // 2. Persist to localStorage without oversized Base64 blobs
-      saveStaffToLocalStorage(updatedStaff);
-
-      // 3. If updating current logged-in user, sync currentUser state
-      const curr = storeState.currentUser;
-      if (curr && (curr.id === id || (targetUser?.email && curr.email?.toLowerCase() === targetUser.email.toLowerCase()))) {
-        const updatedCurr = { ...curr, ...updates };
-        setTableData('currentUser', updatedCurr);
-        saveCurrentUserProfileToLocalStorage(updatedCurr);
-      }
-
-      // 4. Safely attempt Supabase update in background without throwing
-      try {
-        const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
-        const rowUpdates = mapStaffToRow(updates);
-        if (isUuid) {
-          await supabase.from('profiles').update(rowUpdates).eq('id', id);
-        } else if (targetUser?.email) {
-          await supabase.from('profiles').update(rowUpdates).eq('email', targetUser.email);
-        }
-      } catch (sbErr) {
-        console.warn('Supabase updateStaffMember note:', sbErr);
-      }
-    } catch (err: any) {
-      console.error('updateStaffMember error:', err);
+    if(!previous||!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id))throw new Error('A verified staff account is required.');
+    const {data,error}=await supabase.from('profiles').update(mapStaffToRow(updates)).eq('id',id).select('*').single();
+    if(error||!data||data.id!==id)throw new Error(error?.message||'Member changes were not saved to Supabase.');
+    const saved={...previous,...mapStaffRow(data)};
+    const updatedStaff=storeState.staff.map(user=>user.id===id?saved:user);
+    setTableData('staff',updatedStaff);saveStaffToLocalStorage(updatedStaff);
+    if(storeState.currentUser.id===id){
+      const current={...storeState.currentUser,...saved};setTableData('currentUser',current);saveCurrentUserProfileToLocalStorage(current);
     }
   },
 

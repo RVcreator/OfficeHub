@@ -1,5 +1,5 @@
 import { StaffUser } from '../types';
-import { normalizeDept } from './taskUtils';
+import {departmentName,organisationName,sameOrganisation} from './departmentDirectory';
 
 export const FIXED_ORGANISATION_ORDER = ['WIPAHS', 'HO', 'HOP', 'WEC', 'MEDEWELL'] as const;
 
@@ -52,21 +52,21 @@ export const CORE_DEPARTMENTS_LIST = [
 export function getStaffHierarchy(staffList: StaffUser[]): OrganisationGroup[] {
   // Collect all distinct organisations present in staff list
   const rawOrgs = Array.from(new Set(
-    (staffList || []).map(s => s.organisation || 'WIPAHS')
+    (staffList || []).map(s => organisationName(s.organisation))
   ));
   const sortedOrgs = sortOrganisations(rawOrgs);
 
   return sortedOrgs.map(org => {
-    const staffInOrg = (staffList || []).filter(s => (s.organisation || 'WIPAHS') === org);
+    const staffInOrg = (staffList || []).filter(s => (organisationName(s.organisation)) === org);
     
     // Collect distinct departments within this organisation that have staff
     const staffDeptNames = Array.from(new Set(
-      staffInOrg.map(s => normalizeDept(s.department || 'General'))
+      staffInOrg.map(s => departmentName(s.department,s.organisation))
     )).sort((a, b) => a.localeCompare(b));
 
     const departments: DepartmentGroup[] = staffDeptNames.map(dept => {
       const staffInDept = staffInOrg
-        .filter(s => normalizeDept(s.department || 'General') === dept)
+        .filter(s => departmentName(s.department,s.organisation) === dept)
         .sort((a, b) => a.name.localeCompare(b.name));
 
       return {

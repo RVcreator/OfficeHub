@@ -1,3 +1,4 @@
+import {departmentName,organisationName} from '../utils/departmentDirectory';
 // =========================================================================
 // Shared Supabase Mappers
 // Centralized mapping between Supabase snake_case rows and TypeScript camelCase models
@@ -28,7 +29,6 @@ import {
   AppNotification,
   DispatchedEmail,
 } from '../types';
-import { normalizeDept } from '../utils/taskUtils';
 
 export function isValidUuid(str: string | undefined | null): boolean {
   if (!str) return false;
@@ -140,8 +140,8 @@ export function mapStaffRow(row: any): StaffUser {
     name: row.name || 'Unknown Staff',
     email: row.email || '',
     role: row.role || 'Staff Member',
-    organisation: row.organisation || 'WIPAHS',
-    department: normalizeDept(row.department || 'General'),
+    organisation: organisationName(row.organisation),
+    department: departmentName(row.department,row.organisation),
     status: row.status || 'Offline',
     avatar: row.avatar || '',
     phone: row.phone || '+255 778 123 456',
@@ -173,8 +173,8 @@ export function mapStaffToRow(staff: Partial<StaffUser>): Record<string, any> {
   if (staff.name !== undefined) row.name = staff.name;
   if (staff.email !== undefined) row.email = staff.email;
   if (staff.role !== undefined) row.role = staff.role;
-  if (staff.organisation !== undefined) row.organisation = staff.organisation;
-  if (staff.department !== undefined) row.department = normalizeDept(staff.department);
+  if (staff.organisation !== undefined) row.organisation = organisationName(staff.organisation);
+  if (staff.department !== undefined) row.department = staff.department.trim();
   if (staff.status !== undefined) row.status = staff.status;
   if (staff.avatar !== undefined) row.avatar = staff.avatar;
   if (staff.phone !== undefined) row.phone = staff.phone;

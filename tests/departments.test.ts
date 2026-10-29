@@ -2,7 +2,7 @@ import {test} from 'node:test';import assert from 'node:assert/strict';
 import {portalStore,setTableData,subscribeTable} from '../src/services/store';import {supabase} from '../src/services/supabaseClient';
 import {mapDepartmentRow,mapDepartmentToRow} from '../src/services/supabaseMappers';
 const original=supabase.from;
-function mock(result:any,calls:any[]=[]){(supabase as any).from=(table:string)=>{calls.push({table});const q:any={};for(const m of ['select','order','eq','insert','update','delete'])q[m]=(...args:any[])=>{calls.push({method:m,args});return q;};q.single=async()=>result;q.then=(yes:any,no:any)=>Promise.resolve(result).then(yes,no);return q;};}
+function mock(result:any,calls:any[]=[]){(supabase as any).from=(table:string)=>{calls.push({table});const q:any={};for(const m of ['select','order','is','eq','insert','update','delete'])q[m]=(...args:any[])=>{calls.push({method:m,args});return q;};q.single=async()=>result;q.then=(yes:any,no:any)=>Promise.resolve(result).then(yes,no);return q;};}
 const row={id:'saved-id',name:'New Department',organisation:'Other',budget:'$123',head_name:'Fixture',head_role:'Head',head_avatar:'',member_count:0};
 test('database departments retain separate IDs and organisations instead of default/name merges',async()=>{try{mock({data:[row,{...row,id:'second-id',organisation:'WIPAHS'}],error:null});const rows=await portalStore.getDepartments();assert.equal(rows.length,2);assert.deepEqual(rows.map(r=>r.id),['saved-id','second-id']);assert.equal(rows[0].organisation,'Other');mock({data:[],error:null});assert.deepEqual(await portalStore.getDepartments(),[]);}finally{supabase.from=original;}});
 test('failed department reads are visible errors rather than fabricated default success',async()=>{try{mock({data:null,error:{message:'denied'}});await assert.rejects(portalStore.getDepartments(),/could not load/);}finally{supabase.from=original;}});
@@ -12,6 +12,6 @@ test('create publishes only the returned department ID; deletion targets only th
 
 test('a department snapshot begun before creation cannot hide the confirmed new row',async()=>{
  let release!:(value:any)=>void,reads=0;const initial=new Promise(r=>release=r);
- (supabase as any).from=()=>{let writing=false;const q:any={select:()=>q,order:()=>q,insert:()=>{writing=true;return q;},single:async()=>({data:row,error:null}),then:(yes:any,no:any)=>{reads++;return (reads===1?initial:Promise.resolve({data:[row],error:null})).then(yes,no);}};return q;};
+ (supabase as any).from=()=>{let writing=false;const q:any={select:()=>q,is:()=>q,order:()=>q,insert:()=>{writing=true;return q;},single:async()=>({data:row,error:null}),then:(yes:any,no:any)=>{reads++;return (reads===1?initial:Promise.resolve({data:[row],error:null})).then(yes,no);}};return q;};
  try{const snapshot=portalStore.getDepartments();await portalStore.addDepartment(mapDepartmentRow(row));release({data:[],error:null});assert.equal((await snapshot)[0].id,row.id);assert.equal(reads,2);}finally{supabase.from=original;}
 });
