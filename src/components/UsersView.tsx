@@ -12,8 +12,6 @@ import {
   Trash2,
   KeyRound,
   X,
-  CheckCircle2,
-  Copy,
   AlertCircle,
   Building2,
   ChevronDown,
@@ -32,6 +30,7 @@ import {
 import { UserRatingDisplay } from './UserRatingDisplay';
 import { StaffProfileModal } from './StaffProfileModal';
 import { getUserRatingSummary } from '../utils/staffRatings';
+import { TemporaryPasswordField } from './TemporaryPasswordField';
 
 interface UsersViewProps {
   onAssignTaskToUser?: (user: StaffUser) => void;
@@ -71,7 +70,6 @@ export const UsersView: React.FC<UsersViewProps> = ({ onAssignTaskToUser }) => {
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<StaffUser | null>(null);
   const [passwordResetInfo, setPasswordResetInfo] = useState<{ user: StaffUser; tempPass: string; isNewAccount?: boolean; warning?: string } | null>(null);
-  const [copiedPass, setCopiedPass] = useState(false);
   const [deleteConfirmUser, setDeleteConfirmUser] = useState<StaffUser | null>(null);
 
   // Form state
@@ -187,7 +185,6 @@ export const UsersView: React.FC<UsersViewProps> = ({ onAssignTaskToUser }) => {
           isNewAccount: true,
           warning: newStaff.provisioningWarning
         });
-        setCopiedPass(false);
       }
     }
     resetForm();
@@ -207,7 +204,6 @@ export const UsersView: React.FC<UsersViewProps> = ({ onAssignTaskToUser }) => {
       const res = await actions.resetUserPassword(user.id);
       if (!res.success || !res.message) throw new Error('Password reset was not confirmed.');
       setPasswordResetInfo({user,tempPass:res.message,isNewAccount:false});
-      setCopiedPass(false);
     } catch(error) {
       window.alert(error instanceof Error ? error.message : 'Password reset failed. Please try again.');
     }
@@ -914,31 +910,7 @@ export const UsersView: React.FC<UsersViewProps> = ({ onAssignTaskToUser }) => {
                 A temporary password has been issued for <b>{passwordResetInfo.user.name}</b> ({passwordResetInfo.user.email}).
               </p>
 
-              <div className="p-3 bg-slate-50 border border-slate-200 rounded-md flex items-center justify-between">
-                <code className="text-sm font-bold text-slate-800 font-mono tracking-wide">
-                  {passwordResetInfo.tempPass}
-                </code>
-                <button
-                  onClick={() => {
-                    navigator.clipboard.writeText(passwordResetInfo.tempPass);
-                    setCopiedPass(true);
-                    setTimeout(() => setCopiedPass(false), 2000);
-                  }}
-                  className="inline-flex items-center gap-1 text-xs px-2.5 py-1 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 rounded shadow-2xs font-medium cursor-pointer"
-                >
-                  {copiedPass ? (
-                    <>
-                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                      <span className="text-emerald-700">Copied</span>
-                    </>
-                  ) : (
-                    <>
-                      <Copy className="w-3.5 h-3.5 text-slate-500" />
-                      <span>Copy</span>
-                    </>
-                  )}
-                </button>
-              </div>
+              <TemporaryPasswordField password={passwordResetInfo.tempPass}/>
 
               <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-md text-[11px] text-amber-800 flex items-start gap-2">
                 <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
