@@ -21,6 +21,7 @@ interface LoginScreenProps {
 
 export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
   const mounted=useRef(true);
+  const signInPending=useRef(false);
   useEffect(()=>{mounted.current=true;return ()=>{mounted.current=false;};},[]);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -36,6 +37,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
 
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
+    if(signInPending.current)return;
     setErrorMessage(null);
 
     const cleanEmail = email.trim().toLowerCase();
@@ -44,6 +46,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
       return;
     }
 
+    signInPending.current=true;
     setIsLoading(true);
 
     try {
@@ -74,6 +77,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
     } catch (err: any) {
       if(mounted.current) setErrorMessage(err.message || 'An unexpected error occurred during sign in.');
     } finally {
+      signInPending.current=false;
       if(mounted.current) setIsLoading(false);
     }
   };

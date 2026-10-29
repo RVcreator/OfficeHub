@@ -1,6 +1,7 @@
 export type PasswordAccount = {id:string;email?:string;app_metadata?:Record<string,unknown>};
 export interface PasswordCompletionDependencies {
   user(token:string):Promise<PasswordAccount | null>;
+  accountReady?(user:PasswordAccount):Promise<string|null>;
   changePassword(token:string,password:string):Promise<{error?:string}>;
   confirm(id:string,resetId:string|null,resetAt:string|null):Promise<{userId:string;app_metadata:Record<string,unknown>} | null>;
 }
@@ -15,6 +16,7 @@ export async function completePassword(req:Request,deps:PasswordCompletionDepend
   try {
     const token=bearer.slice(7),user=await deps.user(token);
     if(!user) return response({error:'Your session expired. Please sign in again.'},401);
+    if(deps.accountReady){const error=await deps.accountReady(user);if(error)return response({error},409);}
     const raw=await req.text();
     if(raw.length>2048) return response({error:'Request too large'},413);
     let body:any;

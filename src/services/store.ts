@@ -1,3 +1,4 @@
+import {functionError} from './functionError';
 import {createReadQueue} from './syncPolicy';
 import {sameValue,tableSnapshot} from './storeSnapshot';
 // =========================================================================
@@ -3813,6 +3814,8 @@ export const portalStore = {
   },
 
   updateStaffMember: async (id: string, updates: Partial<StaffUser>): Promise<void> => {
+    const previous=storeState.staff.find(user=>user.id===id);
+    if(updates.email!==undefined&&updates.email.trim().toLowerCase()!==previous?.email?.trim().toLowerCase())throw new Error('Sign-in email cannot be changed through a profile edit. Contact your account administrator.');
     try {
       // 1. Immediately update local state
       const targetUser = storeState.staff.find((s) => s.id === id);
@@ -4766,96 +4769,15 @@ export const portalStore = {
   // Auth & Session
   // -----------------------------------------------------------------------
   syncAuthenticatedUserProfile: async (sbUser: any): Promise<StaffUser> => {
-    const cleanEmail = (sbUser?.email || '').trim().toLowerCase();
-    const uid = sbUser?.id || '';
-
-    const staffList = storeState.staff.length > 0 ? storeState.staff : await portalStore.getStaff();
-    if (storeState.staff.length === 0 && staffList.length > 0) {
-      setTableData('staff', staffList);
-    }
-
-    let matched = staffList.find(
-      (s) => (uid && s.id === uid) || (cleanEmail && s.email?.toLowerCase() === cleanEmail)
-    );
-
-    if (uid || cleanEmail) {
-      try {
-        let query = supabase.from('profiles').select('*');
-        if (toUuidOrNull(uid) && cleanEmail) {
-          query = query.or(`id.eq.${uid},email.ilike.${cleanEmail}`);
-        } else if (toUuidOrNull(uid)) {
-          query = query.eq('id', uid);
-        } else {
-          query = query.ilike('email', cleanEmail);
-        }
-        const { data: dbProfile } = await query.maybeSingle();
-        if (dbProfile) {
-          const fullMapped = mapStaffRow(dbProfile);
-          matched = matched ? { ...matched, ...fullMapped } : fullMapped;
-        }
-      } catch {}
-    }
-
-    if (matched) {
-      const mergedMeta: Record<string, any> = {
-        ...(matched.app_metadata || {}),
-        ...(sbUser?.app_metadata || {}),
-      };
-
-      return {
-        ...matched,
-        status: matched.outOfOffice ? 'Out of Office' : 'Online',
-        mustChangePassword: passwordChangeRequired(sbUser, matched),
-        app_metadata: mergedMeta,
-      };
-    }
-
-    // Fallback for authenticated Supabase user without an existing row in public.profiles
-    // Never invoke admin-create-user or set mustChangePassword: true here!
-    const detectedDept =
-      (sbUser?.app_metadata?.department as string) ||
-      (sbUser?.user_metadata?.department as string) ||
-      (cleanEmail.includes('marketing')
-        ? 'Marketing'
-        : cleanEmail.includes('admin')
-        ? 'Top management'
-        : cleanEmail.includes('it')
-        ? 'IT'
-        : cleanEmail.includes('finance')
-        ? 'Finance'
-        : 'General');
-
-    const rawName =
-      (sbUser?.user_metadata?.name as string) ||
-      (sbUser?.user_metadata?.full_name as string) ||
-      cleanEmail.split('@')[0] ||
-      'Portal User';
-
-    const fallbackUser: StaffUser = {
-      id: uid || `usr-${Date.now()}`,
-      name: rawName,
-      email: cleanEmail,
-      role: (sbUser?.app_metadata?.role as string) || (cleanEmail.includes('admin') ? 'Admin' : 'Staff Member'),
-      organisation: (sbUser?.app_metadata?.organisation as string) || 'WIPAHS',
-      department: normalizeDepartmentName(detectedDept),
-      status: 'Online',
-      avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
-      phone: '+255 778 123 456',
-      activityScore: 85,
-      tasksCount: 0,
-      lastActive: 'Just now',
-      mustChangePassword: false,
-      app_metadata: sbUser?.app_metadata || {},
-    };
-
-    const nextStaff = [
-      fallbackUser,
-      ...storeState.staff.filter(
-        (s) => s.id !== fallbackUser.id && (!cleanEmail || s.email?.toLowerCase() !== cleanEmail)
-      ),
-    ];
-    setTableData('staff', nextStaff);
-    return fallbackUser;
+    const uid=toUuidOrNull(sbUser?.id);
+    if(!uid)throw new Error('Your sign-in account could not be verified. Please sign in again.');
+    const {data:row,error}=await supabase.from('profiles').select('*').eq('id',uid).maybeSingle();
+    if(error)throw new Error('Your staff profile could not be loaded. Please check your connection and try again.');
+    if(!row||row.id!==uid)throw new Error('This sign-in account has no matching staff profile. Please contact your administrator to repair the account.');
+    const matched=mapStaffRow(row);
+    if(matched.email?.trim().toLowerCase()!==sbUser.email?.trim().toLowerCase())throw new Error('Your staff email and sign-in email do not match. Please contact your administrator to repair the account.');
+    return {...matched,status:matched.outOfOffice?'Out of Office':'Online',mustChangePassword:passwordChangeRequired(sbUser,matched),
+      app_metadata:{...matched.app_metadata,...sbUser.app_metadata}};
   },
 
   shouldForcePasswordChange: (
@@ -4944,13 +4866,15 @@ export const portalStore = {
   },
 
   resetUserPassword: async (id: string, customPass?: string): Promise<{ success: boolean; message: string }> => {
+    const target=storeState.staff.find(user=>user.id===id);
+    if(!target?.email)throw new Error('The selected staff account could not be verified. Refresh User Management first.');
     const session = (await supabase.auth.getSession()).data.session;
     if (!session?.access_token) throw new Error('Please sign in again before resetting a password.');
     const { data, error } = await supabase.functions.invoke('admin-reset-password', {
       headers: { Authorization: `Bearer ${session.access_token}` },
-      body: { userId: id, ...(customPass !== undefined ? {customPassword:customPass} : {}) },
+      body: { userId: id, expectedEmail:target.email, ...(customPass !== undefined ? {customPassword:customPass} : {}) },
     });
-    if (error || data?.error || data?.success !== true) throw new Error(data?.error || 'Password reset failed. No successful reset was confirmed.');
+    if (error || data?.error || data?.success !== true) throw new Error(await functionError(error,data,'Password reset failed. No successful reset was confirmed.'));
     const tempPass=issuedPassword(data,id,'reset');
     const markPending = (s: StaffUser) => s.id === id ? { ...s, mustChangePassword:true, temporaryPassword:undefined,
       app_metadata:{...s.app_metadata,must_change_password:true,password_changed_at:null} } : s;
@@ -5001,6 +4925,7 @@ export const portalStore = {
 
   updateCurrentUserProfile: async (updates: Partial<StaffUser>): Promise<void> => {
     const user = storeState.currentUser;
+    if(updates.email!==undefined&&updates.email.trim().toLowerCase()!==user.email?.trim().toLowerCase())throw new Error('Sign-in email cannot be changed through a profile edit. Contact your account administrator.');
     const updatedUser = { ...user, ...updates };
 
     // Confirm the profile write before publishing availability or saved feedback.

@@ -24,7 +24,7 @@ test('client only returns the server-confirmed self completion and refreshes cla
  } finally {restore();}
 });
 test('failed administrator reset never falls back to a fake profile-only password',async()=>{
- try {mockSession();mockInvoke(async()=>({data:null,error:{message:'denied'}}));(supabase as any).from=()=>{throw new Error('Unexpected database fallback');};
+ try {setTableData('staff',[user]);mockSession();mockInvoke(async()=>({data:null,error:{message:'denied'}}));(supabase as any).from=()=>{throw new Error('Unexpected database fallback');};
  await assert.rejects(portalStore.resetUserPassword(id,'Example-only-temp'),/reset failed/);
  } finally {restore();}
 });
@@ -66,7 +66,7 @@ test('confirmed account still returns its issued password when optional profile 
 
 test('reset returns the password confirmed for the requested account',async()=>{
  try {mockSession();mockInvoke(async(_name:string,options:any)=>{
- assert.deepEqual(options.body,{userId:id});
+ assert.deepEqual(options.body,{userId:id,expectedEmail:user.email});
  return {data:{success:true,userId:id,message:'Server-reset-example!'},error:null};});
  assert.equal((await portalStore.resetUserPassword(id)).message,'Server-reset-example!');
  } finally {restore();}

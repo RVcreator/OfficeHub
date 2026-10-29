@@ -9,6 +9,12 @@ Deno.serve(async(req:Request)=>{
   const admin=createClient(url,key,{auth:{persistSession:false,autoRefreshToken:false}});
   return completePassword(req,{
     user:async(token)=>{const {data,error}=await admin.auth.getUser(token);return error?null:data.user;},
+    accountReady:async(user)=>{
+      const {data,error}=await admin.from('profiles').select('id,email').eq('id',user.id).maybeSingle();
+      if(error||!data)return 'Your sign-in account has no verified staff profile. Contact your administrator before changing the password.';
+      if((data.email||'').trim().toLowerCase()!==(user.email||'').trim().toLowerCase())return 'Your staff email and sign-in email do not match. Contact your administrator to repair the account.';
+      return null;
+    },
     changePassword:async(token,password)=>{
       // User-scoped Auth endpoint enforces password policy and rejects reusing the current password.
       const result=await fetch(url+'/auth/v1/user',{method:'PUT',headers:{apikey:key,authorization:'Bearer '+token,'content-type':'application/json'},

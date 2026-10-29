@@ -1,3 +1,4 @@
+import {functionError} from './functionError';
 import { passwordChangeRequired } from './passwordPolicy';
 import { createClient, Session, User } from '@supabase/supabase-js';
 
@@ -111,7 +112,7 @@ export async function updatePasswordWithSupabase(newPassword: string): Promise<A
     });
     if(error || data?.error || data?.success!==true || data?.userId!==session.user.id
       || data?.app_metadata?.must_change_password!==false || !data?.app_metadata?.password_changed_at) {
-      return {data:null,error:{message:data?.error || 'Password change could not be confirmed. Please try again.'}};
+      return {data:null,error:{message:await functionError(error,data,'Password change could not be confirmed. Please try again.')}};
     }
     // Refresh the server-issued claims. Failure cannot fabricate a successful write.
     await supabase.auth.refreshSession();
