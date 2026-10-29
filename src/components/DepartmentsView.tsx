@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
   Building2,
   Users,
@@ -12,7 +12,7 @@ import {
   Filter,
   Layers
 } from 'lucide-react';
-import { usePortalStore } from '../services/store';
+import { usePortalStore, setTableData } from '../services/store';
 import { Department, DepartmentInfo, StaffUser } from '../types';
 import {
   sortOrganisations,
@@ -26,6 +26,10 @@ interface DepartmentsViewProps {
 
 export const DepartmentsView: React.FC<DepartmentsViewProps> = ({ onSelectDepartmentTasks }) => {
   const { departments, tasks, projects, staff, actions } = usePortalStore(['departments', 'tasks', 'projects', 'staff']);
+  const [dataError,setDataError]=useState<string|null>(null);
+  const [saving,setSaving]=useState(false);
+  const savePending=useRef(false);
+  useEffect(()=>{let active=true;actions.getDepartments().then(rows=>{if(active)setTableData('departments',rows);}).catch(error=>{if(active)setDataError(error.message);});return()=>{active=false;};},[actions]);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedOrgFilter, setSelectedOrgFilter] = useState<string>('All');
   const [groupByOrg, setGroupByOrg] = useState<boolean>(true);
@@ -76,7 +80,7 @@ export const DepartmentsView: React.FC<DepartmentsViewProps> = ({ onSelectDepart
     });
   };
 
-  const handleSaveDepartment = (e: React.FormEvent) => {
+  const handleSaveDepartment = async (e: React.FormEvent) => {
     e.preventDefault();
     const cleanName = formData.name.trim();
     if (!cleanName) {
@@ -84,6 +88,8 @@ export const DepartmentsView: React.FC<DepartmentsViewProps> = ({ onSelectDepart
       return;
     }
 
+    if(savePending.current)return;savePending.current=true;setSaving(true);setDataError(null);
+    try{
     const org = formData.organisation || 'WIPAHS';
     const headStaff = staff.find(s => (s.organisation || 'WIPAHS') === org && s.department === cleanName) ||
                       staff.find(s => (s.organisation || 'WIPAHS') === org);
@@ -92,7 +98,7 @@ export const DepartmentsView: React.FC<DepartmentsViewProps> = ({ onSelectDepart
     const headName = headStaff?.name || cleanName;
 
     if (editingDept) {
-      actions.updateDepartment(editingDept.id, {
+      await actions.updateDepartment(editingDept.id, {
         name: cleanName as Department,
         organisation: org,
         headName,
@@ -103,7 +109,7 @@ export const DepartmentsView: React.FC<DepartmentsViewProps> = ({ onSelectDepart
       });
       setEditingDept(null);
     } else {
-      actions.addDepartment({
+      await actions.addDepartment({
         name: cleanName as Department,
         organisation: org,
         headName,
@@ -115,11 +121,13 @@ export const DepartmentsView: React.FC<DepartmentsViewProps> = ({ onSelectDepart
       setIsAddModalOpen(false);
     }
     resetForm();
+    }catch(error){setDataError(error instanceof Error?error.message:'Department could not be saved.');}
+    finally{savePending.current=false;setSaving(false);}
   };
 
   const handleDeleteDepartment = async (dept: DepartmentInfo) => {
-    await actions.deleteDepartment(dept.id);
-    setDeleteConfirmDept(null);
+    try{await actions.deleteDepartment(dept.id);setDeleteConfirmDept(null);setDataError(null);}
+    catch(error){setDataError(error instanceof Error?error.message:'Department could not be deleted.');}
   };
 
   // Filter departments by organization and search query
@@ -159,6 +167,7 @@ export const DepartmentsView: React.FC<DepartmentsViewProps> = ({ onSelectDepart
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
+      {dataError&&<p role="alert" className="rounded border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">{dataError}</p>}
       {/* Header Banner */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-5 rounded-lg border border-slate-200 shadow-xs">
         <div>
@@ -328,7 +337,7 @@ export const DepartmentsView: React.FC<DepartmentsViewProps> = ({ onSelectDepart
               </button>
             </div>
 
-            <form onSubmit={handleSaveDepartment} className="space-y-3.5 text-xs">
+            <form onSubmit={handleSaveDepartment} aria-busy={saving} className="space-y-3.5 text-xs">
               {/* Level 1: Organisation */}
               <div>
                 <label className="font-semibold text-slate-700 block mb-1">
@@ -380,8 +389,9 @@ export const DepartmentsView: React.FC<DepartmentsViewProps> = ({ onSelectDepart
                 >
                   Cancel
                 </button>
+                {dataError&&<p role="alert" className="text-xs text-rose-700">{dataError}</p>}
                 <button
-                  type="submit"
+                  type="submit" disabled={saving}
                   className="px-4 py-1.5 bg-[#00ad1d] hover:bg-[#009218] text-white font-semibold rounded-md text-xs shadow-xs"
                 >
                   {editingDept ? 'Update Department' : 'Create Department'}
@@ -408,10 +418,11 @@ export const DepartmentsView: React.FC<DepartmentsViewProps> = ({ onSelectDepart
             <div className="p-2.5 bg-rose-50 border border-rose-200 rounded-md text-[11px] text-rose-800 flex items-start gap-2">
               <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
               <span>
-                Staff members currently associated with this department will remain safe and be moved to General in the staff directory.
+                Reassign staff before deleting their department. Existing tasks, meetings and history remain unchanged.
               </span>
             </div>
 
+            {dataError&&<p role="alert" className="text-xs text-rose-700">{dataError}</p>}
             <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
               <button
                 onClick={() => setDeleteConfirmDept(null)}

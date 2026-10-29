@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { UserAvatar } from './UserAvatar';
-import { usePortalStore } from '../services/store';
+import { usePortalStore, setTableData } from '../services/store';
 import { MessageAttachment, StaffUser, ChatConversation, ChatMessage } from '../types';
 import {
   MessageSquare,
@@ -91,14 +91,8 @@ export const MessagesView: React.FC = () => {
     }
   }, [store.conversations, selectedConvId]);
 
-  // Active chat live synchronization pulse while user is in messages view
-  useEffect(() => {
-    if (!selectedConvId) return;
-    const interval = setInterval(() => {
-      store.actions.triggerLiveMessageSync?.();
-    }, 2000);
-    return () => clearInterval(interval);
-  }, [selectedConvId, store.actions]);
+  useEffect(()=>{let active=true;store.actions.getConversations().then(rows=>{if(active)setTableData('conversations',rows);}).catch(console.warn);return()=>{active=false;};},[store.actions]);
+  useEffect(()=>{if(selectedConvId)void store.actions.loadConversationMessages(selectedConvId).catch(console.warn);},[selectedConvId,store.actions]);
 
   // Active conversation & messages
   const conversation = useMemo(() => {

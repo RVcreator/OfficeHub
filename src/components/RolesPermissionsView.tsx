@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   ShieldCheck,
   Users,
@@ -15,13 +15,16 @@ import {
   UserCheck,
   AlertCircle
 } from 'lucide-react';
-import { usePortalStore } from '../services/store';
+import { usePortalStore, setTableData } from '../services/store';
 import { RolePermission } from '../types';
 import { UserAvatar } from './UserAvatar';
 
 export const RolesPermissionsView: React.FC = () => {
   const { roles, staff, actions, departments } = usePortalStore(['roles', 'staff', 'departments']);
+  useEffect(()=>{let active=true;actions.getRoles().then(rows=>{if(active)setTableData('roles',rows);}).catch(console.warn);return()=>{active=false;};},[actions]);
   const [selectedRoleId, setSelectedRoleId] = useState(roles[0]?.id || 'role-01');
+
+  useEffect(()=>{if(!roles.some(role=>role.id===selectedRoleId))setSelectedRoleId(roles[0]?.id||'');},[roles,selectedRoleId]);
 
   // Modals state
   const [isAddRoleModalOpen, setIsAddRoleModalOpen] = useState(false);
