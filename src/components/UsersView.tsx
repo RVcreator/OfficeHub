@@ -71,6 +71,9 @@ export const UsersView: React.FC<UsersViewProps> = ({ onAssignTaskToUser }) => {
   const [editingUser, setEditingUser] = useState<StaffUser | null>(null);
   const [passwordResetInfo, setPasswordResetInfo] = useState<{ user: StaffUser; tempPass: string; isNewAccount?: boolean; warning?: string } | null>(null);
   const [deleteConfirmUser, setDeleteConfirmUser] = useState<StaffUser | null>(null);
+  const [deleteEmail,setDeleteEmail]=useState('');
+  const [deleteError,setDeleteError]=useState<string|null>(null);
+  const [deleting,setDeleting]=useState(false);
 
   // Form state
   const [formData, setFormData] = useState({
@@ -195,8 +198,10 @@ export const UsersView: React.FC<UsersViewProps> = ({ onAssignTaskToUser }) => {
       alert('You cannot delete your own logged-in account.');
       return;
     }
-    await actions.removeStaffMember(user.id);
-    setDeleteConfirmUser(null);
+    setDeleting(true);setDeleteError(null);
+    try {await actions.removeStaffMember(user.id,deleteEmail);setDeleteConfirmUser(null);}
+    catch(error){setDeleteError(error instanceof Error?error.message:'Account deletion failed. Please try again.');}
+    finally{setDeleting(false);}
   };
 
   const handleResetPassword = async (user: StaffUser) => {
@@ -641,9 +646,9 @@ export const UsersView: React.FC<UsersViewProps> = ({ onAssignTaskToUser }) => {
 
                                       {!isMe && (
                                         <button
-                                          onClick={() => setDeleteConfirmUser(member)}
+                                          onClick={() => {setDeleteEmail('');setDeleteError(null);setDeleteConfirmUser(member);}}
                                           className="p-1 rounded text-rose-500 hover:text-rose-700 hover:bg-rose-50 transition"
-                                          title="Remove Member"
+                                          title="Delete User"
                                         >
                                           <Trash2 className="w-3.5 h-3.5" />
                                         </button>
@@ -939,29 +944,35 @@ export const UsersView: React.FC<UsersViewProps> = ({ onAssignTaskToUser }) => {
           <div className="bg-white rounded-lg max-w-md w-full p-5 shadow-xl border border-slate-200 space-y-4 animate-in fade-in duration-150">
             <div className="flex items-center gap-2 text-rose-600 font-bold text-base pb-2 border-b border-slate-100">
               <Trash2 className="w-5 h-5" />
-              <span>Confirm Member Removal</span>
+              <span>Delete User Permanently</span>
             </div>
 
             <p className="text-xs text-slate-600 leading-relaxed">
-              Are you sure you want to remove <b>{deleteConfirmUser.name}</b> ({deleteConfirmUser.role}, {deleteConfirmUser.organisation || 'WIPAHS'} • {deleteConfirmUser.department}) from the active staff directory?
+              Delete <b>{deleteConfirmUser.name}</b> ({deleteConfirmUser.email}) from OfficeHub and its Supabase sign-in accounts? This cannot be undone. Their email can then be used for a new registration.
             </p>
 
             <div className="p-2.5 bg-rose-50 border border-rose-200 rounded-md text-[11px] text-rose-800">
-              Their past audit trail logs and completed historical task records will be preserved for organizational accountability.
+              Tasks, meetings, documents and audit history stay. Links to this user are cleared; their memberships and personal notification records are removed.
             </div>
+            <label className="block text-xs font-medium text-slate-700">Type their email to confirm
+              <input aria-label="Email to confirm deletion" type="email" autoComplete="off" value={deleteEmail} disabled={deleting} onChange={event=>setDeleteEmail(event.target.value)} className="mt-1 block w-full rounded border border-slate-300 p-2"/>
+            </label>
+            {deleteError&&<p role="alert" className="text-xs text-rose-700">{deleteError}</p>}
 
             <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
               <button
                 onClick={() => setDeleteConfirmUser(null)}
+                disabled={deleting}
                 className="px-3.5 py-1.5 text-slate-600 font-semibold hover:bg-slate-100 rounded-md text-xs"
               >
                 Cancel
               </button>
               <button
                 onClick={() => handleDeleteUser(deleteConfirmUser)}
-                className="px-4 py-1.5 bg-rose-600 hover:bg-rose-700 text-white font-semibold rounded-md text-xs shadow-2xs"
+                disabled={deleting||deleteEmail.trim().toLowerCase()!==deleteConfirmUser.email.toLowerCase()}
+                className="px-4 py-1.5 bg-rose-600 hover:bg-rose-700 text-white font-semibold rounded-md text-xs shadow-2xs disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                Remove Member
+                {deleting?'Deleting…':'Delete User Permanently'}
               </button>
             </div>
           </div>
