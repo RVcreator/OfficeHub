@@ -1,4 +1,4 @@
-import {PGlite} from '@electric-sql/pglite';
+const {PGlite}=await import(process.env.OFFICEHUB_PGLITE_MODULE||'@electric-sql/pglite');
 import {readFile} from 'node:fs/promises';
 import assert from 'node:assert/strict';
 const db=new PGlite();const repo=new URL('../',import.meta.url);
@@ -28,6 +28,17 @@ try {
  await asUser(second,async()=>{
   await db.query('select public.officehub_presence_leave($1)',[tab2]);
   assert.equal((await snapshot(first)).status,'Away');
+ });
+ await asUser(first,async()=>{
+  await db.query('select public.officehub_presence_leave($1)',[tab2]);
+  assert.equal((await snapshot(first)).status,'Offline','withdrawing the last hidden tab removes Away');
+  await db.query('select public.officehub_presence_heartbeat($1,true)',[tab1]);
+  await db.query('select public.officehub_presence_heartbeat($1,true)',[tab2]);
+  await db.query('select public.officehub_presence_leave($1)',[tab1]);
+  assert.equal((await snapshot(first)).status,'Online','another active OfficeHub tab keeps the member online');
+  await db.query('select public.officehub_presence_leave($1)',[tab2]);
+  assert.equal((await snapshot(first)).status,'Offline');
+  await db.query('select public.officehub_presence_heartbeat($1,true)',[tab1]);
  });
  await db.exec("update officehub_private.presence_sessions set seen_at=now()-interval '121 seconds';");
  await asUser(first,async()=>assert.equal((await snapshot(first)).status,'Offline'));
