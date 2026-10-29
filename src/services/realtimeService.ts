@@ -1,3 +1,4 @@
+import {createRefreshGate,createReconnect,shouldReconcile} from './syncPolicy';
 // =========================================================================
 // WIPAHS OfficeHub - Live Real-Time Synchronization Engine
 // Subscribes to Supabase postgres_changes for live multi-user collaboration
@@ -68,8 +69,11 @@ let isStarted = false;
 let pollingIntervalId: any = null;
 let meetingsDebounceTimer: any = null;
 let messagesDebounceTimer: any = null;
-let lastMessageCheckTime = 0;
-let lastMeetingCheckTime = 0;
+let channelGeneration=0;
+let realtimeHealthy=false;
+let lastReconcile=0;
+const refreshGate=createRefreshGate();
+const reconnect=createReconnect((fn,ms)=>setTimeout(fn,ms),id=>clearTimeout(id as ReturnType<typeof setTimeout>),()=>{if(isStarted)setupRealtimeChannel();});
 
 // Cross-tab / cross-window broadcast channel for instant local delivery
 let portalBroadcastChannel: BroadcastChannel | null = null;
@@ -136,61 +140,32 @@ function isBridgeAuthenticated(): boolean {
 /**
  * Trigger an immediate, non-blocking sync for meetings
  */
-export async function triggerLiveMeetingSync() {
+async function triggerLiveMeetingSyncOnce() {
   if (!activeBridge || !isBridgeAuthenticated()) return;
+  const bridge=activeBridge, identity=bridge.getState().currentUser.id, generation=channelGeneration;
+  const current=()=>isStarted&&activeBridge===bridge&&generation===channelGeneration&&bridge.getState().currentUser.id===identity;
   try {
-    const now = Date.now();
-    if (now - lastMeetingCheckTime < 1000) return;
-    lastMeetingCheckTime = now;
 
-    const freshMeetings = await activeBridge.getMeetings();
-    const currentMeetings = activeBridge.getState().meetings;
+    const freshMeetings = await bridge.getMeetings();
+    if(current())bridge.setTableData('meetings',freshMeetings);
 
-    let hasDiff = freshMeetings.length !== currentMeetings.length;
-    if (!hasDiff) {
-      const currentMap = new Map(currentMeetings.map((m) => [m.id, m]));
-      for (const fm of freshMeetings) {
-        const cm = currentMap.get(fm.id);
-        if (
-          !cm ||
-          cm.status !== fm.status ||
-          cm.startTime !== fm.startTime ||
-          cm.time !== fm.time ||
-          cm.date !== fm.date ||
-          (cm.attendees?.length || 0) !== (fm.attendees?.length || 0) ||
-          cm.attendees?.some((ca, idx) => {
-            const fa = fm.attendees?.[idx];
-            return (
-              !fa ||
-              ca.status !== fa.status ||
-              ca.proposedDate !== fa.proposedDate ||
-              ca.proposedTime !== fa.proposedTime
-            );
-          })
-        ) {
-          hasDiff = true;
-          break;
-        }
-      }
-    }
-
-    if (hasDiff) {
-      activeBridge.setTableData('meetings', freshMeetings);
-    }
   } catch (err) {
     console.warn('Live meeting sync error:', err);
   }
 }
+export async function triggerLiveMeetingSync(){
+ return refreshGate.run(`meetings-${channelGeneration}`,()=>triggerLiveMeetingSyncOnce());
+}
+
 
 /**
  * Trigger an immediate, non-blocking sync for messages
  */
-export async function triggerLiveMessageSync() {
+async function triggerLiveMessageSyncOnce() {
   if (!activeBridge || !isBridgeAuthenticated()) return;
+  const bridge=activeBridge, identity=bridge.getState().currentUser.id, generation=channelGeneration;
+  const current=()=>isStarted&&activeBridge===bridge&&generation===channelGeneration&&bridge.getState().currentUser.id===identity;
   try {
-    const now = Date.now();
-    if (now - lastMessageCheckTime < 1000) return;
-    lastMessageCheckTime = now;
 
     const { data: rows, error } = await supabase
       .from('messages')
@@ -198,9 +173,9 @@ export async function triggerLiveMessageSync() {
       .order('timestamp', { ascending: false })
       .limit(30);
 
-    if (error || !rows) return;
+    if (error || !rows || !current()) return;
 
-    const currentMessages = activeBridge.getState().messages;
+    const currentMessages = bridge.getState().messages;
     const existingIds = new Set(currentMessages.map((m) => m.id));
     const missingRows = rows.filter((r) => !existingIds.has(r.id));
 
@@ -209,14 +184,16 @@ export async function triggerLiveMessageSync() {
       const merged = [...currentMessages, ...mappedNew].sort(
         (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
       );
-      activeBridge.setTableData('messages', merged);
+      if(!current())return;
+      bridge.setTableData('messages', merged);
 
       // Update conversations with newest messages
-      const freshConversations = await activeBridge.getConversations();
-      activeBridge.setTableData('conversations', freshConversations);
+      const freshConversations = await bridge.getConversations();
+      if(!current())return;
+      bridge.setTableData('conversations', freshConversations);
 
       // Refresh saved notifications for incoming messages.
-      const currentUserId = activeBridge.getState().currentUser?.id;
+      const currentUserId = bridge.getState().currentUser?.id;
       if (mappedNew.some((m) => m.senderId && m.senderId !== currentUserId)) {
         void triggerLiveNotificationSync();
       }
@@ -225,11 +202,17 @@ export async function triggerLiveMessageSync() {
     console.warn('Live message sync error:', err);
   }
 }
+export async function triggerLiveMessageSync(){
+ return refreshGate.run(`messages-${channelGeneration}`,()=>triggerLiveMessageSyncOnce());
+}
+
 
 /**
  * Initialize Supabase Realtime channel listeners
  */
 function setupRealtimeChannel() {
+  const generation=++channelGeneration;
+  realtimeHealthy=false;
   if (realtimeChannel) {
     try {
       supabase.removeChannel(realtimeChannel);
@@ -480,16 +463,14 @@ function setupRealtimeChannel() {
       }
     )
     .subscribe((status, err) => {
-      if (status === 'SUBSCRIBED') {
+      if(!isStarted||generation!==channelGeneration)return;
+      if(status==='SUBSCRIBED'){
+        realtimeHealthy=true;reconnect.reset();
         console.info('WIPAHS OfficeHub Live: Realtime channel subscribed.');
-      } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
-        console.warn('WIPAHS OfficeHub Live: Channel status', status, err);
-        // Automatic reconnection attempt
-        setTimeout(() => {
-          if (isStarted) {
-            setupRealtimeChannel();
-          }
-        }, 4000);
+      }else if(['CHANNEL_ERROR','TIMED_OUT','CLOSED'].includes(status)){
+        realtimeHealthy=false;
+        console.warn('WIPAHS OfficeHub Live: Channel status',status,err);
+        reconnect.request();
       }
     });
 }
@@ -497,7 +478,7 @@ function setupRealtimeChannel() {
 /**
  * Trigger an immediate, non-blocking sync for notifications
  */
-export async function triggerLiveNotificationSync() {
+async function triggerLiveNotificationSyncOnce() {
   if (!activeBridge || !activeBridge.getNotifications || !isBridgeAuthenticated()) return;
   const uid = activeBridge.getState().currentUser?.id;
   try {
@@ -507,6 +488,10 @@ export async function triggerLiveNotificationSync() {
     // Keep the existing inbox on a failed refresh; never ring for a failed read.
   }
 }
+export async function triggerLiveNotificationSync(){
+ return refreshGate.run(`notifications-${channelGeneration}`,()=>triggerLiveNotificationSyncOnce());
+}
+
 
 /**
  * Smart background poller: Guaranteed fallback in case WebSocket drops or table is not in supabase_realtime publication
@@ -514,70 +499,37 @@ export async function triggerLiveNotificationSync() {
 function startLiveSyncPoller() {
   if (pollingIntervalId) clearInterval(pollingIntervalId);
 
-  // Fast pulse every 3 seconds for messages, 6 seconds for meetings and notifications, 15 seconds for notices/tasks
-  let tick = 0;
-  pollingIntervalId = setInterval(async () => {
-    if (!activeBridge || !isStarted || !isBridgeAuthenticated()) return;
-    tick++;
-
-    // Every 3 seconds: poll for new messages
-    triggerLiveMessageSync();
-
-    // Every 6 seconds (every 2nd tick): poll for meetings and notifications
-    if (tick % 2 === 0) {
-      triggerLiveMeetingSync();
-      triggerLiveNotificationSync();
-    }
-
-    // Every 15 seconds (every 5th tick): poll for notices and tasks
-    if (tick % 5 === 0) {
-      try {
-        const [notices, freshTasks] = await Promise.all([
-          activeBridge.getNotices(),
-          activeBridge.getTasks(),
-        ]);
-        
-        // Smart diff check for tasks before updating
-        const currentTasks = activeBridge.getState().tasks;
-        if (JSON.stringify(currentTasks) !== JSON.stringify(freshTasks)) {
-           activeBridge.setTableData('tasks', freshTasks);
-        }
-        
-        const curNotices = activeBridge.getState().notices;
-        const currentUserId = activeBridge.getState().currentUser?.id;
-
-        if (notices.length !== curNotices.length) {
-          // Check if a new notice from someone else arrived
-          const curNoticeIds = new Set(curNotices.map((n) => n.id));
-          const hasNewNoticeFromOther = notices.some(
-            (n) => !curNoticeIds.has(n.id) && n.authorId && n.authorId !== currentUserId
-          );
-          activeBridge.setTableData('notices', notices);
-          if (hasNewNoticeFromOther) {
-            void triggerLiveNotificationSync();
-          }
-        }
-      } catch {}
-    }
-  }, 3000);
+  lastReconcile=Date.now();
+  pollingIntervalId=setInterval(()=>{
+    if(!activeBridge||!isStarted||!isBridgeAuthenticated())return;
+    if(!shouldReconcile(Date.now(),lastReconcile,realtimeHealthy,document.visibilityState==='visible',navigator.onLine))return;
+    lastReconcile=Date.now();void reconcileVisibleData();
+  },5000);
 }
 
 /**
  * Handle tab visibility and window focus: sync immediately when user switches back to tab
  */
-function handleWindowFocus() {
-  if (!isStarted || !activeBridge) return;
-  triggerLiveMessageSync();
-  triggerLiveMeetingSync();
-  triggerLiveNotificationSync();
+async function reconcileVisibleData(){
+  if(!activeBridge||!isStarted||!isBridgeAuthenticated())return;
+  const bridge=activeBridge,identity=bridge.getState().currentUser.id,generation=channelGeneration;
+  await Promise.allSettled([triggerLiveMessageSync(),triggerLiveMeetingSync(),triggerLiveNotificationSync(),
+    refreshGate.run(`tables-${generation}`,async()=>{
+      const [notices,tasks,approvals]=await Promise.all([bridge.getNotices(),bridge.getTasks(),bridge.getApprovals?.()]);
+      if(!isStarted||activeBridge!==bridge||generation!==channelGeneration||bridge.getState().currentUser.id!==identity)return;
+      bridge.setTableData('notices',notices);bridge.setTableData('tasks',tasks);
+      if(approvals)bridge.setTableData('approvals',approvals);
+    })]);
 }
-
-function handleOnline() {
-  if (!isStarted) return;
-  setupRealtimeChannel();
-  triggerLiveMessageSync();
-  triggerLiveMeetingSync();
-  triggerLiveNotificationSync();
+function handleWindowFocus(){
+ if(!isStarted||document.visibilityState!=='visible'||!navigator.onLine)return;
+ // Focus and visibility events often arrive together.
+ if(Date.now()-lastReconcile<1000)return;
+ lastReconcile=Date.now();void reconcileVisibleData();
+}
+function handleOnline(){
+ if(!isStarted)return;
+ reconnect.reset();setupRealtimeChannel();lastReconcile=0;handleWindowFocus();
 }
 
 function handleVisibilityChange() {
@@ -618,6 +570,8 @@ export function startRealtimeEngine(bridge: RealtimeBridge) {
  */
 export function stopRealtimeEngine() {
   isStarted = false;
+  channelGeneration++;realtimeHealthy=false;reconnect.reset();
+  clearTimeout(meetingsDebounceTimer);clearTimeout(messagesDebounceTimer);
   if (pollingIntervalId) {
     clearInterval(pollingIntervalId);
     pollingIntervalId = null;

@@ -13,10 +13,10 @@ import {
   FileCheck
 } from 'lucide-react';
 import { usePortalStore } from '../services/store';
-import { canUserViewDocument } from './SharePointView';
+import { canUserViewDocument } from '../utils/documentAccess';
 
 export const AnalyticsView: React.FC = () => {
-  const { tasks, notices, meetings, staff, auditLogs, sharePointDocs, currentUser } = usePortalStore();
+  const { tasks, notices, meetings, staff, auditLogs, sharePointDocs, currentUser } = usePortalStore(['tasks', 'notices', 'meetings', 'staff', 'auditLogs', 'sharePointDocs', 'currentUser']);
 
   const [dateRange, setDateRange] = useState<'7d' | '30d' | '90d'>('30d');
 

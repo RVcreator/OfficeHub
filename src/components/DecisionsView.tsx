@@ -22,7 +22,7 @@ interface DecisionsViewProps {
 }
 
 export const DecisionsView: React.FC<DecisionsViewProps> = () => {
-  const { decisions, actions, currentUser } = usePortalStore();
+  const { decisions, actions, currentUser } = usePortalStore(['decisions', 'currentUser']);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedDept, setSelectedDept] = useState<string>('All');
   const [selectedStatus, setSelectedStatus] = useState<string>('All');

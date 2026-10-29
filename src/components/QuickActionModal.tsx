@@ -38,7 +38,7 @@ import {
 } from '../utils/staffHierarchy';
 import { UserAvatar } from './UserAvatar';
 import { detectMeetingConflicts, convertTo24HourTime, convertTo12HourTime } from '../utils/meetingConflict';
-import { canUserViewDocument } from './SharePointView';
+import { canUserViewDocument } from '../utils/documentAccess';
 
 interface QuickActionModalProps {
   isOpen: boolean;
@@ -57,7 +57,7 @@ export const QuickActionModal: React.FC<QuickActionModalProps> = ({
   onSelectTask,
   onClose,
 }) => {
-  const { staff, currentUser, actions, departments, folderList, meetings, tasks, sharePointDocs } = usePortalStore();
+  const { staff, currentUser, actions, departments, folderList, meetings, tasks, sharePointDocs } = usePortalStore(['staff', 'currentUser', 'departments', 'folderList', 'meetings', 'tasks', 'sharePointDocs']);
 
   const [activeTab, setActiveTab] = useState<'task' | 'meeting' | 'notice' | 'sharepoint'>(initialTab);
   const [isSubmitting, setIsSubmitting] = useState(false);

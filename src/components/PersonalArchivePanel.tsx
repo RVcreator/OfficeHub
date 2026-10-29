@@ -38,7 +38,7 @@ export const PersonalArchivePanel: React.FC<PersonalArchivePanelProps> = ({
   onSelectMeeting,
   className = ''
 }) => {
-  const { currentUser, tasks, meetings, actions } = usePortalStore();
+  const { currentUser, tasks, meetings, actions } = usePortalStore(['currentUser', 'tasks', 'meetings']);
   const targetUserId = userId || currentUser.id;
   const isSelf = targetUserId === currentUser.id;
 

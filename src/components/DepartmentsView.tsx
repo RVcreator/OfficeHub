@@ -25,7 +25,7 @@ interface DepartmentsViewProps {
 }
 
 export const DepartmentsView: React.FC<DepartmentsViewProps> = ({ onSelectDepartmentTasks }) => {
-  const { departments, tasks, projects, staff, actions } = usePortalStore();
+  const { departments, tasks, projects, staff, actions } = usePortalStore(['departments', 'tasks', 'projects', 'staff']);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedOrgFilter, setSelectedOrgFilter] = useState<string>('All');
   const [groupByOrg, setGroupByOrg] = useState<boolean>(true);

@@ -184,7 +184,7 @@ export const TasksView: React.FC<TasksViewProps> = ({
   selectedTaskId,
   onClearSelectedTask
 }) => {
-  const { tasks, staff, currentUser, actions, projects } = usePortalStore();
+  const { tasks, staff, currentUser, actions, projects } = usePortalStore(['tasks', 'staff', 'currentUser', 'projects']);
 
   const todayDateStr = useMemo(() => new Date().toISOString().split('T')[0], []);
 

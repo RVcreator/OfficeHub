@@ -45,7 +45,7 @@ const COMMON_DEPTS_BY_ORG: Record<string, string[]> = {
 };
 
 export const UsersView: React.FC<UsersViewProps> = ({ onAssignTaskToUser }) => {
-  const { staff, actions, currentUser, tasks, departments } = usePortalStore();
+  const { staff, actions, currentUser, tasks, departments } = usePortalStore(['staff', 'currentUser', 'tasks', 'departments']);
 
   const [organisationFilter, setOrganisationFilter] = useState<string>('All');
   const [departmentFilter, setDepartmentFilter] = useState<string>('All');

@@ -27,7 +27,7 @@ export const MyDayView: React.FC<MyDayViewProps> = ({
   onSelectTask,
   onSelectMeeting,
 }) => {
-  const { tasks, meetings, currentUser } = usePortalStore();
+  const { tasks, meetings, currentUser } = usePortalStore(['tasks', 'meetings', 'currentUser']);
   const [hadith, setHadith] = useState<ShiaHadith | null>(null);
   const hijriDate = useHijriDate();
 

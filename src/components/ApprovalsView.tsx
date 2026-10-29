@@ -27,7 +27,7 @@ import { StaffPickerTree } from './StaffPickerTree';
 export const ApprovalsView: React.FC<{
   selectedApprovalId?: string | null;
 }> = ({ selectedApprovalId }) => {
-  const { approvals, projects, staff, actions, currentUser } = usePortalStore();
+  const { approvals, projects, staff, actions, currentUser } = usePortalStore(['approvals', 'projects', 'staff', 'currentUser']);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedStatus, setSelectedStatus] = useState<string>('All');
   const [isNewModalOpen, setIsNewModalOpen] = useState(false);

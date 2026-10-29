@@ -36,6 +36,7 @@ export const UserAvatar: React.FC<UserAvatarProps> = ({
     return (
       <img
         src={avatar}
+        loading="lazy" decoding="async" width={32} height={32}
         alt={name}
         className={`${className} rounded-full object-cover shrink-0`}
         onError={(e) => {

@@ -24,7 +24,7 @@ import {
 import { usePortalStore } from '../services/store';
 import { isMyPersonalOrAssignedTask, isTaskAssignedByMe, isTaskDepartmentalForUser } from '../utils/taskUtils';
 import { isMeetingArchived, isUserInvolvedInMeeting } from '../utils/archiveUtils';
-import { canUserViewDocument } from './SharePointView';
+import { canUserViewDocument } from '../utils/documentAccess';
 
 export type TabId = 
   | 'dashboard'
@@ -94,7 +94,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     document.addEventListener('keydown', onKeyDown);
     return () => { document.body.style.overflow = oldOverflow; document.removeEventListener('keydown', onKeyDown); previousFocus?.focus(); };
   }, [isSidebarVisible, isCompact]);
-  const { tasks, notices, meetings, sharePointDocs, currentUser, approvals, decisions } = usePortalStore();
+  const { tasks, notices, meetings, sharePointDocs, currentUser, approvals, decisions } = usePortalStore(['tasks', 'notices', 'meetings', 'sharePointDocs', 'currentUser', 'approvals', 'decisions']);
 
   const myTasksCount = tasks.filter(t => {
     if (t.status === 'Done' || t.status === 'Cancelled') return false;

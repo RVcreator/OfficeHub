@@ -139,7 +139,7 @@ const InlineMeetingRsvp: React.FC<{
   onOpenProposal: (m: Meeting) => void;
   compact?: boolean;
 }> = ({ meeting, userAttendee, onOpenProposal, compact = false }) => {
-  const { actions } = usePortalStore();
+  const { actions } = usePortalStore([]);
   const [comment, setComment] = useState<string>(userAttendee.note || userAttendee.comment || '');
   const [errorMsg, setErrorMsg] = useState('');
   const [savedSuccess, setSavedSuccess] = useState<string | null>(null);
@@ -467,7 +467,7 @@ export const MeetingsTeamsView: React.FC<{
   onSelectTask?: (taskId: string) => void;
   onSelectMeeting?: (meetingId: string) => void;
 }> = ({ onOpenScheduleModal, onOpenQuickAction, initialMode = 'list', selectedMeetingId, onSelectTask, onSelectMeeting }) => {
-  const { meetings, staff, currentUser, actions, tasks, departments } = usePortalStore();
+  const { meetings, staff, currentUser, actions, tasks, departments } = usePortalStore(['meetings', 'staff', 'currentUser', 'tasks', 'departments']);
 
   const todayStr = useMemo(() => new Date().toISOString().split('T')[0], []);
   const [viewMode, setViewMode] = useState<'list' | 'calendar'>(initialMode);
@@ -504,14 +504,10 @@ export const MeetingsTeamsView: React.FC<{
   const [archiveTick, setArchiveTick] = useState<number>(() => Date.now());
   useEffect(() => {
     actions.triggerLiveMeetingSync?.();
-    const interval = setInterval(() => {
-      actions.triggerLiveMeetingSync?.();
-    }, 4000);
     const archiveTimer = setInterval(() => {
       setArchiveTick(Date.now());
     }, 60000);
     return () => {
-      clearInterval(interval);
       clearInterval(archiveTimer);
     };
   }, [actions]);

@@ -38,7 +38,7 @@ export const NoticesView: React.FC<{
   onOpenNewNoticeModal: () => void;
   selectedNoticeId?: string | null;
 }> = ({ onOpenNewNoticeModal, selectedNoticeId }) => {
-  const { notices, currentUser, staff, actions } = usePortalStore();
+  const { notices, currentUser, staff, actions } = usePortalStore(['notices', 'currentUser', 'staff']);
 
   const [organisationFilter, setOrganisationFilter] = useState<string>('All');
   const [departmentFilter, setDepartmentFilter] = useState<string>('All');
