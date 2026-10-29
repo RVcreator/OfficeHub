@@ -329,7 +329,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         </div>
 
         {/* Modal Body */}
-        <div className="p-5 sm:p-6 overflow-y-auto flex-1 text-xs">
+        <div className={`p-5 sm:p-6 min-h-0 flex-1 text-xs ${activeTab==='archive' ? 'oh-settings-archive-body overflow-hidden flex flex-col' : 'overflow-y-auto'}`}>
           {/* PROFILE TAB */}
           {activeTab === 'profile' && (
             <form onSubmit={handleSaveProfile} className="space-y-5 w-full max-w-3xl mx-auto">
@@ -839,6 +839,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           {/* 2.5 PERSONAL ARCHIVE TAB */}
           {activeTab === 'archive' && (
             <PersonalArchivePanel
+              className="h-full min-h-0"
               onSelectTask={onSelectTask}
               onSelectMeeting={onSelectMeeting}
             />

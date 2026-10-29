@@ -157,7 +157,7 @@ export const Header: React.FC<HeaderProps> = ({
           }}
         />
       )}
-      <header className="oh-header sticky top-0 z-40 bg-white border-b border-slate-200">
+      <header className="oh-header shrink-0 sticky top-0 z-40 bg-white border-b border-slate-200">
       {/* Left: Brand Identity */}
       <div className="flex items-center gap-3 min-w-0">
         <button

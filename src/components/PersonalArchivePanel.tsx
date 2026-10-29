@@ -63,11 +63,11 @@ export const PersonalArchivePanel: React.FC<PersonalArchivePanelProps> = ({
   };
 
   return (
-    <div className={`space-y-4 w-full ${className}`}>
+    <div className={`flex flex-col gap-4 min-h-0 w-full ${className}`}>
       {/* Top Banner & Action (Sticky Header) */}
-      <div className="p-4 bg-slate-900 bg-gradient-to-r from-slate-900 via-slate-800 to-[#004f0d] text-white rounded-xl shadow-lg space-y-3 sticky top-0 z-30 border border-slate-700/80">
+      <div className="p-4 bg-slate-900 bg-gradient-to-r from-slate-900 via-slate-800 to-[#004f0d] text-white rounded-xl shadow-lg space-y-3 shrink-0 z-30 border border-slate-700/80">
         <div className="flex items-center justify-between flex-wrap gap-3">
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 min-w-0 flex-1 basis-80">
             <div className="w-10 h-10 rounded-lg bg-white/10 backdrop-blur-xs flex items-center justify-center border border-white/20 text-emerald-400">
               <Archive className="w-5 h-5" />
             </div>
@@ -138,6 +138,7 @@ export const PersonalArchivePanel: React.FC<PersonalArchivePanelProps> = ({
         </div>
       </div>
 
+      <div className="oh-archive-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain space-y-4">
       {clearedSuccessMsg && (
         <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-lg flex items-center gap-2 text-xs font-semibold animate-in fade-in duration-150">
           <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
@@ -161,7 +162,7 @@ export const PersonalArchivePanel: React.FC<PersonalArchivePanelProps> = ({
           {/* ARCHIVED TASKS */}
           {(activeSubTab === 'all' || activeSubTab === 'tasks') && archivedTasks.length > 0 && (
             <div className="space-y-2">
-              <div className="flex items-center justify-between px-3 py-2 bg-slate-100/90 backdrop-blur-xs rounded-lg border border-slate-200/80 sticky top-[108px] z-10 shadow-2xs">
+              <div className="flex items-center justify-between px-3 py-2 bg-slate-100/90 backdrop-blur-xs rounded-lg border border-slate-200/80 sticky top-0 z-10 shadow-2xs">
                 <h4 className="font-bold text-slate-800 text-xs flex items-center gap-1.5">
                   <CheckSquare className="w-3.5 h-3.5 text-[#008f18]" />
                   <span>Archived Tasks ({archivedTasks.length})</span>
@@ -244,7 +245,7 @@ export const PersonalArchivePanel: React.FC<PersonalArchivePanelProps> = ({
           {/* ARCHIVED MEETINGS */}
           {(activeSubTab === 'all' || activeSubTab === 'meetings') && archivedMeetings.length > 0 && (
             <div className="space-y-2">
-              <div className="flex items-center justify-between px-3 py-2 bg-slate-100/90 backdrop-blur-xs rounded-lg border border-slate-200/80 sticky top-[108px] z-10 shadow-2xs">
+              <div className="flex items-center justify-between px-3 py-2 bg-slate-100/90 backdrop-blur-xs rounded-lg border border-slate-200/80 sticky top-0 z-10 shadow-2xs">
                 <h4 className="font-bold text-slate-800 text-xs flex items-center gap-1.5">
                   <Calendar className="w-3.5 h-3.5 text-blue-600" />
                   <span>Archived Meetings ({archivedMeetings.length})</span>
@@ -313,6 +314,8 @@ export const PersonalArchivePanel: React.FC<PersonalArchivePanelProps> = ({
           )}
         </div>
       )}
+
+      </div>
 
       {/* ========================================================================= */}
       {/* TASK DETAIL POPUP MODAL                                                   */}
