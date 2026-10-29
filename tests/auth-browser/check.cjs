@@ -22,6 +22,9 @@ const fs=require('fs'),path=require('path'),assert=require('assert/strict');
  const page=await browser.newPage({viewport:{width:390,height:844}}),errors=[];
  page.on('pageerror',e=>{errors.push(e.message);console.error('PAGE ERROR',e.message);});await page.route('**/*',r=>r.request().url().startsWith('file:')?r.continue():r.abort());
  await page.goto(require('url').pathToFileURL(path.resolve(dir+'/inline.html')).href);
+ await page.getByRole('button',{name:'Copy',exact:true}).click();
+ await page.getByRole('alert').filter({hasText:'Copy failed.'}).waitFor();assert.equal(await page.getByRole('button',{name:'Copied',exact:true}).count(),0);
+ await page.getByRole('button',{name:'Allow fixture clipboard',exact:true}).click();await page.getByRole('button',{name:'Copy',exact:true}).click();await page.getByRole('button',{name:'Copied',exact:true}).waitFor();
  await page.locator('input[type=email]').fill('fixture@example.invalid');await page.locator('input[type=password]').fill('Fixture-only-temp!');
  await page.getByRole('button',{name:'Sign In',exact:true}).click();
  await page.getByRole('heading',{name:'Set a New Password',exact:true}).waitFor();assert.equal(await page.getByRole('heading',{name:'Fixture dashboard'}).count(),0);
@@ -33,6 +36,6 @@ const fs=require('fs'),path=require('path'),assert=require('assert/strict');
  await page.getByRole('button',{name:'Reject completion',exact:true}).click();
  await page.getByLabel('New Password',{exact:true}).fill('Fixture-second-password!');await page.getByLabel('Confirm New Password',{exact:true}).fill('Fixture-second-password!');await page.locator('button[type=submit]').click();
  await page.getByText('Failed to update password: Password change could not be confirmed. Please try again.',{exact:true}).waitFor();assert.equal(await page.getByRole('heading',{name:'Fixture dashboard'}).count(),0);
- assert.deepEqual(errors,[]);console.log('PASS: first login gate, confirmed completion, reset in active session, untrusted hint, failed completion stays gated; zero page errors; network blocked.');
+ assert.deepEqual(errors,[]);console.log('PASS: clipboard failure never reports copied, confirmed clipboard success, first login gate, confirmed completion, reset in active session, untrusted hint, failed completion stays gated; zero page errors; network blocked.');
  } finally {await browser.close();}
 })().catch(e=>{console.error(e);process.exitCode=1;});
