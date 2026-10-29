@@ -31,18 +31,39 @@ function browser() {
  const doc:any=new EventTarget();doc.visibilityState='visible';
  return {win,doc,env:{window:win,document:doc,online:()=>online,now:()=>now,sessionId:'session'},advance:(ms:number)=>{now+=ms;},network:(value:boolean)=>{online=value;},pulse:()=>timer()};
 }
-test('engine publishes Online/Away activity and removes listeners on stop',async()=>{
+test('visible idle stays Away, hidden tabs leave, and returning becomes active',async()=>{
  const b=browser(),beats:boolean[]=[],publications:unknown[]=[],left:string[]=[];
  const controller=startPresence({heartbeat:async(_s,a)=>{beats.push(a);},snapshot:async()=>[],leave:async s=>{left.push(s);}},rows=>publications.push(rows),b.env);
  await new Promise(resolve=>setImmediate(resolve));
  assert.deepEqual(beats,[true]);
  b.doc.visibilityState='hidden';b.doc.dispatchEvent(new Event('visibilitychange'));
- await new Promise(resolve=>setImmediate(resolve));assert.equal(beats.at(-1),false);
- b.doc.visibilityState='visible';b.advance(PRESENCE_IDLE_MS);await controller.sync();assert.equal(beats.at(-1),false);
+ await new Promise(resolve=>setImmediate(resolve));assert.deepEqual(beats,[true]);assert.ok(left.includes('session'));
+ b.pulse();await new Promise(resolve=>setImmediate(resolve));assert.deepEqual(beats,[true],'background timers cannot recreate an Away session');
+ b.advance(PRESENCE_IDLE_MS);b.doc.visibilityState='visible';b.doc.dispatchEvent(new Event('visibilitychange'));
+ await new Promise(resolve=>setImmediate(resolve));assert.equal(beats.at(-1),true,'returning to the tab is activity');
+ b.advance(PRESENCE_IDLE_MS);await controller.sync();assert.equal(beats.at(-1),false);
  b.win.dispatchEvent(new Event('keydown'));await new Promise(resolve=>setImmediate(resolve));assert.equal(beats.at(-1),true);
  b.network(false);await controller.sync();assert.equal(publications.at(-1),null);
+ b.advance(PRESENCE_IDLE_MS);b.network(true);b.win.dispatchEvent(new Event('online'));await new Promise(resolve=>setImmediate(resolve));assert.equal(beats.at(-1),false,'network recovery alone is not user activity');
  await controller.stop();const count=beats.length;b.win.dispatchEvent(new Event('keydown'));b.pulse();await controller.sync();
  assert.equal(beats.length,count);assert.ok(left.includes('session'));
+});
+
+test('a tab opened in the background never announces an idle connection',async()=>{
+ const b=browser();b.doc.visibilityState='hidden';let beats=0,leaves=0;
+ const controller=startPresence({heartbeat:async()=>{beats++;},snapshot:async()=>[],leave:async()=>{leaves++;}},()=>{},b.env);
+ await new Promise(resolve=>setImmediate(resolve));b.pulse();await new Promise(resolve=>setImmediate(resolve));
+ assert.equal(beats,0);assert.ok(leaves>=1);await controller.stop();
+});
+
+test('pagehide stays withdrawn until pageshow, including an in-flight heartbeat',async()=>{
+ const b=browser(),events:string[]=[];let release!:()=>void;
+ const pending=new Promise<void>(resolve=>{release=resolve;});let published=0;
+ const controller=startPresence({heartbeat:async()=>{await pending;events.push('heartbeat');},snapshot:async()=>[],leave:async()=>{events.push('leave');}},()=>{published++;},b.env);
+ b.win.dispatchEvent(new Event('pagehide'));release();await new Promise(resolve=>setImmediate(resolve));
+ assert.equal(events.at(-1),'leave');assert.equal(published,1,'only the withdrawn snapshot is published');
+ const count=events.filter(e=>e==='heartbeat').length;b.pulse();await new Promise(resolve=>setImmediate(resolve));assert.equal(events.filter(e=>e==='heartbeat').length,count);
+ b.win.dispatchEvent(new Event('pageshow'));await new Promise(resolve=>setImmediate(resolve));assert.equal(events.at(-1),'heartbeat');await controller.stop();
 });
 test('an in-flight response cannot republish after logout',async()=>{
  const b=browser();let release!:()=>void;const pending=new Promise<void>(resolve=>{release=resolve;});let published=0,left=0;

@@ -32,18 +32,22 @@ export function startPresence(
   publish: (rows: PresenceRow[] | null) => void,
   env: { window: Window; document: Document; online(): boolean; now(): number; sessionId: string },
 ) {
-  let lastInput=env.now(), stopped=false, running=false, requested=false;
+  let lastInput=env.now(), stopped=false, running=false, requested=false, suspended=false, revision=0;
   const flush=async () => {
     if (stopped) return;
     if (running) { requested=true; return; }
     running=true;
+    const current=revision;
     try {
       if (env.online()) {
-        await transport.heartbeat(env.sessionId,isPresenceActive(lastInput,env.now(),env.document.visibilityState==='visible',true));
+        if(suspended||env.document.visibilityState!=='visible') await transport.leave(env.sessionId);
+        else await transport.heartbeat(env.sessionId,isPresenceActive(lastInput,env.now(),true,true));
         if (stopped) return;
         const rows=await transport.snapshot();
-        if (!stopped) publish(rows);
-      } else publish(null);
+        if (!stopped&&current===revision) publish(rows);
+      } else {
+        publish(null);
+      }
     } catch { if (!stopped) publish(null); }
     finally {
       running=false;
@@ -56,14 +60,20 @@ export function startPresence(
     lastInput=env.now();
     if (!wasActive) void flush();
   };
-  const visibility=() => { void flush(); };
-  const pageHide=() => { void transport.leave(env.sessionId).catch(()=>{}); };
+  const visibility=() => {
+    revision++;
+    if(!suspended&&env.document.visibilityState==='visible'&&env.online()) lastInput=env.now();
+    void flush();
+  };
+  const pageHide=() => { suspended=true;revision++;void flush(); };
+  const pageShow=() => { suspended=false;visibility(); };
+  const network=() => { revision++;void flush(); };
   const events=['pointerdown','pointermove','keydown','touchstart','scroll'];
   events.forEach(event=>env.window.addEventListener(event,input,{passive:true}));
-  env.window.addEventListener('online',visibility);
-  env.window.addEventListener('offline',visibility);
+  env.window.addEventListener('online',network);
+  env.window.addEventListener('offline',network);
   env.window.addEventListener('pagehide',pageHide);
-  env.window.addEventListener('pageshow',visibility);
+  env.window.addEventListener('pageshow',pageShow);
   env.document.addEventListener('visibilitychange',visibility);
   const timer=env.window.setInterval(()=>{ void flush(); },PRESENCE_PULSE_MS);
   void flush();
@@ -73,10 +83,10 @@ export function startPresence(
       stopped=true;
       env.window.clearInterval(timer);
       events.forEach(event=>env.window.removeEventListener(event,input));
-      env.window.removeEventListener('online',visibility);
-      env.window.removeEventListener('offline',visibility);
+      env.window.removeEventListener('online',network);
+      env.window.removeEventListener('offline',network);
       env.window.removeEventListener('pagehide',pageHide);
-      env.window.removeEventListener('pageshow',visibility);
+      env.window.removeEventListener('pageshow',pageShow);
       env.document.removeEventListener('visibilitychange',visibility);
       await transport.leave(env.sessionId).catch(()=>{});
     },
