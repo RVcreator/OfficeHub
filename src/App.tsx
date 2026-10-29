@@ -75,6 +75,10 @@ export default function App() {
         }
         if (!session?.user) return;
         const { data: verified, error } = await supabase.auth.getUser();
+        if(error?.status===401||error?.status===404){
+          if(!isCurrent())return;
+          stopWatching();await actions.logoutUser();setAuthError(false);return;
+        }
         if (error || !verified.user) throw new Error('Account verification failed');
         if (!isCurrent()) return;
         const resolvedUser = await actions.syncAuthenticatedUserProfile(verified.user);
