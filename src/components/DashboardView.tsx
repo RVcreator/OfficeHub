@@ -45,7 +45,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   onSelectMeeting,
   onSelectProject,
 }) => {
-  const { tasks, notices, currentUser, approvals, meetings, projects } = usePortalStore(['tasks', 'notices', 'currentUser', 'approvals', 'meetings', 'projects']);
+  const { tasks, notices, currentUser, approvals, meetings, projects, startupSections } = usePortalStore(['tasks', 'notices', 'currentUser', 'approvals', 'meetings', 'projects', 'startupSections']);
   const [ayah, setAyah] = useState<QuranAyah | null>(null);
   const hijriDate = useHijriDate();
 
@@ -98,7 +98,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           <div className="flex flex-wrap gap-2 pt-1">
             <span className="flex items-center gap-1.5 bg-black/10 px-2.5 py-1 rounded text-xs font-medium"><ShieldCheck className="w-3.5 h-3.5"/> {currentUser.role}</span>
             <span className="flex items-center gap-1.5 bg-black/10 px-2.5 py-1 rounded text-xs font-medium"><Briefcase className="w-3.5 h-3.5"/> {currentUser.department}</span>
-            <span className="flex items-center gap-1.5 bg-yellow-400/20 px-2.5 py-1 rounded text-xs font-medium text-yellow-50"><BellRing className="w-3.5 h-3.5"/> You are all caught up</span>
+            <span className="flex items-center gap-1.5 bg-yellow-400/20 px-2.5 py-1 rounded text-xs font-medium text-yellow-50"><BellRing className="w-3.5 h-3.5"/> {startupSections.tasks==='ready'&&startupSections.notices==='ready'?'You are all caught up':'Updating your workspace'}</span>
           </div>
         </div>
 
@@ -164,7 +164,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 </div>
               ))}
             </div>
-          ) : <p className="text-sm text-slate-500">No new notices to acknowledge</p>}
+          ) : <p className="text-sm text-slate-500">{startupSections.notices==='ready'?'No new notices to acknowledge':startupSections.notices==='error'?'Notices could not load.':'Loading notices…'}</p>}
         </div>
 
         {/* My Tasks Stats */}
@@ -185,7 +185,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               { label: 'Done', count: doneTasksCount, color: 'text-emerald-600' },
             ].map((stat, i) => (
               <div key={i} className="border border-slate-100 p-4 rounded-lg bg-slate-50 hover:bg-slate-100 transition">
-                <p className={`text-3xl font-bold ${stat.color}`}>{stat.count}</p>
+                <p className={`text-3xl font-bold ${stat.color}`}>{startupSections.tasks==='ready'?stat.count:'—'}</p>
                 <p className="text-xs text-slate-500 font-medium">{stat.label}</p>
               </div>
             ))}
@@ -214,7 +214,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               ))
             ) : (
               <div className="p-3 bg-slate-50 rounded border border-slate-100 cursor-pointer" onClick={() => onSelectTab('calendar')}>
-                 <p className="text-sm font-semibold text-slate-900">No upcoming meetings today</p>
+                 <p className="text-sm font-semibold text-slate-900">{startupSections.meetings==='ready'?'No upcoming meetings today':startupSections.meetings==='error'?'Meetings could not load.':'Loading meetings…'}</p>
                  <p className="text-xs text-slate-500">Click to view full calendar</p>
               </div>
             )}
@@ -244,8 +244,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               ))
             ) : (
               <div className="p-4 text-center text-slate-500 text-xs bg-slate-50 rounded border border-slate-100">
-                <p className="font-semibold text-slate-700">No pending approvals</p>
-                <p className="text-slate-400 mt-0.5">All requests have been reviewed.</p>
+                <p className="font-semibold text-slate-700">{startupSections.approvals==='ready'?'No pending approvals':startupSections.approvals==='error'?'Approvals could not load.':'Loading approvals…'}</p>
+                <p className="text-slate-400 mt-0.5">{startupSections.approvals==='ready'?'All requests have been reviewed.':'Updates appear here when available.'}</p>
               </div>
             )}
           </div>
