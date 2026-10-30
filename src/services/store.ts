@@ -1,3 +1,4 @@
+import {PROFILE_SELECT_COLUMNS} from './profileColumns';
 import {departmentName} from '../utils/departmentDirectory';
 import {functionError} from './functionError';
 import {createReadQueue} from './syncPolicy';
@@ -3800,7 +3801,7 @@ export const portalStore = {
     const previous=storeState.staff.find(user=>user.id===id);
     if(updates.email!==undefined&&updates.email.trim().toLowerCase()!==previous?.email?.trim().toLowerCase())throw new Error('Sign-in email cannot be changed through a profile edit. Contact your account administrator.');
     if(!previous||!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id))throw new Error('A verified staff account is required.');
-    const {data,error}=await supabase.from('profiles').update(mapStaffToRow(updates)).eq('id',id).select('*').single();
+    const {data,error}=await supabase.from('profiles').update(mapStaffToRow(updates)).eq('id',id).select(PROFILE_SELECT_COLUMNS).single();
     if(error||!data||data.id!==id)throw new Error(error?.message||'Member changes were not saved to Supabase.');
     const saved={...previous,...mapStaffRow(data)};
     const updatedStaff=storeState.staff.map(user=>user.id===id?saved:user);
@@ -4656,7 +4657,7 @@ export const portalStore = {
   syncAuthenticatedUserProfile: async (sbUser: any): Promise<StaffUser> => {
     const uid=toUuidOrNull(sbUser?.id);
     if(!uid)throw new Error('Your sign-in account could not be verified. Please sign in again.');
-    const {data:row,error}=await supabase.from('profiles').select('*').eq('id',uid).maybeSingle();
+    const {data:row,error}=await supabase.from('profiles').select(PROFILE_SELECT_COLUMNS).eq('id',uid).maybeSingle();
     if(error)throw new Error('Your staff profile could not be loaded. Please check your connection and try again.');
     if(!row||row.id!==uid)throw new Error('This sign-in account has no matching staff profile. Please contact your administrator to repair the account.');
     const matched=mapStaffRow(row);
