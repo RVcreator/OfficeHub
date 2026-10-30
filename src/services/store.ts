@@ -112,7 +112,11 @@ export interface AuthSessionInfo {
 // -------------------------------------------------------------------------
 // Per-Table Reactive State Architecture
 // -------------------------------------------------------------------------
+export type StartupSection='staff'|'tasks'|'notices'|'meetings'|'approvals';
+export type StartupState=Record<StartupSection,'idle'|'loading'|'ready'|'error'>;
+const emptyStartup=():StartupState=>({staff:'idle',tasks:'idle',notices:'idle',meetings:'idle',approvals:'idle'});
 export interface StoreData {
+  startupSections:StartupState;
   tasks: Task[];
   notices: Notice[];
   projects: Project[];
@@ -359,6 +363,7 @@ export type TableKey = keyof StoreData;
 const initialSavedUser = getSavedCurrentUserProfile();
 
 const storeState: StoreData = {
+  startupSections:emptyStartup(),
   tasks: [],
   notices: [],
   projects: [],
@@ -470,54 +475,37 @@ let isStoreInitialized = false;
 let storeInitPromise: Promise<void> | null = null;
 let storeInitGeneration=0;
 
-export async function initStoreOnce(): Promise<void> {
-  if (!storeState.authSession.isAuthenticated) {setTableData('loading',false);return;}
-  if (isStoreInitialized) return;
-  if (storeInitPromise) return storeInitPromise;
-
+const startupPending=new Map<string,Promise<void>>();
+async function loadStartupSection(section:StartupSection):Promise<void>{
+  const identity=storeState.authSession.userId,generation=storeInitGeneration,key=`${identity}:${generation}:${section}`;
+  if(!storeState.authSession.isAuthenticated)return;
+  if(startupPending.has(key))return startupPending.get(key);
+  const current=()=>storeState.authSession.isAuthenticated&&identity===storeState.authSession.userId&&generation===storeInitGeneration;
+  setTableData('startupSections',{...storeState.startupSections,[section]:'loading'});
+  const job=(async()=>{
+    try{
+      const rows=await (section==='staff'?portalStore.getStaff(true):section==='tasks'?portalStore.getTasks(200,0,true):section==='notices'?portalStore.getNotices(25,0,true):section==='meetings'?portalStore.getMeetings(25,0,true):portalStore.getApprovals(25,0,true));
+      if(!current())return;
+      setTableData(section,rows as any);
+      setTableData('startupSections',{...storeState.startupSections,[section]:'ready'});
+    }catch{
+      if(current())setTableData('startupSections',{...storeState.startupSections,[section]:'error'});
+    }finally{startupPending.delete(key);}
+  })();startupPending.set(key,job);return job;
+}
+export async function initStoreOnce():Promise<void>{
+  if(!storeState.authSession.isAuthenticated){setTableData('loading',false);return;}
+  if(isStoreInitialized)return storeInitPromise||undefined;
+  isStoreInitialized=true;
   const identity=storeState.authSession.userId,generation=storeInitGeneration;
-  setTableData('loading',true);
-  console.time('initStoreOnce');
-  storeInitPromise = (async () => {
-    try {
-      // 1. Fetch startup data in parallel
-      const [
-        staffData,
-        tasksData,
-        noticesData,
-        meetingsData,
-        approvalsData,
-      ] = await Promise.all([
-        storeState.staff.length ? Promise.resolve(storeState.staff) : portalStore.getStaff(),
-        portalStore.getTasks(200, 0),
-        portalStore.getNotices(25, 0),
-        portalStore.getMeetings(25, 0),
-        portalStore.getApprovals(25, 0),
-      ]);
-
-      if(!storeState.authSession.isAuthenticated||identity!==storeState.authSession.userId||generation!==storeInitGeneration)return;
-      setTableData('staff', staffData);
-      setTableData('tasks', tasksData);
-      setTableData('notices', noticesData);
-      setTableData('meetings', meetingsData);
-      setTableData('approvals', approvalsData);
-      // Search/sidebar documents hydrate after useful content; Graph listing never gates startup.
-      setTimeout(()=>{if(storeState.authSession.isAuthenticated&&identity===storeState.authSession.userId)void portalStore.getSharePointDocs();},1000);
-      void portalStore.getDepartments().then(rows=>{if(identity===storeState.authSession.userId&&generation===storeInitGeneration)setTableData('departments',rows);}).catch(console.warn);
-
-      // Projects, Audit Logs, etc. are now deferred on-demand
-      isStoreInitialized = true;
-      if (storeState.authSession.isAuthenticated) {
-        initRealtimeSubscription();
-      }
-    } catch (err) {
-      console.error('Error during initStoreOnce:', err);
-    } finally {
-      console.timeEnd('initStoreOnce');
-      if(identity===storeState.authSession.userId&&generation===storeInitGeneration){setTableData('loading', false);storeInitPromise=null;}
-    }
-  })();
-
+  // Authentication/profile verification has already completed. Publish each data
+  // section independently; no slow directory/child query can hide the whole app.
+  setTableData('loading',false);
+  storeInitPromise=Promise.allSettled((['staff','tasks','notices','meetings','approvals'] as const).map(loadStartupSection)).then(()=>{
+    if(identity===storeState.authSession.userId&&generation===storeInitGeneration)storeInitPromise=null;
+  });
+  void portalStore.getDepartments().then(rows=>{if(identity===storeState.authSession.userId&&generation===storeInitGeneration)setTableData('departments',rows);}).catch(()=>{});
+  setTimeout(()=>{if(storeState.authSession.isAuthenticated&&identity===storeState.authSession.userId&&generation===storeInitGeneration)void portalStore.getSharePointDocs();},1000);
   return storeInitPromise;
 }
 
@@ -719,16 +707,17 @@ function resolveStaffAvatar(
 }
 
 export const portalStore = {
+  retryStartupSections:async()=>{await Promise.allSettled((Object.keys(storeState.startupSections) as StartupSection[]).filter(key=>storeState.startupSections[key]==='error').map(loadStartupSection));},
   // -----------------------------------------------------------------------
   // Getters (Async Supabase Queries)
   // -----------------------------------------------------------------------
-  getTasks: async (limit: number = 200, offset: number = 0): Promise<Task[]> => {
+  getTasks: async (limit: number = 200, offset: number = 0, strict=false): Promise<Task[]> => {
     try {
       let tasksRes = await supabase.from('tasks').select(TASK_SELECT_COLUMNS)
         .order('created_at', {ascending:false}).range(offset,offset+limit-1);
 
       // If a transient network glitch or stream cutoff occurred, retry fetching tasks once
-      if (tasksRes.error && isNetworkOrTransientError(tasksRes.error)) {
+      if (!strict && tasksRes.error && isNetworkOrTransientError(tasksRes.error)) {
         await new Promise((r) => setTimeout(r, 300));
         try {
           const retryRes = await supabase
@@ -759,6 +748,7 @@ export const portalStore = {
           } else {
             console.error('Supabase getTasks error:', tasksRes.error.message || tasksRes.error.code);
           }
+          if(strict)throw tasksRes.error;
           return storeState.tasks;
         }
       }
@@ -779,7 +769,7 @@ export const portalStore = {
         subtasksByTask[row.task_id].push(mapSubtaskRow(row));
       });
 
-      const staffList = storeState.staff.length > 0 ? storeState.staff : await portalStore.getStaff();
+      const staffList = storeState.staff;
 
       return (tasksRes.data || []).map((row) => {
         const mapped = mapTaskRow(row, subtasksByTask[row.id] || []);
@@ -887,6 +877,7 @@ export const portalStore = {
         return mapped;
       });
     } catch (err: any) {
+      if(strict)throw err;
       if (isNetworkOrTransientError(err)) {
         console.warn('getTasks: Network or transient condition, using cached tasks.');
       } else {
@@ -896,7 +887,7 @@ export const portalStore = {
     }
   },
 
-  getNotices: async (limit: number = 50, offset: number = 0): Promise<Notice[]> => {
+  getNotices: async (limit: number = 50, offset: number = 0, strict=false): Promise<Notice[]> => {
     try {
       const noticesRes=await supabase.from('notices').select(NOTICE_SELECT_COLUMNS).order('pinned', {ascending:false}).range(offset,offset+limit-1);
 
@@ -906,6 +897,7 @@ export const portalStore = {
         } else {
           console.error('Supabase getNotices error:', noticesRes.error.message);
         }
+        if(strict)throw noticesRes.error;
         return storeState.notices;
       }
 
@@ -919,6 +911,7 @@ export const portalStore = {
 
       return (noticesRes.data || []).map((row) => mapNoticeRow(row, acksByNotice[row.id] || []));
     } catch (err) {
+      if(strict)throw err;
       if (isNetworkOrTransientError(err)) {
         console.warn('getNotices: Network or transient exception, using cached notices.');
       } else {
@@ -1122,7 +1115,7 @@ export const portalStore = {
     }
   },
 
-  getMeetings: async (limit: number = 50, offset: number = 0): Promise<Meeting[]> => {
+  getMeetings: async (limit: number = 50, offset: number = 0, strict=false): Promise<Meeting[]> => {
     try {
       const meetRes=await supabase.from('meetings').select('*').order('date', {ascending:false}).range(offset,offset+limit-1);
 
@@ -1132,6 +1125,7 @@ export const portalStore = {
         } else {
           console.error('Supabase getMeetings error:', meetRes.error.message);
         }
+        if(strict)throw meetRes.error;
         return storeState.meetings;
       }
 
@@ -1164,6 +1158,7 @@ export const portalStore = {
 
       return deduplicatedMeetings;
     } catch (err) {
+      if(strict)throw err;
       if (isNetworkOrTransientError(err)) {
         console.warn('getMeetings: Network or transient exception, using cached meetings.');
       } else {
@@ -1173,9 +1168,10 @@ export const portalStore = {
     }
   },
 
-  getStaff: async (): Promise<StaffUser[]> => {
+  getStaff: async (strict=false): Promise<StaffUser[]> => {
     try {
       const res = await fetchPublicProfiles();
+      if(strict&&res.error)throw res.error;
       const dbProfiles = (res.data && res.data.length > 0) ? res.data.map(mapStaffRow) : [];
       const authoritativeSnapshot=!res.error&&Array.isArray(res.data);
 
@@ -1222,6 +1218,7 @@ export const portalStore = {
 
       return finalStaff;
     } catch (err) {
+      if(strict)throw err;
       console.error('getStaff exception:', err);
       let localStaff: StaffUser[] = [];
       try {
@@ -1413,7 +1410,7 @@ export const portalStore = {
     }
   },
 
-  getApprovals: async (limit: number = 50, offset: number = 0): Promise<Approval[]> => {
+  getApprovals: async (limit: number = 50, offset: number = 0, strict=false): Promise<Approval[]> => {
     try {
       const { data, error } = await supabase
         .from('approvals')
@@ -1427,10 +1424,12 @@ export const portalStore = {
         } else {
           console.error('Supabase getApprovals error:', error.message);
         }
+        if(strict)throw error;
         return storeState.approvals;
       }
       return (data || []).map(mapApprovalRow);
     } catch (err) {
+      if(strict)throw err;
       if (isNetworkOrTransientError(err)) {
         console.warn('getApprovals: Network or transient exception, using cached approvals.');
       } else {
@@ -4687,7 +4686,11 @@ export const portalStore = {
     const authenticatedUser: StaffUser = { ...user, mustChangePassword: effectiveMustChange };
 
     const newIdentity = storeState.authSession.userId !== authenticatedUser.id || !storeState.authSession.isAuthenticated;
-    if (newIdentity) presenceCache.clear();
+    if (newIdentity) {
+      presenceCache.clear();storeInitGeneration++;isStoreInitialized=false;storeInitPromise=null;
+      for(const table of ['staff','tasks','notices','meetings','approvals','departments','projects','decisions','roles','conversations','messages','sharePointDocs'] as const)setTableData(table,[]);
+      setTableData('startupSections',emptyStartup());
+    }
     setTableData('currentUser', authenticatedUser);
     saveCurrentUserProfileToLocalStorage(authenticatedUser);
     setTableData('authSession', {

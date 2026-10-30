@@ -47,8 +47,10 @@ function warmPage(tab:TabId){
 }
 
 export default function App() {
-  const { authSession, currentUser, tasks, staff, actions, loading, notificationError } = usePortalStore(['authSession', 'currentUser', 'tasks', 'staff', 'loading', 'notificationError']);
+  const { authSession, currentUser, tasks, staff, actions, startupSections, notificationError } = usePortalStore(['authSession', 'currentUser', 'tasks', 'staff', 'startupSections', 'notificationError']);
 
+  const failedSections=Object.entries(startupSections).filter(([,state])=>state==='error').map(([name])=>name);
+  const pendingSections=Object.entries(startupSections).filter(([,state])=>state==='loading').map(([name])=>name);
   const [activeTab, setRenderedTab] = useState<TabId>('dashboard');
   const [isNavigating,startNavigation]=useTransition();
   const mainRef=useRef<HTMLElement>(null);
@@ -283,7 +285,7 @@ export default function App() {
         />
 
         {/* Content View */}
-        <main ref={mainRef} aria-busy={isNavigating} className="oh-main flex-1 min-w-0 min-h-0 overflow-y-auto p-3 sm:p-5 xl:p-6">{notificationError && <div role="alert" className="mb-4 rounded-lg border border-amber-300 bg-amber-50 p-3 text-amber-900">{notificationError}</div>}{loading ? <div role="status" className="p-6 text-slate-500">Loading your workspace…</div> : <Suspense fallback={<div role="status" className="p-6 text-slate-500">Loading your workspace…</div>}><AppErrorBoundary key={activeTab} onReturn={() => setActiveTab('dashboard')}>
+        <main ref={mainRef} aria-busy={isNavigating} className="oh-main flex-1 min-w-0 min-h-0 overflow-y-auto p-3 sm:p-5 xl:p-6">{notificationError && <div role="alert" className="mb-4 rounded-lg border border-amber-300 bg-amber-50 p-3 text-amber-900">{notificationError}</div>}{pendingSections.length>0&&<p role="status" className="mb-3 text-xs text-slate-500">Loading {pendingSections.join(', ')}… You can continue using OfficeHub.</p>}{failedSections.length>0&&<div role="alert" className="mb-3 rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">Could not load {failedSections.join(', ')}. Check your connection. <button onClick={()=>void actions.retryStartupSections()} className="font-semibold underline">Retry workspace data</button></div>}<Suspense fallback={<div role="status" className="p-6 text-slate-500">Loading your workspace…</div>}><AppErrorBoundary key={activeTab} onReturn={() => setActiveTab('dashboard')}>
           {/* Active View Router */}
 
             {activeTab === 'dashboard' && (
@@ -462,7 +464,7 @@ export default function App() {
             {activeTab === 'messages' && (
               <MessagesView />
             )}
-          </AppErrorBoundary></Suspense>}
+          </AppErrorBoundary></Suspense>
         </main>
       </div>
 

@@ -1,3 +1,4 @@
+import {createReadFetch} from './readFetch';
 import {functionError} from './functionError';
 import { passwordChangeRequired } from './passwordPolicy';
 import { createClient, Session, User } from '@supabase/supabase-js';
@@ -14,6 +15,7 @@ const SUPABASE_ANON_KEY =
   'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndqeHJkcHVoY3J2enp4bnpudW1tIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTEyODQ0NjcsImV4cCI6MjEwNjg2MDQ2N30.Drpw_zzREmIJmapUE_m3rGVTk4kzofetgp_jepGY0ZU';
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+  global: {fetch:createReadFetch((...args)=>fetch(...args))},
   auth: {
     persistSession: true,
     autoRefreshToken: true,
