@@ -1,3 +1,4 @@
+import {PROFILE_SELECT_COLUMNS} from './profileColumns';
 import {createReadFetch} from './readFetch';
 import {functionError} from './functionError';
 import { passwordChangeRequired } from './passwordPolicy';
@@ -227,7 +228,7 @@ export async function fetchPublicProfiles(): Promise<AuthResponse<any[]>> {
     // Fallback: Query public.profiles directly if profiles_public view has error or is empty
     const { data: fallbackData, error: fallbackError } = await supabase
       .from('profiles')
-      .select('*')
+      .select(PROFILE_SELECT_COLUMNS)
       .order('name');
 
     if (fallbackError) {
@@ -243,7 +244,7 @@ export async function fetchPublicProfiles(): Promise<AuthResponse<any[]>> {
     return { data: activeFallback, error: null };
   } catch (err: any) {
     try {
-      const { data: fallbackData } = await supabase.from('profiles').select('*').order('name');
+      const { data: fallbackData } = await supabase.from('profiles').select(PROFILE_SELECT_COLUMNS).order('name');
       if (fallbackData) {
         const activeFallback = fallbackData.filter((p: any) => !p.deactivated);
         return { data: activeFallback, error: null };
@@ -257,13 +258,13 @@ export async function fetchPublicProfiles(): Promise<AuthResponse<any[]>> {
 
 /**
  * Fetch a user's full profile from public.profiles.
- * Protected by RLS: regular users can only read their own profile row; admins can read any.
+ * Uses the authenticated directory policy and an explicit credential-free projection.
  */
 export async function fetchProfileById(userId: string): Promise<AuthResponse<any>> {
   try {
     const { data, error } = await supabase
       .from('profiles')
-      .select('*')
+      .select(PROFILE_SELECT_COLUMNS)
       .eq('id', userId)
       .single();
 
