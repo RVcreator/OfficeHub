@@ -1,3 +1,4 @@
+import {canViewApproval,canResolveApproval} from '../utils/recordPermissions';
 import React, { useState, useEffect } from 'react';
 import { UserAvatar } from './UserAvatar';
 import {
@@ -64,17 +65,19 @@ export const ApprovalsView: React.FC<{
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isNewModalOpen, resolutionModal]);
 
-  const handleConfirmResolution = (e: React.FormEvent) => {
+  const handleConfirmResolution = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!resolutionModal) return;
     if (resolutionModal.type === 'reject' && !resolutionModal.comment.trim()) return;
 
+    try {
     if (resolutionModal.type === 'approve') {
-      actions.approveApproval(resolutionModal.approval.id, resolutionModal.comment.trim() || undefined);
+      await actions.approveApproval(resolutionModal.approval.id, resolutionModal.comment.trim() || undefined);
     } else {
-      actions.rejectApproval(resolutionModal.approval.id, resolutionModal.comment.trim());
+      await actions.rejectApproval(resolutionModal.approval.id, resolutionModal.comment.trim());
     }
     setResolutionModal(null);
+    }catch(error){window.alert(error instanceof Error?error.message:'Approval was not saved.');}
   };
 
   useEffect(() => {
@@ -97,7 +100,8 @@ export const ApprovalsView: React.FC<{
     }
   }, [selectedApprovalId]);
 
-  const filteredApprovals = approvals.filter(appr => {
+  const visibleApprovals=approvals.filter(a=>canViewApproval(a,currentUser));
+  const filteredApprovals = visibleApprovals.filter(appr => {
     const matchesSearch = appr.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
                           appr.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
                           appr.requestedBy.toLowerCase().includes(searchQuery.toLowerCase());
@@ -105,14 +109,15 @@ export const ApprovalsView: React.FC<{
     return matchesSearch && matchesStatus;
   });
 
-  const pendingCount = approvals.filter(a => a.status === 'Pending').length;
-  const approvedCount = approvals.filter(a => a.status === 'Approved').length;
+  const pendingCount = visibleApprovals.filter(a => a.status === 'Pending').length;
+  const approvedCount = visibleApprovals.filter(a => a.status === 'Approved').length;
 
-  const handleCreateApproval = (e: React.FormEvent) => {
+  const handleCreateApproval = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newTitle.trim() || selectedApproverIds.length === 0) return;
 
-    actions.addApproval({
+    try {
+    await actions.addApproval({
       title: newTitle.trim(),
       description: newDescription.trim() || 'Formal operational approval requested for procurement/sign-off.',
       department: currentUser.department || 'Top management',
@@ -136,6 +141,7 @@ export const ApprovalsView: React.FC<{
     setShowApproverTree(false);
     setNewAttachments([]);
     setIsNewModalOpen(false);
+    }catch(error){window.alert(error instanceof Error?error.message:'Approval was not saved.');}
   };
 
   const getStatusBadge = (status: Approval['status']) => {
@@ -345,7 +351,7 @@ export const ApprovalsView: React.FC<{
                     );
                   })()}
 
-                  {approval.status === 'Pending' && approval.requestedBy !== currentUser.name ? (
+                  {canResolveApproval(approval,currentUser) ? (
                     <div className="flex items-center gap-2 pt-1">
                       <button
                         type="button"
