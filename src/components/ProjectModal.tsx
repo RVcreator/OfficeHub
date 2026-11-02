@@ -2022,7 +2022,8 @@ export const ProjectModal: React.FC<ProjectModalProps> = ({
                             type="button"
                             onClick={async () => {
                               try {
-                                await actions.updateTaskStatus(task.id, task.status === 'Done' ? 'To Do' : 'Done');
+                                if(task.status==='Done'&&!window.confirm('Reopen this completed task for everyone?'))return;
+                                await actions.updateTaskStatus(task.id,task.status==='Done'?'To Do':'Done',{expectedVersion:task.deliveryVersion,reopen:task.status==='Done'});
                               } catch (err: any) {
                                 alert(`Could not update task: ${err?.message || 'Permission denied or network error'}`);
                               }

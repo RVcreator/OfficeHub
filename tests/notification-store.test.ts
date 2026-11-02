@@ -62,29 +62,13 @@ test('notification read failure retains the previous confirmed inbox', async () 
   } finally { supabase.from = originalFrom; }
 });
 
-test('completion leaves notification creation to the committed database event', async () => {
-  initialize();
-  const creator = '10000000-0000-4000-8000-000000000002';
-  setTableData('tasks', [{ id: 'completed-task', title: 'Delegated work', status: 'To Do',
-    assignedToId: actor, assignedToIds: [actor], createdById: creator, subtasks: [] } as any]);
-  const inserted: any[] = [];
-  (supabase as any).from = (table: string) => {
-    if (table === 'tasks') {
-      const q: any = query({ data: [{ id: 'completed-task', title: 'Delegated work', status: 'Done',
-        assigned_to_id: actor, assigned_to_ids: [actor], created_by_id: creator, pending_rating: true }], error: null });
-      q.update = () => q;
-      return q;
-    }
-    const q: any = query({ data: null, error: null });
-    q.insert = (payload: any) => { inserted.push(payload); q.single = async () => ({ data: payload, error: null }); return q; };
-    return q;
-  };
-  try {
-    await portalStore.updateTaskStatus('completed-task', 'Done');
-    assert.equal(inserted.length, 0, 'no second browser-generated completion alert');
-    await portalStore.updateTaskStatus('completed-task', 'Done');
-    assert.equal(inserted.length, 0);
-  } finally { supabase.from = originalFrom; }
+test('completion leaves notification creation to the committed database event',async()=>{
+ initialize();const rpc=supabase.rpc;const from=supabase.from;let inserted=0;
+ setTableData('tasks',[{id:'completed-task',title:'Delegated work',status:'To Do',deliveryVersion:1,subtasks:[]}] as any);
+ (supabase as any).from=()=>{inserted++;throw new Error('No direct task/notification writes expected');};
+ (supabase as any).rpc=async()=>({data:{task:{id:'completed-task',title:'Delegated work',status:'Done',delivery_event_version:2,pending_rating:true},conflict:false},error:null});
+ try{await portalStore.updateTaskStatus('completed-task','Done');await portalStore.updateTaskStatus('completed-task','Done');assert.equal(inserted,0);}
+ finally{supabase.rpc=rpc;supabase.from=from;}
 });
 
 test('rating refreshes completion history without forbidden browser alert rewrites', async () => {

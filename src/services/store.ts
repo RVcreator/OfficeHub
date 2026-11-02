@@ -1,3 +1,4 @@
+import {confirmedTaskSnapshot} from './taskSnapshot';
 import {createMutationGate} from './mutationGate';
 import {canViewApproval,canResolveApproval,ownsTask,canManageMeeting} from '../utils/recordPermissions';
 import {PROFILE_SELECT_COLUMNS} from './profileColumns';
@@ -434,6 +435,7 @@ export function setTableData<K extends TableKey>(key: K, data: StoreData[K], sou
     const row = presenceCache.get(user.id);
     return { ...user, outOfOffice: row && row.officeUntil > presenceNow() ? row.outOfOffice : user.outOfOffice, status: computeUserLivePresence(user) };
   };
+  if(key==='tasks')data=confirmedTaskSnapshot(data as Task[],storeState.tasks) as StoreData[K];
   if (key === 'staff') data = (data as StaffUser[]).filter(user=>!confirmedDeletedStaffIds.has(user.id)).map(withPresence) as StoreData[K];
   if (key === 'currentUser') {
     const user = data as StaffUser;
@@ -545,7 +547,6 @@ export function initRealtimeSubscription(): void {
     getDepartments:()=>portalStore.getDepartments(),
     getRoles:()=>portalStore.getRoles(),
     getDecisions:()=>portalStore.getDecisions(),
-    getPendingTaskStatus: (taskId: string) => getPendingTaskStatus(taskId),
   });
 }
 
@@ -633,19 +634,6 @@ export async function notifyTaskAssociatedUsers(task: Task, changeMessage: strin
 
 // Registry of in-flight meeting creations to prevent rapid concurrent duplicate inserts
 const inFlightMeetingCreations = new Map<string, Promise<Meeting | null>>();
-
-// Registry of pending task status mutations to prevent background refreshes from reverting optimistic updates
-const pendingTaskStatusUpdates = new Map<string, { status: Task['status']; timestamp: number }>();
-
-export const getPendingTaskStatus = (taskId: string): Task['status'] | undefined => {
-  const pending = pendingTaskStatusUpdates.get(taskId);
-  if (!pending) return undefined;
-  if (Date.now() - pending.timestamp > 15000) {
-    pendingTaskStatusUpdates.delete(taskId);
-    return undefined;
-  }
-  return pending.status;
-};
 
 // Local storage helpers for dismissed notifications
 export const getLocalDismissedNotificationIds = (userId: string): Set<string> => {
@@ -797,15 +785,6 @@ export const portalStore = {
 
         if (!mapped.assignedToAvatar) {
           mapped.assignedToAvatar = resolveStaffAvatar(mapped.assignedToId, mapped.assignedToName, staffList);
-        }
-
-        // Prevent stale DB reads from overwriting active in-flight task status mutations
-        const pendingStatus = getPendingTaskStatus(mapped.id);
-        if (pendingStatus) {
-          mapped.status = pendingStatus;
-          if (pendingStatus === 'Done') {
-            mapped.completedAt = mapped.completedAt || new Date().toISOString();
-          }
         }
 
         return mapped;
@@ -1675,84 +1654,16 @@ export const portalStore = {
     }
   },
 
-  updateTaskStatus: async (taskId: string, newStatus: Task['status']): Promise<void> => {
-    let targetTask = storeState.tasks.find((t) => t.id === taskId);
-    if (!targetTask) {
-      const { data: dbTask } = await supabase.from('tasks').select(TASK_SELECT_COLUMNS).eq('id', taskId).maybeSingle();
-      if (dbTask) {
-        targetTask = mapTaskRow(dbTask);
-      }
-    }
-    if (!targetTask) return;
-
-    const isPersonal = isPersonalTask(targetTask);
-    const nowIso = new Date().toISOString();
-
-    // Lock mutation in pendingTaskStatusUpdates so background pollers/refetches in flight cannot overwrite
-    pendingTaskStatusUpdates.set(taskId, { status: newStatus, timestamp: Date.now() });
-
-    try {
-      const updates: Record<string, any> = { status: newStatus };
-      if (newStatus === 'Done') {
-        updates.completed_at = nowIso;
-        updates.pending_rating = !isPersonal;
-      } else if (newStatus === 'Cancelled') {
-        updates.cancelled_at = nowIso;
-      } else {
-        updates.completed_at = null;
-        updates.pending_rating = false;
-      }
-
-      // 1. Write to Supabase task record and get authoritative confirmed row
-      const { data, error } = await supabase
-        .from('tasks')
-        .update(updates)
-        .eq('id', taskId)
-        .select(TASK_SELECT_COLUMNS);
-
-      if (error && !error.message.includes('coerce') && !error.message.includes('PGRST116')) {
-        console.error('Supabase updateTaskStatus error:', error.message);
-        throw new Error(error.message);
-      }
-
-      // Check if row actually was updated in Supabase
-      if (!data || data.length === 0) {
-        // Double-check if the task exists but RLS blocked update
-        const { data: check } = await supabase.from('tasks').select('id').eq('id', taskId);
-        if (check && check.length > 0) {
-          throw new Error('Permission denied: You do not have permission to update this task in Supabase.');
-        }
-        throw new Error('Task could not be found or updated in Supabase.');
-      }
-
-      const confirmedRow = data[0] as any;
-      // 2. Authoritative update of local store state ONLY after confirmed database write
-      const mappedRow = mapTaskRow(confirmedRow, targetTask.subtasks);
-      setTableData(
-        'tasks',
-        storeState.tasks.map((t) => {
-          if (t.id === taskId) {
-            return {
-              ...t,
-              ...mappedRow,
-              assignedToAvatar: t.assignedToAvatar || mappedRow.assignedToAvatar || '',
-              status: newStatus,
-              pendingRating: Boolean(confirmedRow.pending_rating),
-            };
-          }
-          return t;
-        })
-      );
-
-      // 3. Keep lock active in pendingTaskStatusUpdates for 15s to guarantee no stale in-flight poller can overwrite it
-      pendingTaskStatusUpdates.set(taskId, { status: newStatus, timestamp: Date.now() });
-
-      // Completion and rating-required alerts are generated atomically by Supabase.
-    } catch (err: any) {
-      console.error('updateTaskStatus failed:', err?.message || err);
-      pendingTaskStatusUpdates.delete(taskId);
-      throw err;
-    }
+  updateTaskStatus: async (taskId:string,newStatus:Task['status'],options?:{expectedVersion?:number;reopen?:boolean}):Promise<void> => {
+    const identity=storeState.currentUser.id;
+    let existing=storeState.tasks.find(t=>t.id===taskId);
+    if(!existing){const {data,error}=await supabase.from('tasks').select(TASK_SELECT_COLUMNS).eq('id',taskId).single();if(error||!data)throw new Error(error?.message||'Task not found.');existing=mapTaskRow(data);}
+    const {data,error}=await supabase.rpc('officehub_set_task_status',{p_task:taskId,p_status:newStatus,p_expected_version:options?.expectedVersion??existing.deliveryVersion??0,p_reopen:Boolean(options?.reopen)});
+    if(error||!data?.task)throw new Error(error?.message||'The shared task status could not be saved.');
+    if(storeState.currentUser.id!==identity)return;
+    const saved=mapTaskRow(data.task,existing.subtasks);
+    setTableData('tasks',storeState.tasks.some(t=>t.id===taskId)?storeState.tasks.map(t=>t.id===taskId?{...t,...saved,assignedToAvatar:t.assignedToAvatar}:t):[saved,...storeState.tasks]);
+    if(data.conflict)throw new Error('This task changed in another session. Its latest status is now shown. Review it before trying again.');
   },
 
   deleteTask: async (taskId: string): Promise<void> => {
@@ -1770,7 +1681,6 @@ export const portalStore = {
       if(!data?.length)throw new Error('Task deletion was not permitted.');
 
       // 3. Remove from pending registries
-      pendingTaskStatusUpdates.delete(taskId);
 
       // 4. Remove from tasks state directly
       setTableData('tasks', storeState.tasks.filter((t) => t.id !== taskId));
