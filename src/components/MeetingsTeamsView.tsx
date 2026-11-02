@@ -1160,7 +1160,7 @@ export const MeetingsTeamsView: React.FC<{
     );
   }, [editDate, editStartTime, editEndTime, editAttendees, meetings, staff, editingMeeting]);
 
-  const handleSaveEditMeeting = (e: React.FormEvent) => {
+  const handleSaveEditMeeting = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingMeeting || !editTitle.trim()) return;
 
@@ -1194,7 +1194,8 @@ export const MeetingsTeamsView: React.FC<{
       });
     }
 
-    actions.updateMeeting(editingMeeting.id, {
+    try {
+    await actions.updateMeeting(editingMeeting.id, {
       title: editTitle.trim(),
       department: editDepartment,
       date: editDate,
@@ -1212,6 +1213,7 @@ export const MeetingsTeamsView: React.FC<{
     });
 
     setEditingMeeting(null);
+    }catch(error){window.alert(error instanceof Error?error.message:'Meeting was not saved.');}
   };
 
   const handleConfirmDelete = () => {

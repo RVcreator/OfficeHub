@@ -1,3 +1,4 @@
+import {canViewApproval,canResolveApproval,ownsTask,canManageMeeting} from '../utils/recordPermissions';
 import {PROFILE_SELECT_COLUMNS} from './profileColumns';
 import {departmentName} from '../utils/departmentDirectory';
 import {functionError} from './functionError';
@@ -83,7 +84,7 @@ import {
   sanitizeDenormalizedAvatar,
   recoverTruncatedJsonArray,
 } from './supabaseMappers';
-import { sendTeamsWebhookNotification, generateTeamsMeetingPayload } from './teamsSharePointService';
+import { generateTeamsMeetingPayload } from './teamsSharePointService';
 import { playNotificationSound } from '../utils/sound';
 import { NotificationChimeTracker, visibleNotifications, persistNotification, reconcileNotificationSnapshot } from './notificationDelivery';
 import { isPersonalTask } from '../utils/taskUtils';
@@ -707,6 +708,16 @@ function resolveStaffAvatar(
   return '';
 }
 
+async function resolveApproval(id:string,status:'Approved'|'Rejected',notes?:string):Promise<void>{
+ const actor=storeState.currentUser,existing=storeState.approvals.find(a=>a.id===id);
+ if(!existing||!canResolveApproval(existing,actor))throw new Error('Only selected approvers can decide this request.');
+ const {data,error}=await supabase.from('approvals').update({status,notes:notes||null}).eq('id',id).select('*').single();
+ if(error||!data)throw new Error(error?.message||'Approval was not saved. Refresh and try again.');
+ const saved=mapApprovalRow(data);
+ setTableData('approvals',storeState.approvals.map(a=>a.id===id?saved:a));
+ if(saved.requestedById)await portalStore.addNotification({title:`Request ${status}: ${saved.title}`,message:`${actor.name} ${status.toLowerCase()} your request.`,type:'approval',targetUserId:saved.requestedById,actorId:actor.id,actorName:actor.name,metadata:{approvalId:id,status}}).catch(console.warn);
+}
+
 export const portalStore = {
   retryStartupSections:async()=>{await Promise.allSettled((Object.keys(storeState.startupSections) as StartupSection[]).filter(key=>storeState.startupSections[key]==='error').map(loadStartupSection));},
   // -----------------------------------------------------------------------
@@ -773,94 +784,7 @@ export const portalStore = {
       const staffList = storeState.staff;
 
       return (tasksRes.data || []).map((row) => {
-        const mapped = mapTaskRow(row, subtasksByTask[row.id] || []);
-
-        // Explicit rectification for IT department tasks:
-        // Tasks assigned by the IT department (such as IT TEST TASK, IT TEST, IT TEST 4, or tasks where created_by is IT/Rija Virani)
-        const isItTaskTitle =
-          row.title?.trim().toLowerCase().startsWith('it test') ||
-          row.title?.trim().toLowerCase().startsWith('it ');
-
-        const isCreatedByRijaOrIT =
-          row.created_by_id === '82f2bd3b-2f09-4e4a-9438-5c26e203cf30' ||
-          row.created_by_name?.toLowerCase().includes('rija virani') ||
-          row.created_by_name?.toLowerCase() === 'it' ||
-          row.created_by_name?.toLowerCase() === 'it department' ||
-          row.created_by_name?.toLowerCase() === 'information technology';
-
-        if (isItTaskTitle || isCreatedByRijaOrIT) {
-          mapped.createdById = '82f2bd3b-2f09-4e4a-9438-5c26e203cf30';
-          mapped.createdByName = 'Rija Virani (IT Department)';
-          // If assigned to marketing
-          if (row.assigned_to_name?.toLowerCase().includes('marketing') || row.assigned_to_id === '0a9edd24-62bd-40ff-a486-fd1c95724b8e') {
-            mapped.assignedToId = '0a9edd24-62bd-40ff-a486-fd1c95724b8e';
-            mapped.assignedToName = 'Marketing';
-            mapped.department = 'Marketing';
-          }
-        }
-
-        // If createdById is missing (e.g. non-UUID in DB), resolve from created_by_name
-        if (!mapped.createdById && row.created_by_name) {
-          const cName = row.created_by_name.toLowerCase().trim();
-          if (
-            cName === 'it' ||
-            cName === 'it department' ||
-            cName === 'it & operations' ||
-            cName === 'it and operations' ||
-            cName === 'information technology' ||
-            cName.includes('rija virani')
-          ) {
-            mapped.createdById = '82f2bd3b-2f09-4e4a-9438-5c26e203cf30';
-            mapped.createdByName = 'Rija Virani (IT Department)';
-          } else if (cName && cName !== 'staff member') {
-            const matchedStaff = staffList.find((s) =>
-              s.name?.toLowerCase().trim() === cName ||
-              s.email?.toLowerCase().trim() === cName ||
-              s.email?.toLowerCase().split('@')[0] === cName
-            );
-            if (matchedStaff) {
-              mapped.createdById = matchedStaff.id;
-              mapped.createdByName = matchedStaff.name;
-            } else if (
-              storeState.currentUser?.name?.toLowerCase().trim() === cName &&
-              storeState.currentUser.name.toLowerCase().trim() !== 'staff member'
-            ) {
-              mapped.createdById = storeState.currentUser.id;
-            }
-          }
-        }
-
-        // If assignedToId is missing (e.g. non-UUID in DB), resolve from assigned_to_name
-        if (
-          !mapped.assignedToId &&
-          row.assigned_to_name &&
-          !row.assigned_to_name.toLowerCase().includes('(department)') &&
-          !row.assigned_to_name.toLowerCase().includes('(whole org)')
-        ) {
-          const aName = row.assigned_to_name.toLowerCase().trim();
-          if (aName && aName !== 'staff member') {
-            const matchedStaff = staffList.find((s) =>
-              s.name?.toLowerCase().trim() === aName ||
-              s.email?.toLowerCase().trim() === aName ||
-              s.email?.toLowerCase().split('@')[0] === aName
-            );
-            if (matchedStaff) {
-              mapped.assignedToId = matchedStaff.id;
-              mapped.assignedToName = matchedStaff.name;
-              if (!mapped.assignedToIds || mapped.assignedToIds.length === 0) {
-                mapped.assignedToIds = [matchedStaff.id];
-              }
-            } else if (
-              storeState.currentUser?.name?.toLowerCase().trim() === aName &&
-              storeState.currentUser.name.toLowerCase().trim() !== 'staff member'
-            ) {
-              mapped.assignedToId = storeState.currentUser.id;
-              if (!mapped.assignedToIds || mapped.assignedToIds.length === 0) {
-                mapped.assignedToIds = [storeState.currentUser.id];
-              }
-            }
-          }
-        }
+        const mapped = {...mapTaskRow(row, subtasksByTask[row.id] || []),accessUserId:storeState.currentUser.id};
 
         if (!mapped.assignedToAvatar) {
           mapped.assignedToAvatar = resolveStaffAvatar(mapped.assignedToId, mapped.assignedToName, staffList);
@@ -1428,7 +1352,7 @@ export const portalStore = {
         if(strict)throw error;
         return storeState.approvals;
       }
-      return (data || []).map(mapApprovalRow);
+      return (data || []).map(mapApprovalRow).filter(a=>canViewApproval(a,storeState.currentUser));
     } catch (err) {
       if(strict)throw err;
       if (isNetworkOrTransientError(err)) {
@@ -1700,17 +1624,6 @@ export const portalStore = {
       // Optimistically update tasks state directly without refetching other tables
       setTableData('tasks', [newTask, ...storeState.tasks]);
 
-      // Fire Teams Webhook in background without triggering store cascades
-      const rules = storeState.teamsRules.filter(
-        (r) =>
-          r.enabled &&
-          newTask.priority === 'Urgent' &&
-          r.event === 'task_urgent_created'
-      );
-      rules.forEach((rule) => {
-        sendTeamsWebhookNotification(rule.webhookUrl, 'task', taskToInsert).catch(console.warn);
-      });
-
       // Trigger notification and email dispatch for assignee(s)
       try {
         const assignees: { id: string; name: string; email: string }[] = [];
@@ -1857,9 +1770,7 @@ export const portalStore = {
 
       const rowUpdates = mapTaskToRow(updates);
       const { data, error } = await supabase.from('tasks').update(rowUpdates).eq('id', taskId).select(TASK_SELECT_COLUMNS).maybeSingle();
-      if (error && !error.message.includes('coerce') && !error.message.includes('PGRST116')) {
-        console.warn('Supabase updateTask warning:', error.message);
-      }
+      if(error||!data)throw new Error(error?.message||'Task was not saved. Refresh and try again.');
       // Update tasks state directly with the returned row or merged updates
       setTableData('tasks', storeState.tasks.map((t) => {
         if (t.id === taskId) {
@@ -2024,11 +1935,9 @@ export const portalStore = {
 
   deleteTask: async (taskId: string): Promise<void> => {
     try {
-      // 1. Delete dependent relations first to avoid foreign key or cascade issues
-      await supabase.from('task_assignees').delete().eq('task_id', taskId);
-      await supabase.from('task_ratings').delete().eq('task_id', taskId);
-      await supabase.from('task_subtasks').delete().eq('task_id', taskId);
-
+      const task=storeState.tasks.find(t=>t.id===taskId);
+      if(!task||!ownsTask(task,storeState.currentUser))throw new Error('Only the task creator can delete this task.');
+      // Foreign keys cascade child removal in the same database transaction.
       // 2. Delete the task and request returned id with .select('id')
       const { data, error } = await supabase.from('tasks').delete().eq('id', taskId).select('id');
       if (error) {
@@ -2036,13 +1945,7 @@ export const portalStore = {
         throw new Error(error.message);
       }
 
-      // If data is empty, check if RLS prevented the deletion
-      if (!data || data.length === 0) {
-        const { data: checkExisting } = await supabase.from('tasks').select('id').eq('id', taskId);
-        if (checkExisting && checkExisting.length > 0) {
-          throw new Error('Permission denied: You do not have permission to delete this task in Supabase.');
-        }
-      }
+      if(!data?.length)throw new Error('Task deletion was not permitted.');
 
       // 3. Remove from pending registries
       pendingTaskStatusUpdates.delete(taskId);
@@ -3366,30 +3269,9 @@ export const portalStore = {
           }
         }
 
-        const row = mapMeetingToRow(newMeeting);
-        const { data, error } = await supabase.from('meetings').insert(row).select('*').single();
-        if (error) {
-          console.error('Supabase addMeeting error:', error.message);
-          throw new Error(error.message);
-        }
-
-        if (newMeeting.attendees.length > 0) {
-          const attRows = newMeeting.attendees
-            .filter((a) => toUuidOrNull(a.userId))
-            .map((a) => ({
-              meeting_id: id,
-              user_id: a.userId,
-              name: a.name,
-              email: a.email,
-              status: a.status || 'Pending',
-              avatar: sanitizeDenormalizedAvatar(a.avatar),
-            }));
-          if (attRows.length > 0) {
-            await supabase.from('meeting_attendees').insert(attRows);
-          }
-        }
-
-        const insertedMeeting = mapMeetingRow(data, newMeeting.attendees);
+        const {data:result,error}=await supabase.rpc('officehub_save_meeting',{p_id:id,p_changes:mapMeetingToRow(newMeeting),p_attendees:newMeeting.attendees.map(a=>({user_id:a.userId})),p_create:true});
+        if(error||!result?.meeting)throw new Error(error?.message||'Meeting was not saved.');
+        const insertedMeeting=mapMeetingRow(result.meeting,(result.attendees||[]).map(mapMeetingAttendeeRow));
         // Ensure no duplicate exists in state before prepending
         setTableData('meetings', [
           insertedMeeting,
@@ -3400,14 +3282,6 @@ export const portalStore = {
             return !(sameTitle && sameDate && sameTime);
           }),
         ]);
-
-        // Fire Teams Webhook in background without triggering store cascades
-        const meetingRules = storeState.teamsRules.filter(
-          (r) => r.enabled && r.event === 'teams_meeting_scheduled'
-        );
-        meetingRules.forEach((rule) => {
-          sendTeamsWebhookNotification(rule.webhookUrl, 'meeting', insertedMeeting).catch(console.warn);
-        });
 
         // Trigger notification and email dispatch for attendees in parallel
         const attendeeRecipients: { id: string; name: string; email: string }[] = [];
@@ -3471,28 +3345,22 @@ export const portalStore = {
     return creationPromise;
   },
 
-  updateMeeting: async (meetingId: string, updates: Partial<Meeting>): Promise<void> => {
-    try {
-      const rowUpdates = mapMeetingToRow(updates);
-      const { data, error } = await supabase.from('meetings').update(rowUpdates).eq('id', meetingId).select('*').single();
-      if (error) {
-        console.error('Supabase updateMeeting error:', error.message);
-        throw new Error(error.message);
-      }
-      setTableData('meetings', storeState.meetings.map((m) => (m.id === meetingId ? { ...m, ...updates } : m)));
-    } catch (err: any) {
-      console.error('updateMeeting error:', err);
-      throw err;
-    }
+  updateMeeting: async (meetingId:string,updates:Partial<Meeting>):Promise<void> => {
+    const {data,error}=await supabase.rpc('officehub_save_meeting',{p_id:meetingId,p_changes:mapMeetingToRow(updates),p_attendees:updates.attendees?.map(a=>({user_id:a.userId}))??null,p_create:false});
+    if(error||!data?.meeting)throw new Error(error?.message||'Meeting was not saved.');
+    const saved=mapMeetingRow(data.meeting,(data.attendees||[]).map(mapMeetingAttendeeRow));
+    setTableData('meetings',storeState.meetings.map(m=>m.id===meetingId?saved:m));
   },
 
   deleteMeeting: async (meetingId: string): Promise<void> => {
     try {
-      const { error } = await supabase.from('meetings').delete().eq('id', meetingId);
+      const { data,error } = await supabase.from('meetings').delete().eq('id', meetingId).select('id').single();
+
       if (error) {
         console.error('Supabase deleteMeeting error:', error.message);
         throw new Error(error.message);
       }
+      if(!data)throw new Error('Meeting deletion was not permitted.');
       setTableData('meetings', storeState.meetings.filter((m) => m.id !== meetingId));
     } catch (err: any) {
       console.error('deleteMeeting error:', err);
@@ -3538,8 +3406,9 @@ export const portalStore = {
       }
 
       const uuid = toUuidOrNull(attendeeUserId);
+      if(!uuid||uuid!==currentUser.id)throw new Error('You may only respond for yourself.');
       if (uuid) {
-        await supabase
+        const {data,error}=await supabase
           .from('meeting_attendees')
           .update({
             status,
@@ -3552,7 +3421,8 @@ export const portalStore = {
             responded_at: new Date().toISOString(),
           })
           .eq('meeting_id', meetingId)
-          .eq('user_id', uuid);
+          .eq('user_id', uuid).select('user_id').single();
+        if(error||!data)throw new Error(error?.message||'Response was not saved.');
       }
 
       // Update attendee on meeting directly in meetings state
@@ -3606,6 +3476,7 @@ export const portalStore = {
       }
     } catch (err: any) {
       console.error('respondToMeeting error:', err);
+      throw err;
     }
   },
 
@@ -4018,9 +3889,9 @@ export const portalStore = {
         id,
         requestedDate: new Date().toISOString(),
         status: 'Pending',
-        requestedBy: approvalData.requestedBy || currentUser.name,
-        requestedById: approvalData.requestedById || currentUser.id,
-        requestedByName: approvalData.requestedByName || currentUser.name,
+        requestedBy: currentUser.name,
+        requestedById: currentUser.id,
+        requestedByName: currentUser.name,
         department: normalizeDepartmentName(approvalData.department),
       };
 
@@ -4034,19 +3905,10 @@ export const portalStore = {
       const insertedApproval = mapApprovalRow(data);
       setTableData('approvals', [insertedApproval, ...storeState.approvals]);
 
-      // Notify approvers / organization about the new approval request
-      portalStore.addNotification({
-        title: `Approval Request: ${newApproval.title}`,
-        message: `${currentUser.name} submitted an approval request for "${newApproval.title}" (${newApproval.type || 'General'}).${newApproval.amount ? ` Amount: ${newApproval.amount}.` : ''}`,
-        type: 'approval',
-        targetUserId: 'all',
-        priority: 'Normal',
-        actorId: currentUser.id,
-        actorName: currentUser.name,
-        actorAvatar: currentUser.avatar,
-        pushedToMicrosoftTeams: true,
-        metadata: { approvalId: id },
-      }).catch(console.warn);
+      await Promise.allSettled((insertedApproval.approverIds || []).map(targetUserId => portalStore.addNotification({
+        title: `Approval Request: ${insertedApproval.title}`, message: `${currentUser.name} submitted an approval request for "${insertedApproval.title}".`,
+        type:'approval',targetUserId,actorId:currentUser.id,actorName:currentUser.name,metadata:{approvalId:id}
+      })));
 
       return insertedApproval;
     } catch (err: any) {
@@ -4055,88 +3917,8 @@ export const portalStore = {
     }
   },
 
-  approveApproval: async (id: string, notes?: string): Promise<void> => {
-    try {
-      const currentUser = storeState.currentUser;
-      const approvedDate = new Date().toISOString();
-      await supabase
-        .from('approvals')
-        .update({
-          status: 'Approved',
-          approved_by: currentUser.name,
-          approved_date: approvedDate,
-          notes: notes || null,
-        })
-        .eq('id', id);
-
-      const targetApproval = storeState.approvals.find((a) => a.id === id);
-
-      setTableData('approvals', storeState.approvals.map((a) => (a.id === id ? {
-        ...a,
-        status: 'Approved',
-        approvedBy: currentUser.name,
-        approvedDate,
-        notes: notes || a.notes,
-      } : a)));
-
-      // Notify the requester
-      if (targetApproval && targetApproval.requestedById && targetApproval.requestedById !== currentUser.id) {
-        portalStore.addNotification({
-          title: `Request Approved: ${targetApproval.title}`,
-          message: `${currentUser.name} has approved your request "${targetApproval.title}".${notes ? ` Notes: "${notes}"` : ''}`,
-          type: 'approval',
-          targetUserId: targetApproval.requestedById,
-          priority: 'Normal',
-          actorId: currentUser.id,
-          actorName: currentUser.name,
-          actorAvatar: currentUser.avatar,
-          pushedToMicrosoftTeams: true,
-          metadata: { approvalId: id, status: 'Approved', notes },
-        }).catch(console.warn);
-      }
-    } catch (err: any) {
-      console.error('approveApproval error:', err);
-    }
-  },
-
-  rejectApproval: async (id: string, notes?: string): Promise<void> => {
-    try {
-      const currentUser = storeState.currentUser;
-      await supabase
-        .from('approvals')
-        .update({
-          status: 'Rejected',
-          notes: notes || null,
-        })
-        .eq('id', id);
-
-      const targetApproval = storeState.approvals.find((a) => a.id === id);
-
-      setTableData('approvals', storeState.approvals.map((a) => (a.id === id ? {
-        ...a,
-        status: 'Rejected',
-        notes: notes || a.notes,
-      } : a)));
-
-      // Notify the requester
-      if (targetApproval && targetApproval.requestedById && targetApproval.requestedById !== currentUser.id) {
-        portalStore.addNotification({
-          title: `Request Rejected: ${targetApproval.title}`,
-          message: `${currentUser.name} has rejected your request "${targetApproval.title}".${notes ? ` Notes: "${notes}"` : ''}`,
-          type: 'approval',
-          targetUserId: targetApproval.requestedById,
-          priority: 'Urgent',
-          actorId: currentUser.id,
-          actorName: currentUser.name,
-          actorAvatar: currentUser.avatar,
-          pushedToMicrosoftTeams: true,
-          metadata: { approvalId: id, status: 'Rejected', notes },
-        }).catch(console.warn);
-      }
-    } catch (err: any) {
-      console.error('rejectApproval error:', err);
-    }
-  },
+  approveApproval: async (id:string,notes?:string):Promise<void> => resolveApproval(id,'Approved',notes),
+  rejectApproval: async (id:string,notes?:string):Promise<void> => resolveApproval(id,'Rejected',notes),
 
   // -----------------------------------------------------------------------
   // Actions: Departments & Roles (UPDATES DEPARTMENTS/ROLES ONLY)
@@ -4612,43 +4394,12 @@ export const portalStore = {
     return { tasks: archivedTasks, meetings: archivedMeetings };
   },
 
-  clearUserArchive: async (userId?: string): Promise<void> => {
-    try {
-      const targetUid = userId || storeState.currentUser.id;
-      const { tasks: archivedTasks, meetings: archivedMeetings } = portalStore.getUserArchive(targetUid);
-      const archivedTaskIds = new Set(archivedTasks.map(t => t.id));
-      const archivedMeetingIds = new Set(archivedMeetings.map(m => m.id));
-
-      for (const t of archivedTasks) {
-        try {
-          await supabase.from('task_subtasks').delete().eq('task_id', t.id);
-          await supabase.from('tasks').delete().eq('id', t.id);
-        } catch (e) {
-          console.warn('Failed to delete archived task:', t.id, e);
-        }
-      }
-
-      for (const m of archivedMeetings) {
-        try {
-          await supabase.from('meetings').delete().eq('id', m.id);
-        } catch (e) {
-          console.warn('Failed to delete archived meeting:', m.id, e);
-        }
-      }
-
-      const remainingTasks = storeState.tasks.filter(t => !archivedTaskIds.has(t.id));
-      const remainingMeetings = storeState.meetings.filter(m => !archivedMeetingIds.has(m.id));
-      setTableData('tasks', remainingTasks);
-      setTableData('meetings', remainingMeetings);
-
-      try {
-        localStorage.setItem('wipahs_portal_tasks', JSON.stringify(remainingTasks));
-        localStorage.setItem('wipahs_portal_meetings', JSON.stringify(remainingMeetings));
-      } catch {}
-    } catch (err: any) {
-      console.error('clearUserArchive error:', err);
-      throw err;
-    }
+  clearUserArchive: async (userId?:string):Promise<void> => {
+    if(userId&&userId!==storeState.currentUser.id)throw new Error('You may only clear your own archive.');
+    const archived=portalStore.getUserArchive(storeState.currentUser.id);
+    if(archived.tasks.some(t=>!ownsTask(t,storeState.currentUser))||archived.meetings.some(m=>!canManageMeeting(m,storeState.currentUser)))throw new Error('Some shared archive items belong to another member. Only their creator or meeting manager can delete them.');
+    for(const task of archived.tasks)await portalStore.deleteTask(task.id);
+    for(const meeting of archived.meetings)await portalStore.deleteMeeting(meeting.id);
   },
 
   // -----------------------------------------------------------------------

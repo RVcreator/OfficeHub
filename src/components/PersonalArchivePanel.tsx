@@ -56,10 +56,12 @@ export const PersonalArchivePanel: React.FC<PersonalArchivePanelProps> = ({
   const [selectedMeetingDetail, setSelectedMeetingDetail] = useState<Meeting | null>(null);
 
   const handleClearArchive = async () => {
+    try {
     await actions.clearUserArchive(targetUserId);
     setShowClearConfirmModal(false);
     setClearedSuccessMsg(true);
     setTimeout(() => setClearedSuccessMsg(false), 3500);
+    }catch(error){window.alert(error instanceof Error?error.message:"Archive was not cleared.");}
   };
 
   return (

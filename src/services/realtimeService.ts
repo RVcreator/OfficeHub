@@ -95,12 +95,12 @@ if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
 export function broadcastRealtimeEvent(event: PortalBroadcastEvent): void {
   try {
     if (portalBroadcastChannel) {
-      portalBroadcastChannel.postMessage(event);
+      portalBroadcastChannel.postMessage({type:event.type});
     }
     if (typeof window !== 'undefined' && window.localStorage) {
       window.localStorage.setItem(
         'wipahs_last_broadcast_evt',
-        JSON.stringify({ ...event, _ts: Date.now() })
+        JSON.stringify({ type:event.type, _ts: Date.now() })
       );
     }
   } catch {}

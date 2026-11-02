@@ -1,3 +1,4 @@
+import {canViewTask,ownsTask} from '../utils/recordPermissions';
 import { UserAvatar } from './UserAvatar';
 import { ConfirmDialog } from './ConfirmDialog';
 import React, { useState, useMemo, useEffect, useRef } from 'react';
@@ -253,6 +254,7 @@ export const TasksView: React.FC<TasksViewProps> = ({
       }
     } else if (selectedTask) {
       const updated = tasks.find(t => t.id === selectedTask.id);
+      if(!updated){setSelectedTask(null);return;}
       if (updated && (updated.status !== selectedTask.status || updated.title !== selectedTask.title || updated.description !== selectedTask.description || updated.dueDate !== selectedTask.dueDate || updated.priority !== selectedTask.priority || JSON.stringify(updated.subtasks) !== JSON.stringify(selectedTask.subtasks))) {
         setSelectedTask(updated);
       }
@@ -272,19 +274,11 @@ export const TasksView: React.FC<TasksViewProps> = ({
   }, [selectedTask?.id]);
 
   // Permission Checks
-  const canUserEditTask = (task: Task | null): boolean => {
-    if (!task || !currentUser) return false;
-    // Task created by current user
-    if (task.createdById === currentUser.id) return true;
-    // Task assigned directly to current user
-    if (task.assignedToId === currentUser.id) return true;
-    if (task.assignedToIds && task.assignedToIds.includes(currentUser.id)) return true;
-    return false;
-  };
+  const canUserEditTask=(task:Task|null):boolean => Boolean(task&&canViewTask(task,currentUser));
 
   const canUserAddUpdate = (task: Task | null): boolean => {
     if (!task || !currentUser) return false;
-    return true;
+    return canViewTask(task,currentUser);
   };
 
   const formatUpdateTimestamp = (isoString?: string): string => {
@@ -314,20 +308,7 @@ export const TasksView: React.FC<TasksViewProps> = ({
     if (updated) setSelectedTask(updated);
   };
 
-  const canUserReassignTask = (task: Task | null): boolean => {
-    if (!task || !currentUser) return false;
-    // 1. Personal task
-    const isPersonal = task.type === 'personal' || task.assignmentType === 'personal' || task.assignedToId === currentUser.id;
-    // 2. Assigned directly to me
-    const isAssignedToMe = task.assignedToId === currentUser.id || Boolean(task.assignedToIds && task.assignedToIds.includes(currentUser.id));
-    // 3. Assigned to my department
-    const userDept = normalizeDepartmentName(currentUser.department);
-    const taskDept = normalizeDepartmentName(task.department);
-    const isAssignedToMyDept = taskDept === userDept ||
-      Boolean(task.assignedDepartments && task.assignedDepartments.map(d => normalizeDepartmentName(d)).includes(userDept));
-
-    return Boolean(isPersonal || isAssignedToMe || isAssignedToMyDept);
-  };
+  const canUserReassignTask=(task:Task|null):boolean => Boolean(task&&ownsTask(task,currentUser));
 
   const handleStartEditTask = (task: Task) => {
     setEditTitle(task.title);
@@ -2388,7 +2369,7 @@ export const TasksView: React.FC<TasksViewProps> = ({
                 Due: <span className="text-slate-800">{selectedTask.dueDate}</span>
               </span>
               <div className="flex gap-2">
-                {canUserEditTask(selectedTask) && (
+                {ownsTask(selectedTask,currentUser) && (
                   <button
                     disabled={isDeletingTask}
                     onClick={async () => {
