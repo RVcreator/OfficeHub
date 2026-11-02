@@ -1,3 +1,4 @@
+import {createMutationGate} from './mutationGate';
 import {canViewApproval,canResolveApproval,ownsTask,canManageMeeting} from '../utils/recordPermissions';
 import {PROFILE_SELECT_COLUMNS} from './profileColumns';
 import {departmentName} from '../utils/departmentDirectory';
@@ -88,7 +89,6 @@ import { generateTeamsMeetingPayload } from './teamsSharePointService';
 import { playNotificationSound } from '../utils/sound';
 import { NotificationChimeTracker, visibleNotifications, persistNotification, reconcileNotificationSnapshot } from './notificationDelivery';
 import { isPersonalTask } from '../utils/taskUtils';
-import { taskCreatedAlert } from './taskCreatedAlert';
 import { passwordChangeRequired, retainPasswordRequirement } from './passwordPolicy';
 import { issuedPassword } from './issuedPassword';
 import { cachePresence, effectivePresence, startPresence, presenceNow, type PresenceRecord } from './presence';
@@ -1633,136 +1633,8 @@ export const portalStore = {
       // Optimistically update tasks state directly without refetching other tables
       setTableData('tasks', [newTask, ...storeState.tasks]);
 
-      // Trigger notification and email dispatch for assignee(s)
-      try {
-        const assignees: { id: string; name: string; email: string }[] = [];
-
-        // 1. Specific people (multiple assignees)
-        if (taskData.assignedToIds && taskData.assignedToIds.length > 0) {
-          taskData.assignedToIds.forEach((uid, idx) => {
-            const st = storeState.staff.find((s) => s.id === uid);
-            assignees.push({
-              id: uid,
-              name: st?.name || taskData.assignedToNames?.[idx] || 'Staff Member',
-              email: st?.email || (uid === currentUser.id ? currentUser.email : 'staff@wipahs.or.tz'),
-            });
-          });
-        }
-        // 2. Specific person (single assignee)
-        else if (
-          taskData.assignedToId &&
-          taskData.assignedToId !== 'all' &&
-          !taskData.assignedToId.startsWith('dept-') &&
-          !taskData.assignedToId.startsWith('org-')
-        ) {
-          const st = storeState.staff.find((s) => s.id === taskData.assignedToId);
-          assignees.push({
-            id: taskData.assignedToId,
-            name: st?.name || taskData.assignedToName || 'Staff Member',
-            email: st?.email || (taskData.assignedToId === currentUser.id ? currentUser.email : 'staff@wipahs.or.tz'),
-          });
-        }
-
-        // Fallback: If assignees is empty but assignedToName is specified for a specific person
-        if (
-          assignees.length === 0 &&
-          taskData.assignedToName &&
-          !taskData.assignedToName.toLowerCase().includes('(department)') &&
-          !taskData.assignedToName.toLowerCase().includes('(whole org)')
-        ) {
-          const matched = storeState.staff.find(
-            (s) => s.name?.toLowerCase().trim() === taskData.assignedToName?.toLowerCase().trim()
-          );
-          if (matched) {
-            assignees.push({
-              id: matched.id,
-              name: matched.name,
-              email: matched.email || (matched.id === currentUser.id ? currentUser.email : 'staff@wipahs.or.tz'),
-            });
-          }
-        }
-
-        // 3. Department target (notify all staff in target department)
-        if (
-          taskData.assignmentType === 'department' ||
-          (taskData.assignedDepartments && taskData.assignedDepartments.length > 0) ||
-          (typeof taskData.assignedToId === 'string' && taskData.assignedToId.startsWith('dept-'))
-        ) {
-          const targetDepts = (taskData.assignedDepartments && taskData.assignedDepartments.length > 0)
-            ? taskData.assignedDepartments
-            : [taskData.department];
-
-          const deptStaff = storeState.staff.filter((s) => {
-            const sDept = normalizeDepartmentName(s.department);
-            return targetDepts.some((td) => normalizeDepartmentName(td) === sDept || td === 'All Departments');
-          });
-
-          deptStaff.forEach((st) => {
-            if (st.id !== currentUser.id && !assignees.some((a) => a.id === st.id)) {
-              assignees.push({
-                id: st.id,
-                name: st.name,
-                email: st.email || 'staff@wipahs.or.tz',
-              });
-            }
-          });
-        }
-
-        // 4. Organization-wide target
-        if (
-          taskData.assignmentType === 'organization' ||
-          taskData.assignedToId === 'all' ||
-          (typeof taskData.assignedToId === 'string' && taskData.assignedToId.startsWith('org-'))
-        ) {
-          storeState.staff.forEach((st) => {
-            if (st.id !== currentUser.id && !assignees.some((a) => a.id === st.id)) {
-              assignees.push({
-                id: st.id,
-                name: st.name,
-                email: st.email || 'staff@wipahs.or.tz',
-              });
-            }
-          });
-        }
-
-        for (const assignee of assignees) {
-          await portalStore.addNotification({
-            title: `New Task Assigned: ${newTask.title}`,
-            message: `Task "${newTask.title}" has been assigned to ${assignee.name} by ${createdByName}. Priority: ${newTask.priority}. Due: ${newTask.dueDate || 'No due date'}.`,
-            type: 'task',
-            targetUserId: assignee.id,
-            priority: newTask.priority === 'Urgent' ? 'Urgent' : 'Normal',
-            actorId: createdById,
-            actorName: createdByName,
-            actorAvatar: currentUser.avatar,
-            pushedToMicrosoftTeams: true,
-            emailTriggered: true,
-            emailRecipients: [assignee.email],
-            emailSubject: `[WIPAHS Task] New Task Assigned: ${newTask.title}`,
-            metadata: {
-              taskId: newTask.id,
-              targetUserName: assignee.name,
-              targetUserEmail: assignee.email,
-              department: newTask.department,
-              priority: newTask.priority,
-              dueDate: newTask.dueDate,
-            },
-          });
-
-          broadcastRealtimeEvent({
-            type: 'TASK_ASSIGNED',
-            taskId: newTask.id,
-            targetUserId: assignee.id,
-            actorId: createdById,
-            actorName: createdByName,
-            title: newTask.title,
-          });
-        }
-      } catch (notifErr) {
-        console.warn('Failed to dispatch task notification/email:', notifErr);
-      }
-
-      await portalStore.addNotification(taskCreatedAlert(newTask, storeState.currentUser));
+      // Read the saved self-confirmation immediately; other recipients use realtime.
+      void portalStore.getNotifications().then(rows=>{if(storeState.currentUser.id===currentUser.id)setTableData('notifications',rows);}).catch(console.warn);
       return newTask;
     } catch (err: any) {
       console.error('addTask error:', err);
@@ -1796,35 +1668,7 @@ export const portalStore = {
         return t;
       }));
 
-      // Trigger notification if task was reassigned to someone else
-      if (isReassigned && updates.assignedToId && updates.assignedToId !== storeState.currentUser.id) {
-        const targetStaff = storeState.staff.find((s) => s.id === updates.assignedToId);
-        const taskTitle = updates.title || existingTask?.title || 'Task';
-        const taskPriority = updates.priority || existingTask?.priority || 'Normal';
-        const taskDueDate = updates.dueDate || existingTask?.dueDate || 'No due date';
-        const actorName = updates.createdByName || storeState.currentUser.name;
-        const actorId = updates.createdById || storeState.currentUser.id;
-
-        portalStore.addNotification({
-          title: `Task Assigned: ${taskTitle}`,
-          message: `Task "${taskTitle}" has been assigned to ${updates.assignedToName || targetStaff?.name || 'you'} by ${actorName}. Priority: ${taskPriority}. Due: ${taskDueDate}.`,
-          type: 'task',
-          targetUserId: updates.assignedToId,
-          priority: taskPriority === 'Urgent' ? 'Urgent' : 'Normal',
-          actorId,
-          actorName,
-          actorAvatar: storeState.currentUser.avatar,
-          pushedToMicrosoftTeams: true,
-          emailTriggered: true,
-          emailRecipients: [targetStaff?.email || 'staff@wipahs.or.tz'],
-          emailSubject: `[WIPAHS Task] Task Assigned to You: ${taskTitle}`,
-          metadata: {
-            taskId,
-            priority: taskPriority,
-            dueDate: taskDueDate,
-          },
-        }).catch(console.warn);
-      }
+      // The database owns task reassignment alerts and email jobs.
     } catch (err: any) {
       console.error('updateTask error:', err);
       throw err;
@@ -1893,7 +1737,7 @@ export const portalStore = {
               ...mappedRow,
               assignedToAvatar: t.assignedToAvatar || mappedRow.assignedToAvatar || '',
               status: newStatus,
-              pendingRating: newStatus === 'Done' ? !isPersonal : false,
+              pendingRating: Boolean(confirmedRow.pending_rating),
             };
           }
           return t;
@@ -1903,38 +1747,7 @@ export const portalStore = {
       // 3. Keep lock active in pendingTaskStatusUpdates for 15s to guarantee no stale in-flight poller can overwrite it
       pendingTaskStatusUpdates.set(taskId, { status: newStatus, timestamp: Date.now() });
 
-      // 4. Handle ratings notifications for task completion
-      if (newStatus === 'Done' && targetTask.status !== 'Done') {
-        const creatorId = confirmedRow.created_by_id || targetTask?.createdById;
-        if (creatorId && creatorId !== storeState.currentUser?.id) {
-          const taskTitle = targetTask?.title || confirmedRow.title || 'Completed Task';
-          const notifId = `notif-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
-          await portalStore
-            .addNotification({
-              id: notifId,
-              title: `Task completed: ${taskTitle}`,
-              message: `Task "${taskTitle}" has been completed by ${storeState.currentUser?.name || 'a staff member'}.${updates.pending_rating ? ' Your performance rating is required. Open the task to rate the completed work.' : ' Open the task to review it.'}`,
-              type: updates.pending_rating ? 'task_rating_required' : 'task',
-              metadata: { taskId, requiresRating: Boolean(updates.pending_rating), completedAt: nowIso },
-              targetUserId: creatorId,
-              actorId: storeState.currentUser?.id,
-              actorName: storeState.currentUser?.name || targetTask?.assignedToName || 'Staff Member',
-              actorAvatar: storeState.currentUser?.avatar,
-              priority: 'Urgent' as const,
-              pushedToMicrosoftTeams: true,
-            })
-            .catch((err) => console.warn('addNotification error in updateTaskStatus:', err));
-
-          broadcastRealtimeEvent({
-            type: 'TASK_DONE',
-            taskId,
-            targetUserId: creatorId,
-            actorId: storeState.currentUser?.id,
-            actorName: storeState.currentUser?.name,
-            title: taskTitle,
-          });
-        }
-      }
+      // Completion and rating-required alerts are generated atomically by Supabase.
     } catch (err: any) {
       console.error('updateTaskStatus failed:', err?.message || err);
       pendingTaskStatusUpdates.delete(taskId);
@@ -2078,61 +1891,11 @@ export const portalStore = {
         return t;
       }));
 
-      // Keep the completion record after rating; only retire its action requirement.
-      // The server query also finds an alert not yet loaded in this browser.
-      const { data: completionAlerts, error: completionReadError } = await supabase
-        .from('notifications').select(NOTIFICATION_SELECT_COLUMNS)
-        .eq('target_user_id', currentUser.id).eq('type', 'task_rating_required')
-        .contains('metadata', { taskId });
-      if (completionReadError) {
-        setTableData('notificationError', 'The rating was saved, but its completion alert could not refresh.');
-      } else {
-        for (const alert of completionAlerts || []) {
-          const { data: updatedAlert, error: alertError } = await supabase.from('notifications')
-            .update({ type: 'task', title: `Task completed: ${data.title}`,
-              message: `Task "${data.title}" was completed. Your performance rating has been submitted.`,
-              metadata: { ...(alert.metadata as Record<string, unknown> || {}), requiresRating: false },
-              priority: 'Normal' })
-            .eq('id', alert.id).select(NOTIFICATION_SELECT_COLUMNS).single();
-          if (alertError || !updatedAlert) {
-            setTableData('notificationError', 'The rating was saved, but its completion alert could not update.');
-            continue;
-          }
-          const saved = mapNotificationRow(updatedAlert);
-          setTableData('notifications', [saved, ...storeState.notifications.filter(n => n.id !== saved.id)]);
-        }
-        broadcastRealtimeEvent({ type: 'NEW_NOTIFICATION', targetUserId: currentUser.id });
-      }
+      // Server retires the rating action; clients may change only an alert's read state.
+      const refreshedAlerts=await portalStore.getNotifications();
+      setTableData('notifications',refreshedAlerts);
 
-      // Notify the assigned staff member that their performance rating was submitted
-      const ratedTask = storeState.tasks.find((t) => t.id === taskId);
-      if (ratedTask?.assignedToId && ratedTask.assignedToId !== currentUser.id) {
-        portalStore.addNotification({
-          title: `Performance Rating: ${ratedTask.title}`,
-          message: `${currentUser.name} rated your work on "${ratedTask.title}" with ${stars}/5 Stars.${comment ? ` Feedback: "${comment}"` : ''}`,
-          type: 'task',
-          targetUserId: ratedTask.assignedToId,
-          priority: 'Normal',
-          actorId: currentUser.id,
-          actorName: currentUser.name,
-          actorAvatar: currentUser.avatar,
-          pushedToMicrosoftTeams: true,
-          metadata: {
-            taskId,
-            stars,
-            comment,
-          },
-        }).catch(console.warn);
-
-        broadcastRealtimeEvent({
-          type: 'TASK_RATED',
-          taskId,
-          targetUserId: ratedTask.assignedToId,
-          actorId: currentUser.id,
-          actorName: currentUser.name,
-          title: ratedTask.title,
-        });
-      }
+      // The database emits the rating notification only for a changed rating.
     } catch (err: any) {
       console.error('rateTask error:', err);
       throw err;
@@ -4581,6 +4344,13 @@ const reads=createReadQueue();
 for(const method of ['getTasks','getNotices','getMeetings','getStaff','getDepartments','getRoles','getDecisions','getMessages','getApprovals','getConversations','getSharePointDocs','getNotifications'] as const){
  const read=portalStore[method] as (...args:any[])=>Promise<any>;
  (portalStore as any)[method]=(...args:any[])=>reads.run(JSON.stringify([method,storeState.authSession.userId,...args]),()=>read(...args));
+}
+
+// Identical concurrent button actions share one write; failures remain retryable.
+const mutationGate=createMutationGate();
+for(const method of ['addTask','updateTask','updateTaskStatus','rateTask','toggleSubtask','addSubtask','addNotice','acknowledgeNotice','addApproval','approveApproval','rejectApproval','addMeeting','respondToMeeting'] as const){
+ const write=portalStore[method] as (...args:any[])=>Promise<any>;
+ (portalStore as any)[method]=(...args:any[])=>mutationGate.run(JSON.stringify([method,storeState.currentUser.id,args]),()=>write(...args));
 }
 
 // Bind actions back to portalStore so portalStore.actions and portalStore are identical

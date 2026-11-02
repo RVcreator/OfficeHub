@@ -36,7 +36,7 @@ const fs=require('fs'),path=require('path'),assert=require('assert/strict');
   await page.getByRole('button',{name:'Toggle navigation menu'}).click();await page.getByRole('button',{name:/^Messages/}).click();
   await page.getByPlaceholder('Search conversations, staff, groups, messages...').waitFor();
   if(n===1){await page.getByText('Member group',{exact:true}).waitFor();await page.getByText('Visible member message',{exact:true}).waitFor();
-   const composer=page.locator('textarea');await composer.fill('Confirmed private send');await composer.press('Control+Enter');await page.getByText('Confirmed private send',{exact:true}).waitFor();assert.equal(sent,1);
+   const composer=page.locator('textarea');await composer.fill('Confirmed private send');await composer.press('Control+Enter');await page.locator('p.whitespace-pre-wrap').filter({hasText:'Confirmed private send'}).waitFor();assert.equal(sent,1);
   }else{assert.equal(await page.getByText('Member group',{exact:true}).count(),0);assert.equal(await page.getByText('Visible member message',{exact:true}).count(),0);}
   for(const text of ['Forbidden conversation title','Forbidden preview','Forbidden message body'])assert.equal((await page.locator('body').innerText()).includes(text),false);
   await page.getByPlaceholder('Search conversations, staff, groups, messages...').fill('Forbidden');for(const text of ['Forbidden conversation title','Forbidden preview','Forbidden message body'])assert.equal((await page.locator('body').innerText()).includes(text),false);

@@ -62,7 +62,7 @@ test('notification read failure retains the previous confirmed inbox', async () 
   } finally { supabase.from = originalFrom; }
 });
 
-test('completion notifies the assigner and explicitly requests their rating', async () => {
+test('completion leaves notification creation to the committed database event', async () => {
   initialize();
   const creator = '10000000-0000-4000-8000-000000000002';
   setTableData('tasks', [{ id: 'completed-task', title: 'Delegated work', status: 'To Do',
@@ -81,18 +81,13 @@ test('completion notifies the assigner and explicitly requests their rating', as
   };
   try {
     await portalStore.updateTaskStatus('completed-task', 'Done');
-    assert.equal(inserted.length, 1);
-    assert.equal(inserted[0].target_user_id, creator);
-    assert.equal(inserted[0].title, 'Task completed: Delegated work');
-    assert.match(inserted[0].message, /performance rating is required/);
-    assert.equal(inserted[0].metadata.requiresRating, true);
-    // Saving Done again does not create another completion alert.
+    assert.equal(inserted.length, 0, 'no second browser-generated completion alert');
     await portalStore.updateTaskStatus('completed-task', 'Done');
-    assert.equal(inserted.length, 1);
+    assert.equal(inserted.length, 0);
   } finally { supabase.from = originalFrom; }
 });
 
-test('rating preserves the completion alert while clearing its required action', async () => {
+test('rating refreshes completion history without forbidden browser alert rewrites', async () => {
   initialize();
   const assignee = '10000000-0000-4000-8000-000000000002';
   const completion = { ...row, id: 'completion-alert', type: 'task_rating_required',
@@ -119,11 +114,7 @@ test('rating preserves the completion alert while clearing its required action',
   try {
     await portalStore.rateTask('rated-task', 5);
     assert.equal(deletes, 0);
-    assert.equal(updates.length, 1);
-    assert.equal(updates[0].type, 'task');
-    assert.equal(updates[0].metadata.requiresRating, false);
-    assert.equal(updates[0].metadata.completedAt, completion.metadata.completedAt);
-    assert.equal(updates[0].title, 'Task completed: Rated work');
+    assert.equal(updates.length, 0, 'the browser cannot rewrite saved notification content');
   } finally { supabase.from = originalFrom; }
 });
 
