@@ -255,9 +255,7 @@ export const TasksView: React.FC<TasksViewProps> = ({
     } else if (selectedTask) {
       const updated = tasks.find(t => t.id === selectedTask.id);
       if(!updated){setSelectedTask(null);return;}
-      if (updated && (updated.status !== selectedTask.status || updated.title !== selectedTask.title || updated.description !== selectedTask.description || updated.dueDate !== selectedTask.dueDate || updated.priority !== selectedTask.priority || JSON.stringify(updated.subtasks) !== JSON.stringify(selectedTask.subtasks))) {
-        setSelectedTask(updated);
-      }
+      if(updated!==selectedTask)setSelectedTask(updated);
     }
   }, [selectedTaskId, tasks]);
 
@@ -1002,9 +1000,10 @@ export const TasksView: React.FC<TasksViewProps> = ({
             onClick={async (e) => {
               e.stopPropagation();
               const nextStatus = task.status === 'Done' ? 'In Progress' : 'Done';
+              if(task.status==='Done'&&!window.confirm('Reopen this completed task for everyone? Its shared status will change to In Progress.'))return;
               setSavingTaskIds((prev) => new Set(prev).add(task.id));
               try {
-                await actions.updateTaskStatus(task.id, nextStatus);
+                await actions.updateTaskStatus(task.id,nextStatus,{expectedVersion:task.deliveryVersion,reopen:task.status==='Done'});
               } catch (err: any) {
                 setBannerMessage(`Could not update task: ${err?.message || 'Permission denied or network error'}`);
               } finally {
@@ -1887,11 +1886,11 @@ export const TasksView: React.FC<TasksViewProps> = ({
                           disabled={!canEdit || savingTaskIds.has(selectedTask.id)}
                           onClick={async () => {
                             if (!canEdit || savingTaskIds.has(selectedTask.id)) return;
+                            if(selectedTask.status==='Done'&&st!=='Done'&&!window.confirm(`Change this completed task to ${st} for everyone?`))return;
                             setSavingTaskIds((prev) => new Set(prev).add(selectedTask.id));
                             try {
-                              await actions.updateTaskStatus(selectedTask.id, st);
-                              const updated = tasks.find((t: Task) => t.id === selectedTask.id);
-                              if (updated) setSelectedTask(updated);
+                              await actions.updateTaskStatus(selectedTask.id,st,{expectedVersion:selectedTask.deliveryVersion,reopen:selectedTask.status==='Done'&&st!=='Done'});
+
                             } catch (err: any) {
                               setBannerMessage(`Could not update task: ${err?.message || 'Permission denied or network error'}`);
                             } finally {

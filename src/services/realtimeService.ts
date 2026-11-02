@@ -41,7 +41,6 @@ export interface RealtimeBridge {
   getDepartments?:()=>Promise<DepartmentInfo[]>;
   getRoles?:()=>Promise<RolePermission[]>;
   getDecisions?:()=>Promise<Decision[]>;
-  getPendingTaskStatus?: (taskId: string) => Task['status'] | undefined;
 }
 
 export interface PortalBroadcastEvent {
@@ -219,6 +218,15 @@ export async function triggerLiveMessageSync(){
 /**
  * Initialize Supabase Realtime channel listeners
  */
+export async function triggerLiveTaskSync(){
+ return refreshGate.run(`tasks-${channelGeneration}`,async()=>{
+  if(!activeBridge||!isStarted||!isBridgeAuthenticated())return;
+  const bridge=activeBridge,identity=bridge.getState().currentUser.id,generation=channelGeneration;
+  const rows=await bridge.getTasks();
+  if(isStarted&&activeBridge===bridge&&generation===channelGeneration&&bridge.getState().currentUser.id===identity)bridge.setTableData('tasks',rows);
+ });
+}
+
 function setupRealtimeChannel() {
   const generation=++channelGeneration;
   realtimeHealthy=false;
@@ -308,58 +316,9 @@ function setupRealtimeChannel() {
         } catch (e) {}
       }
     )
-    // 6. TASKS: Live task updates
-    .on(
-      'postgres_changes',
-      { event: '*', schema: 'public', table: 'tasks' },
-      async (payload) => {
-        if (!activeBridge) return;
-        try {
-          const currentUserId = activeBridge.getState().currentUser?.id;
-
-          if (payload.eventType === 'UPDATE' && payload.new) {
-            const updatedRow = payload.new;
-            const currentTasks = activeBridge.getState().tasks;
-            const existingTask = currentTasks.find((t) => t.id === updatedRow.id);
-
-            // Respect pending local mutations
-            const pendingStatus = activeBridge.getPendingTaskStatus?.(updatedRow.id);
-            const targetStatus = pendingStatus || updatedRow.status;
-
-            if (existingTask) {
-              const updatedTasks = currentTasks.map((t) => {
-                if (t.id === updatedRow.id) {
-                  return {
-                    ...t,
-                    status: targetStatus,
-                    title: updatedRow.title ?? t.title,
-                    description: updatedRow.description ?? t.description,
-                    priority: updatedRow.priority ?? t.priority,
-                    dueDate: updatedRow.due_date ?? t.dueDate,
-                    completedAt: updatedRow.completed_at ?? (targetStatus === 'Done' ? (t.completedAt || new Date().toISOString()) : undefined),
-                    cancelledAt: updatedRow.cancelled_at ?? (targetStatus === 'Cancelled' ? (t.cancelledAt || new Date().toISOString()) : undefined),
-                    pendingRating: updatedRow.pending_rating !== undefined ? Boolean(updatedRow.pending_rating) : t.pendingRating,
-                    rating: updatedRow.rating ?? t.rating,
-                    generalUpdate: updatedRow.general_update ?? t.generalUpdate,
-                  };
-                }
-                return t;
-              });
-              activeBridge.setTableData('tasks', updatedTasks);
-            } else {
-              const freshTasks = await activeBridge.getTasks();
-              activeBridge.setTableData('tasks', freshTasks);
-            }
-
-          } else {
-            // INSERT or DELETE
-            const freshTasks = await activeBridge.getTasks();
-            activeBridge.setTableData('tasks', freshTasks);
-          }
-          triggerLiveNotificationSync();
-        } catch (e) {}
-      }
-    )
+    // Task events are hints; publish only an authorized, versioned database snapshot.
+    .on('postgres_changes',{event:'*',schema:'public',table:'tasks'},()=>{void triggerLiveTaskSync();})
+    .on('postgres_changes',{event:'*',schema:'public',table:'task_subtasks'},()=>{void triggerLiveTaskSync();})
     // 7. NOTIFICATIONS: Live alerts for tasks, circulars, messages, etc.
     .on(
       'postgres_changes',
