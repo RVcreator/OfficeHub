@@ -341,7 +341,7 @@ export const TasksView: React.FC<TasksViewProps> = ({
     setIsEditingTask(false);
   };
 
-  const handleConfirmReassign = () => {
+  const handleConfirmReassign = async () => {
     if (!selectedTask || !selectedReassigneeId) return;
     const targetStaff = staff.find(s => s.id === selectedReassigneeId);
     if (!targetStaff) return;
@@ -349,7 +349,8 @@ export const TasksView: React.FC<TasksViewProps> = ({
     const newDept = normalizeDepartmentName(targetStaff.department);
     const newOrg = targetStaff.organisation || selectedTask.organisation || 'WIPAHS';
 
-    actions.updateTask(selectedTask.id, {
+    try {
+    await actions.updateTask(selectedTask.id, {
       assignedToId: targetStaff.id,
       assignedToName: targetStaff.name,
       assignedToAvatar: targetStaff.avatar,
@@ -363,36 +364,14 @@ export const TasksView: React.FC<TasksViewProps> = ({
       createdByName: selectedTask.createdByName,
     });
 
-    // Trigger instant notification and email for the reassigned staff member
-    if (targetStaff.id !== currentUser.id) {
-      actions.addNotification({
-        title: `Task Reassigned to You: ${selectedTask.title}`,
-        message: `Task "${selectedTask.title}" has been assigned to you by ${currentUser.name}. Priority: ${selectedTask.priority}. Due: ${selectedTask.dueDate || 'No due date'}.`,
-        type: 'task',
-        targetUserId: targetStaff.id,
-        priority: selectedTask.priority === 'Urgent' ? 'Urgent' : 'Normal',
-        actorId: currentUser.id,
-        actorName: currentUser.name,
-        actorAvatar: currentUser.avatar,
-        pushedToMicrosoftTeams: true,
-        emailTriggered: true,
-        emailRecipients: [targetStaff.email || 'staff@wipahs.or.tz'],
-        emailSubject: `[WIPAHS Task] Task Assigned to You: ${selectedTask.title}`,
-        metadata: {
-          taskId: selectedTask.id,
-          department: newDept,
-          priority: selectedTask.priority,
-          dueDate: selectedTask.dueDate,
-        },
-      });
-    }
-
+    // One server-side task event owns the recipient alert.
     const updated = tasks.find((t: Task) => t.id === selectedTask.id);
     if (updated) setSelectedTask(updated);
     setIsReassigning(false);
     setSelectedReassigneeId('');
     setReassignSuccessMsg(`Task reassigned successfully to ${targetStaff.name}`);
     setTimeout(() => setReassignSuccessMsg(null), 4000);
+    }catch(error){setBannerMessage(error instanceof Error?error.message:"Task reassignment was not saved.");}
   };
 
   // Grouping state with local storage persistence
@@ -930,8 +909,8 @@ export const TasksView: React.FC<TasksViewProps> = ({
     );
   };
 
-  const handleToggleSubtask = (taskId: string, subtaskId: string) => {
-    actions.toggleSubtask(taskId, subtaskId);
+  const handleToggleSubtask = async (taskId: string, subtaskId: string) => {
+    try {await actions.toggleSubtask(taskId, subtaskId);}catch(error){setBannerMessage(error instanceof Error?error.message:"Subtask was not saved.");return;}
     if (selectedTask && selectedTask.id === taskId) {
       const updated = tasks.find((t: Task) => t.id === taskId);
       if (updated) setSelectedTask(updated);
