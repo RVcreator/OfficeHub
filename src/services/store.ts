@@ -439,6 +439,15 @@ export function setTableData<K extends TableKey>(key: K, data: StoreData[K], sou
     const user = data as StaffUser;
     data = withPresence(user) as StoreData[K];
   }
+  if(key==='conversations'){
+    data=(data as ChatConversation[]).filter(c=>c.participantIds.includes(storeState.currentUser.id)) as StoreData[K];
+    const allowed=new Set((data as ChatConversation[]).map(c=>c.id));
+    setTableData('messages',storeState.messages.filter(m=>allowed.has(m.conversationId)));
+  }
+  if(key==='messages'){
+    const allowed=new Set(storeState.conversations.filter(c=>c.participantIds.includes(storeState.currentUser.id)).map(c=>c.id));
+    data=(data as ChatMessage[]).filter(m=>allowed.has(m.conversationId)) as StoreData[K];
+  }
   if (key === 'notifications') {
     const user = storeState.currentUser;
     const rows = storeState.authSession.isAuthenticated
@@ -1407,10 +1416,10 @@ export const portalStore = {
 
   getConversations: async (): Promise<ChatConversation[]> => {
     try {
-      const [convRes, partRes] = await Promise.all([
-        supabase.from('conversations').select('*').order('created_at', { ascending: false }),
-        supabase.from('conversation_participants').select('*'),
-      ]);
+      const convRes=await supabase.from('conversations').select('*').order('created_at',{ascending:false});
+      const ids=(convRes.data||[]).map(c=>c.id);
+      const partRes=ids.length?await supabase.from('conversation_participants').select('*').in('conversation_id',ids):{data:[],error:null};
+      if(partRes.error)throw new Error('Conversation membership could not be verified.');
 
       if (convRes.error) {
         if (isNetworkOrTransientError(convRes.error)) {
@@ -1427,7 +1436,7 @@ export const portalStore = {
         partByConv[r.conversation_id].push(r.user_id);
       });
 
-      return (convRes.data || []).map((row) => mapConversationRow(row, partByConv[row.id] || []));
+      return (convRes.data || []).map((row) => mapConversationRow(row, partByConv[row.id] || [])).filter(c=>c.participantIds.includes(storeState.currentUser.id));
     } catch (err) {
       if (isNetworkOrTransientError(err)) {
         console.warn('getConversations: Network or transient exception, using cached conversations.');
@@ -4026,81 +4035,37 @@ export const portalStore = {
   // -----------------------------------------------------------------------
   // Actions: Messaging & Conversations (UPDATES CONVERSATIONS/MESSAGES ONLY)
   // -----------------------------------------------------------------------
-  addConversation: async (conversation: ChatConversation): Promise<void> => {
-    try {
-      const row = mapConversationToRow(conversation);
-      await supabase.from('conversations').insert(row);
-      if (conversation.participantIds && conversation.participantIds.length > 0) {
-        const partRows = conversation.participantIds
-          .filter((uid) => toUuidOrNull(uid))
-          .map((uid) => ({
-            conversation_id: conversation.id,
-            user_id: uid,
-          }));
-        if (partRows.length > 0) {
-          await supabase.from('conversation_participants').insert(partRows);
-        }
-      }
-      setTableData('conversations', [conversation, ...storeState.conversations]);
-    } catch (err: any) {
-      console.error('addConversation error:', err);
-    }
+  addConversation: async (conversation:ChatConversation):Promise<void> => {
+    const {data,error}=await supabase.rpc('officehub_save_conversation',{p_id:conversation.id,p_title:conversation.name,p_type:conversation.type,p_participant_ids:conversation.participantIds,p_create:true});
+    if(error||!data?.conversation)throw new Error(error?.message||'Conversation was not saved.');
+    const saved=mapConversationRow(data.conversation,data.participant_ids||[]);
+    setTableData('conversations',[saved,...storeState.conversations.filter(c=>c.id!==saved.id)]);
   },
-
-  updateConversation: async (conversationId: string, updates: Partial<ChatConversation>): Promise<void> => {
-    try {
-      const rowUpdates = mapConversationToRow(updates);
-      await supabase.from('conversations').update(rowUpdates).eq('id', conversationId);
-      setTableData('conversations', storeState.conversations.map((c) => (c.id === conversationId ? { ...c, ...updates } : c)));
-    } catch (err: any) {
-      console.error('updateConversation error:', err);
-    }
+  updateConversation: async (conversationId:string,updates:Partial<ChatConversation>):Promise<void> => {
+    const {data,error}=await supabase.rpc('officehub_save_conversation',{p_id:conversationId,p_title:updates.name??null,p_type:updates.type??null,p_participant_ids:updates.participantIds??null,p_create:false});
+    if(error||!data?.conversation)throw new Error(error?.message||'Conversation was not saved.');
+    const saved=mapConversationRow(data.conversation,data.participant_ids||[]);
+    setTableData('conversations',storeState.conversations.map(c=>c.id===conversationId?saved:c));
   },
 
   sendMessage: async (message: ChatMessage): Promise<void> => {
     try {
+      const actor=storeState.currentUser;
+      if(!storeState.conversations.some(c=>c.id===message.conversationId&&c.participantIds.includes(actor.id)))throw new Error('Only conversation members may send messages.');
+      if(message.senderId!==actor.id)throw new Error('Messages must be sent as your own account.');
       const row = mapMessageToRow(message);
       const { data, error } = await supabase.from('messages').insert(row).select(MESSAGE_SELECT_COLUMNS).single();
       if (error || !data) throw new Error('Message could not be saved');
       const insertedMsg = { ...mapMessageRow(data), senderAvatar: message.senderAvatar };
       setTableData('messages', [...storeState.messages, insertedMsg]);
 
-      await supabase
-        .from('conversations')
-        .update({
-          last_message: message.text,
-          last_message_time: message.timestamp,
-        })
-        .eq('id', message.conversationId);
-
-      setTableData('conversations', storeState.conversations.map((c) => (c.id === message.conversationId ? {
-        ...c,
-        lastMessage: message.text,
-        lastMessageTime: message.timestamp,
-      } : c)));
+      // The database updates the preview in the same transaction as the message.
+      setTableData('conversations',storeState.conversations.map(c=>c.id===message.conversationId?{...c,lastMessage:insertedMsg.text,lastMessageTime:insertedMsg.timestamp}:c));
 
       // Insert notifications for every other participant in this conversation (not the sender)
-      let participantIds: string[] = [];
-      const currentConv = storeState.conversations.find((c) => c.id === message.conversationId);
-      if (currentConv?.participantIds && currentConv.participantIds.length > 0) {
-        participantIds = [...currentConv.participantIds];
-      }
-
-      try {
-        const { data: partRows } = await supabase
-          .from('conversation_participants')
-          .select('user_id')
-          .eq('conversation_id', message.conversationId);
-        if (partRows && partRows.length > 0) {
-          partRows.forEach((r: any) => {
-            if (r.user_id && !participantIds.includes(r.user_id)) {
-              participantIds.push(r.user_id);
-            }
-          });
-        }
-      } catch (partErr) {
-        console.warn('Error fetching conversation participants for notification:', partErr);
-      }
+      const {data:partRows,error:partError}=await supabase.from('conversation_participants').select('user_id').eq('conversation_id',message.conversationId);
+      const participantIds:string[]=partError?[]:(partRows||[]).map(r=>r.user_id);
+      if(partError)setTableData('notificationError','Message saved; recipient notifications could not be verified.');
 
       // Filter out sender
       const otherParticipantIds = participantIds.filter(
@@ -4157,16 +4122,14 @@ export const portalStore = {
       }
     } catch (err: any) {
       console.error('sendMessage error:', err);
+      throw err;
     }
   },
 
-  deleteConversation: async (conversationId: string): Promise<void> => {
-    try {
-      await supabase.from('conversations').delete().eq('id', conversationId);
-      setTableData('conversations', storeState.conversations.filter((c) => c.id !== conversationId));
-    } catch (err: any) {
-      console.error('deleteConversation error:', err);
-    }
+  deleteConversation: async (conversationId:string):Promise<void> => {
+    const {data,error}=await supabase.from('conversations').delete().eq('id',conversationId).select('id').single();
+    if(error||!data)throw new Error(error?.message||'Conversation deletion was not permitted.');
+    setTableData('conversations',storeState.conversations.filter(c=>c.id!==conversationId));
   },
 
   // -----------------------------------------------------------------------

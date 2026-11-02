@@ -1,0 +1,6 @@
+-- Verified production chat columns, with intentionally broad old fixture policies.
+create table conversations(id text primary key,title text,type text not null default 'direct',last_message text,last_message_time text,created_at timestamptz not null default now());
+create table conversation_participants(conversation_id text references conversations(id) on delete cascade,user_id uuid references profiles(id) on delete cascade,primary key(conversation_id,user_id));
+create table messages(id text primary key,conversation_id text references conversations(id) on delete cascade,sender_id uuid references profiles(id) on delete set null,sender_name text not null,sender_avatar text,text text not null,timestamp text not null,reply_to_id text,reactions jsonb default '[]');
+create table message_attachments(id text primary key,message_id text references messages(id) on delete cascade,name text,size text,type text,url text,text_content text);
+do $$declare t text;begin foreach t in array array['conversations','conversation_participants','messages','message_attachments'] loop execute format('alter table %I enable row level security',t);execute format('grant all on %I to anon,authenticated,service_role',t);execute format('create policy fixture_broad_chat on %I for all using(true) with check(true)',t);end loop;end$$;
