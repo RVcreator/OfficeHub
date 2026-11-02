@@ -1,9 +1,10 @@
+import {hasSavedTaskRating,requiresTaskRating} from '../utils/taskRatingState';
 import React, { useState } from 'react';
 import { Star, ShieldAlert, CheckCircle2, Edit3, Clock, Sparkles } from 'lucide-react';
 import { Task } from '../types';
 import { usePortalStore } from '../services/store';
 import { canEditTaskRating, getRatingRemainingHours } from '../utils/staffRatings';
-import { isPersonalTask, isTaskAssignedByMe } from '../utils/taskUtils';
+import { isPersonalTask } from '../utils/taskUtils';
 
 interface TaskRatingPromptProps {
   task: Task;
@@ -26,14 +27,10 @@ export const TaskRatingPrompt: React.FC<TaskRatingPromptProps> = ({
 }) => {
   const { currentUser, actions } = usePortalStore(['currentUser']);
 
-  const isAssigner =
-    (Boolean(task.createdById) && task.createdById === currentUser.id && task.createdById !== 'usr-default' && task.createdById !== 'usr-guest') ||
-    isTaskAssignedByMe(task, currentUser.id) ||
-    Boolean(currentUser.role?.toLowerCase().includes('admin')) ||
-    Boolean(currentUser.role?.toLowerCase().includes('director'));
-  const isAssignee = !isAssigner;
-  const hasExistingRating = !!task.rating;
-  const isPending = !!task.pendingRating;
+  const isAssigner=task.createdById===currentUser.id;
+  const isAssignee=!isAssigner;
+  const hasExistingRating=hasSavedTaskRating(task);
+  const isPending=requiresTaskRating(task,currentUser.id);
 
   const isDeptTask =
     !!task.rating?.isDepartmentRating ||
@@ -53,6 +50,7 @@ export const TaskRatingPrompt: React.FC<TaskRatingPromptProps> = ({
   const [comment, setComment] = useState<string>(task.rating?.comment || '');
   const [isEditing, setIsEditing] = useState<boolean>(false);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+  const [saveError,setSaveError]=useState<string|null>(null);
   const [justSubmitted, setJustSubmitted] = useState<boolean>(false);
 
   // If task is not completed, don't show rating prompt
@@ -69,17 +67,20 @@ export const TaskRatingPrompt: React.FC<TaskRatingPromptProps> = ({
     setSelectedStars(stars);
   };
 
-  const handleSubmitRating = (e?: React.FormEvent) => {
+  const handleSubmitRating = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    if (selectedStars < 1 || selectedStars > 5) return;
+    if (isSubmitting || selectedStars < 1 || selectedStars > 5) return;
+    setSaveError(null);
 
     setIsSubmitting(true);
     try {
-      actions.rateTask(task.id, selectedStars, comment);
+      await actions.rateTask(task.id, selectedStars, comment);
       setIsEditing(false);
       setJustSubmitted(true);
       if (onRatingSubmitted) onRatingSubmitted();
       setTimeout(() => setJustSubmitted(false), 3000);
+    } catch(error) {
+      setSaveError(error instanceof Error?error.message:"Your rating could not be saved. Please try again.");
     } finally {
       setIsSubmitting(false);
     }
@@ -90,7 +91,7 @@ export const TaskRatingPrompt: React.FC<TaskRatingPromptProps> = ({
   // 1. Existing Rating View (when not currently in edit mode)
   if (hasExistingRating && !isEditing) {
     const rating = task.rating!;
-    const canEdit = canEditTaskRating(rating, currentUser.id);
+    const canEdit = isAssigner && canEditTaskRating(rating, currentUser.id);
     const remainingHours = getRatingRemainingHours(rating);
 
     return (
@@ -309,6 +310,7 @@ export const TaskRatingPrompt: React.FC<TaskRatingPromptProps> = ({
         </div>
       </div>
 
+      {saveError && <p role="alert" className="text-rose-700 font-semibold">{saveError}</p>}
       {/* Submit Action */}
       <div className="flex items-center justify-end gap-2 pt-1 border-t border-amber-200">
         <button

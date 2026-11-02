@@ -1,3 +1,4 @@
+import {requiresTaskRating} from '../utils/taskRatingState';
 import React, { useEffect, useRef, useState } from 'react';
 import {
   LayoutDashboard,
@@ -23,7 +24,7 @@ import {
 } from 'lucide-react';
 import { usePortalStore } from '../services/store';
 import { isMyPersonalOrAssignedTask, isTaskAssignedByMe, isTaskDepartmentalForUser } from '../utils/taskUtils';
-import { isMeetingArchived, isUserInvolvedInMeeting } from '../utils/archiveUtils';
+import { isTaskArchived, isMeetingArchived, isUserInvolvedInMeeting } from '../utils/archiveUtils';
 import { canUserViewDocument } from '../utils/documentAccess';
 
 export type TabId = 
@@ -107,7 +108,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     return isTaskDepartmentalForUser(t, currentUser.department);
   }).length;
   const assignedByMePendingCount = tasks.filter(t => {
-    if (t.status !== 'Done' || !t.pendingRating || t.rating) return false;
+    if (isTaskArchived(t) || !requiresTaskRating(t,currentUser.id)) return false;
     return isTaskAssignedByMe(t, currentUser.id);
   }).length;
   const urgentNoticesCount = notices.filter(n => n.priority === 'Urgent').length;

@@ -1,3 +1,4 @@
+import {requiresTaskRating} from '../utils/taskRatingState';
 import {brandLogo} from '../utils/brandLogo';
 import { isNotificationForUser } from '../services/notificationDelivery';
 import React, { useState, useEffect, useRef } from 'react';
@@ -370,7 +371,7 @@ export const Header: React.FC<HeaderProps> = ({
                   const taskForNotif = meta?.taskId ? tasks.find(t => t.id === meta.taskId) : null;
                   const isRatingRequired = notif.type === 'task_rating_required' &&
                     Boolean(meta?.requiresRating) &&
-                    Boolean(taskForNotif && taskForNotif.pendingRating && !taskForNotif.rating && !isPersonalTask(taskForNotif, currentUser.id));
+                    Boolean(taskForNotif && requiresTaskRating(taskForNotif,currentUser.id));
 
                   // Check if this is a proposal for a meeting where current user is organizer
                   const relatedMeeting = notif.meetingId ? meetings.find(m => m.id === notif.meetingId) : null;

@@ -1,3 +1,4 @@
+import {requiresTaskRating} from '../utils/taskRatingState';
 import { isNotificationForUser } from '../services/notificationDelivery';
 import React, { useEffect, useState } from 'react';
 import {
@@ -323,7 +324,7 @@ export const TeamsNotificationsView: React.FC<{
 
               const meta = notif.metadata as { taskId?: string; requiresRating?: boolean } | undefined;
               const taskForNotif = meta?.taskId ? tasks.find(t => t.id === meta.taskId) : null;
-              const isTaskRequiresRating = Boolean(taskForNotif && taskForNotif.pendingRating && !taskForNotif.rating && !isPersonalTask(taskForNotif, currentUser.id));
+              const isTaskRequiresRating = Boolean(taskForNotif && requiresTaskRating(taskForNotif,currentUser.id));
               const isRatingRequired = notif.type === 'task_rating_required' && Boolean(meta?.requiresRating) && isTaskRequiresRating;
 
               return (
