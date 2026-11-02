@@ -170,6 +170,12 @@ async function triggerLiveMessageSyncOnce() {
   const current=()=>isStarted&&activeBridge===bridge&&generation===channelGeneration&&bridge.getState().currentUser.id===identity;
   try {
 
+    const freshConversations=await bridge.getConversations();
+    if(!current())return;
+    bridge.setTableData('conversations',freshConversations);
+    const allowed=new Set(freshConversations.filter(c=>c.participantIds.includes(identity)).map(c=>c.id));
+    bridge.setTableData('messages',bridge.getState().messages.filter(m=>allowed.has(m.conversationId)));
+    if(!allowed.size)return;
     const { data: rows, error } = await supabase
       .from('messages')
       .select(MESSAGE_SELECT_COLUMNS)
@@ -225,84 +231,10 @@ function setupRealtimeChannel() {
 
   realtimeChannel = supabase
     .channel('wipahs_officehub_live')
-    // 1. MESSAGES: Instant live delivery
-    .on(
-      'postgres_changes',
-      { event: 'INSERT', schema: 'public', table: 'messages' },
-      (payload) => {
-        if (!activeBridge) return;
-        const newMsg = mapMessageRow(payload.new);
-        const currentMsgs = activeBridge.getState().messages;
-
-        // Idempotent guard: ignore if already in state
-        if (currentMsgs.some((m) => m.id === newMsg.id)) return;
-
-        activeBridge.setTableData('messages', [...currentMsgs, newMsg]);
-
-        // Update corresponding conversation snippet & unread count
-        const currentConvs = activeBridge.getState().conversations;
-        const currentUserId = activeBridge.getState().currentUser?.id;
-        const updatedConvs = currentConvs.map((conv) => {
-          if (conv.id === newMsg.conversationId) {
-            return {
-              ...conv,
-              lastMessage: newMsg.text,
-              lastMessageTime: newMsg.timestamp,
-              unreadCount:
-                newMsg.senderId !== currentUserId ? (conv.unreadCount || 0) + 1 : conv.unreadCount,
-            };
-          }
-          return conv;
-        });
-        activeBridge.setTableData('conversations', updatedConvs);
-
-        // The saved notification determines whether this message should chime.
-        if (newMsg.senderId && newMsg.senderId !== currentUserId) {
-          void triggerLiveNotificationSync();
-        }
-      }
-    )
-    .on(
-      'postgres_changes',
-      { event: 'UPDATE', schema: 'public', table: 'messages' },
-      (payload) => {
-        if (!activeBridge) return;
-        const updatedMsg = mapMessageRow(payload.new);
-        const currentMsgs = activeBridge.getState().messages;
-        activeBridge.setTableData(
-          'messages',
-          currentMsgs.map((m) => (m.id === updatedMsg.id ? updatedMsg : m))
-        );
-      }
-    )
-    .on(
-      'postgres_changes',
-      { event: 'DELETE', schema: 'public', table: 'messages' },
-      (payload) => {
-        if (!activeBridge) return;
-        const deletedId = payload.old?.id;
-        if (!deletedId) return;
-        const currentMsgs = activeBridge.getState().messages;
-        activeBridge.setTableData(
-          'messages',
-          currentMsgs.filter((m) => m.id !== deletedId)
-        );
-      }
-    )
-    // 2. CONVERSATIONS: Realtime creation or updates
-    .on(
-      'postgres_changes',
-      { event: '*', schema: 'public', table: 'conversations' },
-      async () => {
-        if (!activeBridge) return;
-        try {
-          const freshConvs = await activeBridge.getConversations();
-          activeBridge.setTableData('conversations', freshConvs);
-        } catch (e) {
-          console.warn('Error syncing conversations:', e);
-        }
-      }
-    )
+    // Realtime events are refresh hints, never authorized message content.
+    .on('postgres_changes',{event:'*',schema:'public',table:'messages'},()=>{void triggerLiveMessageSync();})
+    .on('postgres_changes',{event:'*',schema:'public',table:'conversation_participants'},()=>{void triggerLiveMessageSync();})
+    .on('postgres_changes',{event:'*',schema:'public',table:'conversations'},()=>{void triggerLiveMessageSync();})
     // 3. MEETINGS: Instant live addition, update, or cancellation
     .on(
       'postgres_changes',

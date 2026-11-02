@@ -37,7 +37,13 @@ import { formatStaffDisplayName, formatStaffDisplayOrgDept, getStaffHierarchy } 
 import { parseUploadedFile, getAttachmentTabUrl, openAttachmentInNewTab, downloadAttachment } from '../utils/fileParser';
 
 export const MessagesView: React.FC = () => {
-  const store = usePortalStore();
+  const rawStore = usePortalStore();
+  const visibleConversations=useMemo(()=>rawStore.conversations.filter(c=>c.participantIds.includes(rawStore.currentUser.id)),[rawStore.conversations,rawStore.currentUser.id]);
+  const store={...rawStore,conversations:visibleConversations};
+  const [operationPending,setOperationPending]=useState(false);
+  const operationLock=useRef(false);
+  const runChatAction=async(action:()=>Promise<void>)=>{if(operationLock.current)return;operationLock.current=true;setOperationPending(true);try{await action();}catch(error){window.alert(error instanceof Error?error.message:'Chat operation failed. Please try again.');}finally{operationLock.current=false;setOperationPending(false);}};
+  const chatTime=(value?:string)=>value&&Number.isFinite(Date.parse(value))?new Date(value).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}):value||'';
   const [selectedConvId, setSelectedConvId] = useState<string>('');
   const [messageText, setMessageText] = useState('');
   const [attachments, setAttachments] = useState<MessageAttachment[]>([]);
@@ -160,6 +166,7 @@ export const MessagesView: React.FC = () => {
   };
 
   const handleSendMessage = () => {
+    void runChatAction(async()=>{
     if ((!messageText.trim() && attachments.length === 0) || !conversation) return;
     
     // Auto preview text if only attachment sent
@@ -167,7 +174,7 @@ export const MessagesView: React.FC = () => {
       ? `Shared ${attachments.length === 1 ? attachments[0].name : `${attachments.length} files`}`
       : '');
 
-    store.actions.sendMessage({
+    await store.actions.sendMessage({
       id: `msg-${Date.now()}`,
       conversationId: conversation.id,
       senderId: store.currentUser.id,
@@ -183,16 +190,18 @@ export const MessagesView: React.FC = () => {
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
     }
+    });
   };
 
   const handleCreateGroup = (e: React.FormEvent) => {
+    void runChatAction(async()=>{
     e.preventDefault();
     if (!newGroupName.trim()) return;
 
     const newConvId = `conv-${Date.now()}`;
     const allParticipants = Array.from(new Set([store.currentUser.id, ...selectedStaffIds]));
 
-    store.actions.addConversation({
+    await store.actions.addConversation({
       id: newConvId,
       type: 'group',
       name: newGroupName.trim(),
@@ -211,10 +220,12 @@ export const MessagesView: React.FC = () => {
     setIsCreatingGroup(false);
     setSelectedConvId(newConvId);
     setMobileView('chat');
+    });
   };
 
   // Start or open a direct chat with a staff member
   const handleStartDirectChat = (targetStaff: StaffUser) => {
+    void runChatAction(async()=>{
     const existing = store.conversations.find(
       c => c.type === 'direct' && c.participantIds.includes(targetStaff.id) && c.participantIds.includes(store.currentUser.id)
     );
@@ -224,7 +235,7 @@ export const MessagesView: React.FC = () => {
       setSearchQuery('');
     } else {
       const newDirectId = `conv-dm-${Date.now()}`;
-      store.actions.addConversation({
+      await store.actions.addConversation({
         id: newDirectId,
         type: 'direct',
         name: formatStaffDisplayName(targetStaff),
@@ -239,24 +250,26 @@ export const MessagesView: React.FC = () => {
       setMobileView('chat');
       setSearchQuery('');
     }
+    });
   };
 
   // Add a member to the current group
   const handleAddMemberToGroup = () => {
+    void runChatAction(async()=>{
     if (!selectedNewMemberId || !conversation || conversation.type !== 'group') return;
     if (conversation.participantIds.includes(selectedNewMemberId)) return;
 
     const updatedParticipants = [...conversation.participantIds, selectedNewMemberId];
-    store.actions.updateConversation(conversation.id, {
+    await store.actions.updateConversation(conversation.id, {
       participantIds: updatedParticipants
     });
 
     const addedPerson = store.staff.find(s => s.id === selectedNewMemberId);
-    store.actions.sendMessage({
+    await store.actions.sendMessage({
       id: `msg-${Date.now()}`,
       conversationId: conversation.id,
-      senderId: 'system',
-      senderName: 'OfficeHub System',
+      senderId: store.currentUser.id,
+      senderName: store.currentUser.name,
       senderAvatar: store.currentUser.avatar,
       text: `${store.currentUser.name} added ${addedPerson ? formatStaffDisplayName(addedPerson) : 'a new colleague'} to the group.`,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
@@ -264,15 +277,17 @@ export const MessagesView: React.FC = () => {
 
     setSelectedNewMemberId('');
     setIsAddingMember(false);
+    });
   };
 
   // Execute deletion of conversation
   const handleConfirmDeleteConversation = () => {
+    void runChatAction(async()=>{
     if (!conversationToDelete) return;
     const targetId = conversationToDelete.id;
     
     // Call store action
-    store.actions.deleteConversation(targetId);
+    await store.actions.deleteConversation(targetId);
     
     // Switch to another conversation if currently selected
     const remaining = store.conversations.filter(c => c.id !== targetId);
@@ -283,6 +298,7 @@ export const MessagesView: React.FC = () => {
       setMobileView('list');
     }
     setConversationToDelete(null);
+    });
   };
 
   // Helper: check if conversation contains messages matching search query
@@ -605,7 +621,7 @@ export const MessagesView: React.FC = () => {
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center justify-between">
                             <p className="font-bold truncate text-xs">{conv.name}</p>
-                            <span className="text-[9px] text-slate-400 font-normal shrink-0 ml-1">{conv.lastMessageTime || ''}</span>
+                            <span className="text-[9px] text-slate-400 font-normal shrink-0 ml-1">{chatTime(conv.lastMessageTime)}</span>
                           </div>
                           <p className="text-[10px] text-slate-500 truncate mt-0.5">
                             {memberCount} members • {conv.lastMessage || 'No messages yet'}
@@ -675,7 +691,7 @@ export const MessagesView: React.FC = () => {
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center justify-between">
                         <p className="font-bold truncate text-xs">{partner ? formatStaffDisplayName(partner) : conv.name}</p>
-                        <span className="text-[9px] text-slate-400 font-normal shrink-0 ml-1">{conv.lastMessageTime || ''}</span>
+                        <span className="text-[9px] text-slate-400 font-normal shrink-0 ml-1">{chatTime(conv.lastMessageTime)}</span>
                       </div>
                       <p className="text-[10px] text-slate-500 truncate mt-0.5">
                         {conv.lastMessage || `${partner?.role || 'Staff'}`}
@@ -986,7 +1002,7 @@ export const MessagesView: React.FC = () => {
                     return (
                       <div key={msg.id} className="text-center my-1.5">
                         <span className="inline-block px-2.5 py-0.5 rounded-full bg-slate-200/80 text-slate-600 text-[10px] font-medium border border-slate-300/50">
-                          {msg.text} • {msg.timestamp}
+                          {msg.text} • {chatTime(msg.timestamp)}
                         </span>
                       </div>
                     );
@@ -1009,7 +1025,7 @@ export const MessagesView: React.FC = () => {
                           {msg.senderRole && (
                             <span className="text-slate-400 font-normal">({msg.senderRole})</span>
                           )}
-                          <span className="text-slate-400 font-normal">{msg.timestamp}</span>
+                          <span className="text-slate-400 font-normal">{chatTime(msg.timestamp)}</span>
                         </div>
 
                         <div
@@ -1265,7 +1281,7 @@ export const MessagesView: React.FC = () => {
                 <button
                   type="button"
                   onClick={handleSendMessage}
-                  disabled={!messageText.trim() && attachments.length === 0}
+                  disabled={operationPending || (!messageText.trim() && attachments.length === 0)}
                   className="p-2 bg-purple-600 hover:bg-purple-700 disabled:bg-slate-200 text-white rounded-lg shadow-2xs transition cursor-pointer shrink-0 mb-0.5"
                   title={enterToSend ? "Send Message (Enter)" : "Send Message (Ctrl+Enter)"}
                 >
