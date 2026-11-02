@@ -1,3 +1,4 @@
+import {hasSavedTaskRating} from '../utils/taskRatingState';
 import {departmentName,organisationName} from '../utils/departmentDirectory';
 // =========================================================================
 // Shared Supabase Mappers
@@ -280,7 +281,7 @@ export function mapTaskRow(row: any, subtasks: Subtask[] = []): Task {
     assignmentType: row.assignment_type || resolvedAssignmentType,
     assignedDepartments: row.assigned_departments || [],
     assignedOrganisations: row.assigned_organisations || [],
-    pendingRating: isPersonal ? false : Boolean(row.pending_rating),
+    pendingRating: !isPersonal && row.status==='Done' && Boolean(row.pending_rating) && !hasSavedTaskRating({rating:row.rating}),
     rating: row.rating || undefined,
     completedAt: row.completed_at || undefined,
     cancelledAt: row.cancelled_at || undefined,

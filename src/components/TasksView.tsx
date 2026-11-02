@@ -1,3 +1,4 @@
+import {hasSavedTaskRating,requiresTaskRating} from '../utils/taskRatingState';
 import {canViewTask,ownsTask} from '../utils/recordPermissions';
 import { UserAvatar } from './UserAvatar';
 import { ConfirmDialog } from './ConfirmDialog';
@@ -455,12 +456,10 @@ export const TasksView: React.FC<TasksViewProps> = ({
   }, [tasks, currentUser]);
 
   const assignedByMePendingRatingTasks = useMemo(() => {
-    if (activeCategory !== 'assigned-by-me') return [];
     return assignedByMeTasks.filter(t => {
-      if (t.status !== 'Done' || t.rating || !t.pendingRating) return false;
-      return true;
+      return requiresTaskRating(t,currentUser.id);
     });
-  }, [activeCategory, assignedByMeTasks]);
+  }, [assignedByMeTasks,currentUser.id]);
 
   // 4. All Tasks: all tasks relevant to the user, including personal tasks, tasks assigned to me,
   // tasks assigned by me, departmental tasks, and organisation-wide tasks
@@ -862,7 +861,7 @@ export const TasksView: React.FC<TasksViewProps> = ({
     const isAssignedByMeCategory = activeCategory === 'assigned-by-me';
     // For assigned-by-me, pending-rating tasks are already displayed in the global pinned banner above the list
     const regularTaskList = isAssignedByMeCategory
-      ? taskList.filter(t => !(t.status === 'Done' && t.pendingRating && !isPersonalTask(t, currentUser.id)))
+      ? taskList.filter(t => !requiresTaskRating(t,currentUser.id))
       : taskList;
 
     const activeTasks = regularTaskList.filter(t => t.status !== 'Done' && t.status !== 'Cancelled');
@@ -1140,7 +1139,7 @@ export const TasksView: React.FC<TasksViewProps> = ({
         {/* Right / Bottom on mobile: Status badge & Due date & Rating badge */}
         <div className="shrink-0 flex sm:flex-col items-center sm:items-end justify-between sm:justify-center gap-1.5 pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-100 text-right">
           <div className="flex items-center gap-1.5 flex-wrap justify-end">
-            {task.status === 'Done' && task.pendingRating && !isPersonalTask(task, currentUser.id) && (
+            {requiresTaskRating(task,currentUser.id) && (
               <span
                 className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded font-bold bg-amber-100 text-amber-900 border border-amber-300 shadow-2xs animate-pulse"
                 title="Task completed — rating is required from assigner"
@@ -1150,7 +1149,7 @@ export const TasksView: React.FC<TasksViewProps> = ({
               </span>
             )}
 
-            {task.status === 'Done' && task.rating && !isPersonalTask(task, currentUser.id) && (
+            {task.status === 'Done' && hasSavedTaskRating(task) && task.rating && !isPersonalTask(task, currentUser.id) && (
               <span
                 className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded font-bold bg-amber-50 text-amber-800 border border-amber-200"
                 title={`Rated ${task.rating.stars} stars${task.rating.comment ? `: "${task.rating.comment}"` : ''}`}
@@ -1284,9 +1283,9 @@ export const TasksView: React.FC<TasksViewProps> = ({
               }`}
             >
               <span>Assigned By Me ({assignedByMeTasks.length})</span>
-              {assignedByMeTasks.filter(t => t.status === 'Done' && t.pendingRating).length > 0 && (
+              {assignedByMePendingRatingTasks.length > 0 && (
                 <span className="px-1.5 py-0.2 rounded-full bg-amber-500 text-white text-[9px] font-bold">
-                  {assignedByMeTasks.filter(t => t.status === 'Done' && t.pendingRating).length}★
+                  {assignedByMePendingRatingTasks.length}★
                 </span>
               )}
             </button>
@@ -1673,13 +1672,9 @@ export const TasksView: React.FC<TasksViewProps> = ({
             ) : (
               <div className="p-5 overflow-y-auto space-y-4 text-xs flex-1">
                 {/* Persistent Task Completion Performance Rating Banner / Form */}
-                {selectedTask.status === 'Done' && !isPersonalTask(selectedTask, currentUser.id) && (selectedTask.pendingRating || selectedTask.rating) && (
+                {selectedTask.status === 'Done' && !isPersonalTask(selectedTask, currentUser.id) && (requiresTaskRating(selectedTask,currentUser.id) || hasSavedTaskRating(selectedTask)) && (
                   <TaskRatingPrompt
                     task={selectedTask}
-                    onRatingSubmitted={() => {
-                      const updated = tasks.find((t: Task) => t.id === selectedTask.id);
-                      if (updated) setSelectedTask(updated);
-                    }}
                   />
                 )}
 
@@ -2351,7 +2346,7 @@ export const TasksView: React.FC<TasksViewProps> = ({
                   <button
                     disabled={isDeletingTask}
                     onClick={async () => {
-                      if (selectedTask.pendingRating && !isPersonalTask(selectedTask, currentUser.id)) {
+                      if (requiresTaskRating(selectedTask,currentUser.id)) {
                         setBannerMessage('This completed task requires a performance rating before it can be removed.');
                         return;
                       }
