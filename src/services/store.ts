@@ -1,3 +1,4 @@
+import {canRespondToMeeting} from '../utils/meetingLifecycle';
 import {confirmedTaskSnapshot} from './taskSnapshot';
 import {createMutationGate} from './mutationGate';
 import {canViewApproval,canResolveApproval,ownsTask,canManageMeeting} from '../utils/recordPermissions';
@@ -3058,6 +3059,8 @@ export const portalStore = {
     proposal?: { date: string; time: string; endTime?: string; note?: string }
   ): Promise<void> => {
     try {
+      const meeting=storeState.meetings.find(m=>m.id===meetingId);
+      if(meeting&&!canRespondToMeeting(meeting))throw new Error('This meeting is dormant. Its response window has closed.');
       const currentUser = storeState.currentUser;
       let attendeeUserId = currentUser.id;
       let status: RsvpStatus = 'Accepted';

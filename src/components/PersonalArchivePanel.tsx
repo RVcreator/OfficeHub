@@ -1,3 +1,5 @@
+import {useMeetingClock} from '../utils/useMeetingClock';
+import {canRespondToMeeting,isMeetingUpcoming} from '../utils/meetingLifecycle';
 import React, { useState } from 'react';
 import {
   Archive,
@@ -39,10 +41,11 @@ export const PersonalArchivePanel: React.FC<PersonalArchivePanelProps> = ({
   className = ''
 }) => {
   const { currentUser, tasks, meetings, actions } = usePortalStore(['currentUser', 'tasks', 'meetings']);
+  const meetingNow=useMeetingClock(meetings);
   const targetUserId = userId || currentUser.id;
   const isSelf = targetUserId === currentUser.id;
 
-  const archiveData = actions.getUserArchive(targetUserId, tasks, meetings);
+  const archiveData = actions.getUserArchive(targetUserId, tasks, meetings,{nowMs:meetingNow});
   const { tasks: archivedTasks, meetings: archivedMeetings } = archiveData;
 
   const totalItems = archivedTasks.length + archivedMeetings.length;
@@ -83,7 +86,7 @@ export const PersonalArchivePanel: React.FC<PersonalArchivePanelProps> = ({
                 </span>
               </div>
               <p className="text-xs text-slate-300 mt-0.5">
-                Completed or cancelled tasks, and all meetings 2 days (48 hours) after their scheduled date, automatically move into archives.
+                Completed or cancelled tasks, and all meetings 2 days (48 hours) after their scheduled end time, automatically move into archives.
               </p>
             </div>
           </div>

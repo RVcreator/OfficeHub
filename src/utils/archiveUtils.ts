@@ -100,28 +100,13 @@ export function getMeetingScheduledTimestamp(
       parseMeetingTimeOfDay(meeting.time);
     const parsedEnd = parseMeetingTimeOfDay(meeting.endTime);
 
-    const chosenTime = parsedEnd || parsedStart || { hours: 18, minutes: 0, seconds: 0 };
-
-    let dayOffset = 0;
-    if (parsedStart && parsedEnd) {
-      const startTotalSec = parsedStart.hours * 3600 + parsedStart.minutes * 60 + parsedStart.seconds;
-      const endTotalSec = parsedEnd.hours * 3600 + parsedEnd.minutes * 60 + parsedEnd.seconds;
-      if (endTotalSec < startTotalSec) {
-        dayOffset = 1;
-      }
-    }
-
-    const dt = new Date(
-      year,
-      monthIndex,
-      day + dayOffset,
-      chosenTime.hours,
-      chosenTime.minutes,
-      chosenTime.seconds,
-      0
-    );
-    const ts = dt.getTime();
-    return Number.isNaN(ts) ? null : ts;
+    const dateCheck=new Date(Date.UTC(year,monthIndex,day));
+    if(dateCheck.getUTCFullYear()!==year||dateCheck.getUTCMonth()!==monthIndex||dateCheck.getUTCDate()!==day)return null;
+    const seconds=(t:{hours:number;minutes:number;seconds:number})=>t.hours*3600+t.minutes*60+t.seconds;
+    const eatDate=Date.UTC(year,monthIndex,day)-3*60*60*1000;
+    if(parsedEnd){const dayOffset=parsedStart&&seconds(parsedEnd)<seconds(parsedStart)?86400000:0;return eatDate+dayOffset+seconds(parsedEnd)*1000;}
+    if(parsedStart){const duration=Number(meeting.durationMinutes);return eatDate+seconds(parsedStart)*1000+(Number.isFinite(duration)&&duration>0?duration:60)*60000;}
+    return null;
   }
 
   const parsedIso = Date.parse(rawDate);

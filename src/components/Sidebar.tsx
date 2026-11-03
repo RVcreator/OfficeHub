@@ -1,3 +1,5 @@
+import {useMeetingClock} from '../utils/useMeetingClock';
+import {canRespondToMeeting,isMeetingUpcoming} from '../utils/meetingLifecycle';
 import {requiresTaskRating} from '../utils/taskRatingState';
 import React, { useEffect, useRef, useState } from 'react';
 import {
@@ -99,6 +101,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   }, [isSidebarVisible, isCompact]);
   const { tasks, notices, meetings, sharePointDocs, currentUser, approvals, decisions } = usePortalStore(['tasks', 'notices', 'meetings', 'sharePointDocs', 'currentUser', 'approvals', 'decisions']);
 
+  const meetingNow=useMeetingClock(meetings);
   const myTasksCount = tasks.filter(t => {
     if (t.status === 'Done' || t.status === 'Cancelled') return false;
     return isMyPersonalOrAssignedTask(t, currentUser.id, currentUser.name);
@@ -113,7 +116,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   }).length;
   const urgentNoticesCount = notices.filter(n => n.priority === 'Urgent').length;
   const scheduledMeetingsCount = meetings.filter(
-    m => !isMeetingArchived(m) && m.status !== 'Cancelled' && m.status !== 'Completed' && isUserInvolvedInMeeting(m, currentUser)
+    m => isMeetingUpcoming(m,meetingNow) && isUserInvolvedInMeeting(m, currentUser)
   ).length;
   const pendingApprovalsCount = approvals.filter(a => a.status === 'Pending').length;
 
