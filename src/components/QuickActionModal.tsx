@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
+import {newMeetingDefaults} from '../utils/newMeetingSchedule';
 import {
   X,
   CheckSquare,
@@ -90,9 +91,10 @@ export const QuickActionModal: React.FC<QuickActionModalProps> = ({
       setMeetingType('Microsoft Teams');setMeetingLocation('');
       setMeetingFormError('');
       setMeetingDepartment(currentUser.department || 'Executive & Admin');
-      setMeetingDate(initialDate || new Date().toISOString().split('T')[0]);
-      setMeetingStartTime('10:00');
-      setMeetingEndTime('11:00');
+      const schedule=newMeetingDefaults(initialDate);
+      setMeetingDate(schedule.date);
+      setMeetingStartTime(schedule.start);
+      setMeetingEndTime(schedule.end);
       setMeetingDescription('');
       setMeetingAgenda(['Review operations scorecard', 'SharePoint document sign-offs', 'Any other business']);
       setNewAgendaInput('');
@@ -1248,10 +1250,10 @@ export const QuickActionModal: React.FC<QuickActionModalProps> = ({
 
           {/* TAB 2: SCHEDULE TEAMS MEETING */}
           {activeTab === 'meeting' && (
-            <form onSubmit={handleCreateMeeting} className="space-y-4 text-xs">
+            <form onSubmit={handleCreateMeeting} onChange={()=>setMeetingFormError('')} className="space-y-4 text-xs">
               {meetingFormError&&<p role="alert" className="rounded border border-rose-200 bg-rose-50 p-2 text-rose-800">{meetingFormError}</p>}
-              <div><label className="block font-semibold text-slate-700" htmlFor="new-meeting-format">Meeting format</label><select id="new-meeting-format" value={meetingType} onChange={e=>setMeetingType(e.target.value as Meeting['meetingType'])} className="w-full rounded-lg border border-slate-200 px-3 py-2"><option value="Microsoft Teams">Microsoft Teams (online)</option><option value="In-Person Boardroom">Physical meeting</option></select></div>
-              {meetingType==='In-Person Boardroom'&&<div><label className="block font-semibold text-slate-700" htmlFor="new-meeting-venue">Venue *</label><input id="new-meeting-venue" required value={meetingLocation} onChange={e=>setMeetingLocation(e.target.value)} placeholder="e.g. Main office boardroom" className="w-full rounded-lg border border-slate-200 px-3 py-2"/><p className="mt-1 text-slate-500">Reserves attendee time in OfficeHub and sends an Outlook calendar invitation. No Teams link is created.</p></div>}
+              <div><label className="block mb-1 text-xs font-semibold text-slate-700" htmlFor="new-meeting-format">Meeting format</label><select id="new-meeting-format" value={meetingType} onChange={e=>setMeetingType(e.target.value as Meeting['meetingType'])} className="block w-full min-w-0 max-w-full box-border px-3 py-2 rounded-lg border border-slate-200 bg-white text-xs focus:outline-none focus:border-purple-500"><option value="Microsoft Teams">Microsoft Teams (online)</option><option value="In-Person Boardroom">Physical meeting</option></select></div>
+              {meetingType==='In-Person Boardroom'&&<div><label className="block mb-1 text-xs font-semibold text-slate-700" htmlFor="new-meeting-venue">Venue *</label><input id="new-meeting-venue" required value={meetingLocation} onChange={e=>setMeetingLocation(e.target.value)} placeholder="e.g. Main office boardroom" className="block w-full min-w-0 max-w-full box-border px-3 py-2 rounded-lg border border-slate-200 bg-white text-xs focus:outline-none focus:border-purple-500"/><p className="mt-1 text-[11px] leading-relaxed text-slate-500">Reserves attendee time in OfficeHub and sends an Outlook calendar invitation. No Teams link is created.</p></div>}
               <div>
                 <label className="font-semibold text-slate-700 block mb-1">Meeting Title *</label>
                 <input
@@ -1578,7 +1580,7 @@ export const QuickActionModal: React.FC<QuickActionModalProps> = ({
                 </select>
 
                 <p className="text-[11px] text-slate-500 leading-relaxed">
-                  Designated chair will preside over the session, lead Microsoft Teams agendas, and appear as the official host in Outlook (.ics) calendars.
+                  The designated chair will lead the session and appear in its meeting details.
                 </p>
               </div>
 

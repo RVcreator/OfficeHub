@@ -1,4 +1,5 @@
 import {canRespondToMeeting} from '../utils/meetingLifecycle';
+import {newMeetingTimeError} from '../utils/newMeetingSchedule';
 import {isPhysicalMeeting,meetingFormatLabel} from '../utils/meetingFormat';
 import {isApprovalArchived,isDecisionArchived,isNoticeArchived} from '../utils/workArchive';
 import {confirmedTaskSnapshot} from './taskSnapshot';
@@ -2892,6 +2893,8 @@ export const portalStore = {
   ): Promise<Meeting | null> => {
     const currentUser = storeState.currentUser;
     const organizerId = meetingData.organizerId || currentUser.id;
+    const scheduleError=newMeetingTimeError(meetingData);
+    if(scheduleError)throw new Error(scheduleError);
     const meetingTitleClean = (meetingData.title || '').trim();
     const meetingTime24 = convertTo24HourTime(meetingData.time || meetingData.startTime || '10:00');
     const meetingStart12h = convertTo12HourTime(meetingTime24);
