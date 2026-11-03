@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'none'; font-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; worker-src 'none'">
+  <meta name="referrer" content="no-referrer">
+  <meta name="description" content="Explore OfficeHub with fictional records in a standalone public feature demo. No staff account required.">
+  <meta name="theme-color" content="#008c36">
+  <title>OfficeHub | Guest Demo</title>
+  <link rel="icon" href="/wipahs-icon-v1.png">
+  <link rel="stylesheet" href="./demo-v1.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="./" aria-label="OfficeHub demo home"><img src="/wipahs-icon-v1.png" width="40" height="40" alt="WIPAHS"><span>OfficeHub<small>Built for WIPAHS</small></span></a>
+    <span class="pill">Public guest demo</span>
+    <button id="exit" hidden>Exit demo</button>
+  </header>
+  <main id="welcome" class="welcome">
+    <section class="intro">
+      <p class="eyebrow">A closer look at everyday work</p>
+      <h1>One workspace.<br>Less chasing.</h1>
+      <p>OfficeHub brings tasks, meetings, approvals and documents together. It was built for WIPAHS to help its teams organise work across departments and organisations.</p>
+      <div class="intro-grid"><span>Tasks & projects</span><span>Teams & SharePoint</span><span>Private collaboration</span><span>Ratings & archives</span></div>
+      <p class="fine">This is a separate feature walkthrough with fictional data. Sample actions last only until you refresh or exit. Microsoft links, uploads and email delivery are simulated.</p>
+    </section>
+    <section class="entry card" aria-labelledby="entry-title">
+      <span class="pill">No staff account needed</span>
+      <h2 id="entry-title">Come and have a look</h2>
+      <p>Use these public, demo-only details. They do not work on the staff portal.</p>
+      <dl class="credentials"><dt>Email</dt><dd>guest@officehub.example.invalid</dd><dt>Password</dt><dd>ExploreOfficeHub!</dd></dl>
+      <label for="email">Demo email</label><input id="email" type="text" inputmode="email" autocomplete="off" spellcheck="false" value="guest@officehub.example.invalid">
+      <label for="password">Demo password</label><input id="password" type="password" autocomplete="off" value="ExploreOfficeHub!">
+      <p id="entry-error" role="alert"></p>
+      <button class="primary wide" id="enter">Explore the demo →</button>
+      <p class="fine">Please use the details above. Do not enter a real password.</p>
+    </section>
+  </main>
+  <div id="workspace" hidden>
+    <div class="notice">Fictional data only · No connection to staff records, Microsoft services or email delivery</div>
+    <div class="shell">
+      <aside><p class="eyebrow">Explore OfficeHub</p><nav id="nav" aria-label="Demo features"></nav><button id="reset" class="wide">Reset sample actions</button><p class="fine">A guided showcase of the main workflows. The staff portal includes additional controls and live integrations.</p></aside>
+      <main id="content" tabindex="-1"></main>
+    </div>
+  </div>
+  <footer>Made for an organisation. Open here for a look around. <a href="https://github.com/RVcreator/OfficeHub" target="_blank" rel="noopener noreferrer">View the project on GitHub ↗</a></footer>
+  <div id="announcement" class="sr-only" role="status" aria-live="polite"></div>
+  <script src="./demo-v1.js" defer></script>
+</body>
+</html>
