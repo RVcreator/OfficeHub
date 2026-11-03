@@ -3,11 +3,11 @@ import assert from 'node:assert/strict';
 import {createReadFetch} from '../src/services/readFetch';
 import {initStoreOnce,portalStore,setTableData,subscribeTable} from '../src/services/store';
 
-test('database read deadline aborts a stalled response body; writes and auth retain their original behaviour',async()=>{
+test('database read deadline aborts a stalled response body; writes retain their original behaviour',async()=>{
  let aborted=false;
  const fetcher:any=async(_input:any,options:any)=>{options.signal.addEventListener('abort',()=>aborted=true);return {arrayBuffer:()=>new Promise(()=>{}),status:200,headers:new Headers()};};
  await assert.rejects(createReadFetch(fetcher,15)('https://fixture.supabase.co/rest/v1/tasks'),/timed out/);assert.equal(aborted,true);
- for(const [url,init] of [['https://fixture.supabase.co/rest/v1/tasks',{method:'POST'}],['https://fixture.supabase.co/auth/v1/user',{}]] as const){
+ for(const [url,init] of [['https://fixture.supabase.co/rest/v1/tasks',{method:'POST'}],['https://fixture.supabase.co/auth/v1/token',{method:'POST'}]] as const){
   const response=new Response('{}');let received:any;
   const wrapped=createReadFetch((async(_input:any,options:any)=>{received=options;return response;}) as any,15);
   assert.equal(await wrapped(url,init),response);assert.equal(received,init);
