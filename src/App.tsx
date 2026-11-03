@@ -4,6 +4,7 @@ import { usePortalStore } from './services/store';
 import { supabase } from './services/supabaseClient';
 import type { AuthChangeEvent, Session } from '@supabase/supabase-js';
 import { createDeferredAuthHandler } from './services/deferredAuth';
+import { createAuthStartupDeadline } from './services/authStartup';
 import { AppErrorBoundary } from './components/AppErrorBoundary';
 import { Header } from './components/Header';
 import { Sidebar, TabId } from './components/Sidebar';
@@ -88,6 +89,7 @@ export default function App() {
         .on('postgres_changes',{event:'UPDATE',schema:'public',table:'profiles',filter:`id=eq.${userId}`},()=>recheck())
         .subscribe();
     };
+    let startup: ReturnType<typeof createAuthStartupDeadline> | undefined;
     const deferred = createDeferredAuthHandler<AuthChangeEvent, Session | null>(async (event, session, isCurrent) => {
       try {
         if (event === 'SIGNED_OUT') {
@@ -113,12 +115,17 @@ export default function App() {
         watchPasswordPolicy(verified.user.id);
         setAuthError(false);
       } finally {
-        if (isCurrent()) setAuthChecking(false);
+        if (isCurrent()) { startup?.complete(); setAuthChecking(false); }
       }
     }, () => {
+      startup?.complete();
       setAuthChecking(false);
       setAuthError(true);
       console.warn('OfficeHub could not restore the current session. Please sign in again.');
+    });
+    startup=createAuthStartupDeadline(()=>{
+      deferred.dispose(); stopWatching();
+      setAuthChecking(false); setAuthError(true);
     });
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       // Keep recovery intent even if a later auth event replaces the queued event.
@@ -142,12 +149,13 @@ export default function App() {
       window.removeEventListener('online',recheck);
       document.removeEventListener('visibilitychange',recheck);
       stopWatching();
+      startup?.dispose();
       deferred.dispose();
       subscription.unsubscribe();
     };
   }, []);
 
-  if (authError) return <div className="min-h-screen flex flex-col items-center justify-center gap-4"><p>We could not verify your account. Please reconnect and try again.</p><button onClick={() => window.location.reload()}>Try again</button></div>;
+  if (authError) return <div className="min-h-screen flex flex-col items-center justify-center gap-4"><p>OfficeHub could not finish verifying your account. Check your connection and try again. Your saved work has not been changed.</p><button onClick={() => window.location.reload()}>Try again</button></div>;
 
   if (authChecking) {
     return (
