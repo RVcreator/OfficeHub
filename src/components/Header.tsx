@@ -1,4 +1,6 @@
 import {useMeetingClock} from '../utils/useMeetingClock';
+import {isNoticeArchived} from '../utils/workArchive';
+import {useWorkArchiveClock} from '../utils/useWorkArchiveClock';
 import {canRespondToMeeting,isMeetingUpcoming} from '../utils/meetingLifecycle';
 import {requiresTaskRating} from '../utils/taskRatingState';
 import {brandLogo} from '../utils/brandLogo';
@@ -138,7 +140,8 @@ export const Header: React.FC<HeaderProps> = ({
 
   const filteredTasks = searchQuery.trim() ? tasks.filter(t => t.title.toLowerCase().includes(searchQuery.toLowerCase())) : [];
   const filteredDocs = searchQuery.trim() ? sharePointDocs.filter(d => canUserViewDocument(d, currentUser) && d.name.toLowerCase().includes(searchQuery.toLowerCase())) : [];
-  const filteredNotices = searchQuery.trim() ? notices.filter(n => n.title.toLowerCase().includes(searchQuery.toLowerCase())) : [];
+  const archiveNow=useWorkArchiveClock(undefined,undefined,notices,currentUser.id);
+  const filteredNotices = searchQuery.trim() ? notices.filter(n => !isNoticeArchived(n,currentUser.id,archiveNow)&&n.title.toLowerCase().includes(searchQuery.toLowerCase())) : [];
   const filteredStaff = searchQuery.trim()
     ? staff.filter(s =>
         s.name.toLowerCase().includes(searchQuery.toLowerCase()) ||

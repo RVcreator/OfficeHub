@@ -1,4 +1,6 @@
 import {canViewApproval,canResolveApproval} from '../utils/recordPermissions';
+import {isApprovalArchived} from '../utils/workArchive';
+import {useWorkArchiveClock} from '../utils/useWorkArchiveClock';
 import React, { useState, useEffect } from 'react';
 import { UserAvatar } from './UserAvatar';
 import {
@@ -100,7 +102,8 @@ export const ApprovalsView: React.FC<{
     }
   }, [selectedApprovalId]);
 
-  const visibleApprovals=approvals.filter(a=>canViewApproval(a,currentUser));
+  const archiveNow=useWorkArchiveClock(approvals);
+  const visibleApprovals=approvals.filter(a=>canViewApproval(a,currentUser)&&!isApprovalArchived(a,archiveNow));
   const filteredApprovals = visibleApprovals.filter(appr => {
     const matchesSearch = appr.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
                           appr.description.toLowerCase().includes(searchQuery.toLowerCase()) ||

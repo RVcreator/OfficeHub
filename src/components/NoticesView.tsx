@@ -1,4 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
+import {isNoticeArchived} from '../utils/workArchive';
+import {useWorkArchiveClock} from '../utils/useWorkArchiveClock';
 import {
   BellRing,
   Plus,
@@ -38,7 +40,9 @@ export const NoticesView: React.FC<{
   onOpenNewNoticeModal: () => void;
   selectedNoticeId?: string | null;
 }> = ({ onOpenNewNoticeModal, selectedNoticeId }) => {
-  const { notices, currentUser, staff, actions } = usePortalStore(['notices', 'currentUser', 'staff']);
+  const { notices:allNotices, currentUser, staff, actions } = usePortalStore(['notices', 'currentUser', 'staff']);
+  const archiveNow=useWorkArchiveClock(undefined,undefined,allNotices,currentUser.id);
+  const notices=allNotices.filter(n=>!isNoticeArchived(n,currentUser.id,archiveNow));
 
   const [organisationFilter, setOrganisationFilter] = useState<string>('All');
   const [departmentFilter, setDepartmentFilter] = useState<string>('All');
@@ -326,7 +330,7 @@ export const NoticesView: React.FC<{
 
                   <div className="flex items-center gap-2">
                     <button
-                      onClick={() => actions.acknowledgeNotice(notice.id)}
+                      onClick={() => void actions.acknowledgeNotice(notice.id).catch(error=>window.alert(error instanceof Error?error.message:'Acknowledgement was not saved.'))}
                       className={`px-3 py-1 rounded text-xs font-medium flex items-center gap-1.5 transition ${
                         isAcknowledged
                           ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'

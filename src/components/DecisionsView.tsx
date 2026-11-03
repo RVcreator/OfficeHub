@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from 'react';
+import {isDecisionArchived} from '../utils/workArchive';
+import {useWorkArchiveClock} from '../utils/useWorkArchiveClock';
 import {
   CheckSquare,
   Search,
@@ -22,7 +24,9 @@ interface DecisionsViewProps {
 }
 
 export const DecisionsView: React.FC<DecisionsViewProps> = () => {
-  const { decisions, actions, currentUser } = usePortalStore(['decisions', 'currentUser']);
+  const { decisions:allDecisions, actions, currentUser } = usePortalStore(['decisions', 'currentUser']);
+  const archiveNow=useWorkArchiveClock(undefined,allDecisions);
+  const decisions=allDecisions.filter(d=>!isDecisionArchived(d,archiveNow));
   useEffect(()=>{let active=true;actions.getDecisions().then(rows=>{if(active)setTableData('decisions',rows);}).catch(console.warn);return()=>{active=false;};},[actions]);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedDept, setSelectedDept] = useState<string>('All');
@@ -91,6 +95,7 @@ export const DecisionsView: React.FC<DecisionsViewProps> = () => {
     switch (status) {
       case 'Approved':
       case 'Adopted':
+      case 'Implemented':
         return 'bg-emerald-50 text-emerald-700 border border-emerald-200';
       case 'In Implementation':
         return 'bg-blue-50 text-blue-700 border border-blue-200';
@@ -206,7 +211,8 @@ export const DecisionsView: React.FC<DecisionsViewProps> = () => {
             <option value="All">All Statuses</option>
             <option value="Adopted">Adopted</option>
             <option value="Approved">Approved</option>
-            <option value="In Implementation">In Implementation</option>
+            <option value="Implemented">Implemented</option>
+                    <option value="In Implementation">In Implementation</option>
             <option value="Under Review">Under Review</option>
           </select>
         </div>
@@ -259,11 +265,12 @@ export const DecisionsView: React.FC<DecisionsViewProps> = () => {
                 <div className="flex sm:flex-col items-end justify-between sm:justify-start gap-2 shrink-0">
                   <select
                     value={decision.status}
-                    onChange={(e) => actions.updateDecisionStatus(decision.id, e.target.value as Decision['status'])}
+                    onChange={(e) => void actions.updateDecisionStatus(decision.id, e.target.value as Decision['status']).catch(error=>window.alert(error instanceof Error?error.message:'Decision was not saved.'))}
                     className="text-[11px] bg-slate-50 border border-slate-200 rounded-md px-2 py-1 text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#00ad1d]"
                   >
                     <option value="Adopted">Adopted</option>
                     <option value="Approved">Approved</option>
+                    <option value="Implemented">Implemented</option>
                     <option value="In Implementation">In Implementation</option>
                     <option value="Under Review">Under Review</option>
                   </select>

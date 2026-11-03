@@ -101,6 +101,7 @@ export interface Notice {
   targetUserNames?: string[];
   attachments?: MessageAttachment[];
   acknowledgedBy: string[]; // user IDs or names
+  acknowledgedAtBy?: Record<string,string>;
   teamsSent?: boolean;
 }
 
@@ -424,7 +425,8 @@ export interface Decision {
   meetingTitle?: string;
   date: string;
   decidedBy: string;
-  status: 'Adopted' | 'Approved' | 'In Implementation' | 'Under Review';
+  status: 'Adopted' | 'Approved' | 'Implemented' | 'In Implementation' | 'Under Review';
+  archiveReadyAt?: string;
   category?: 'Strategic' | 'Financial' | 'Operational' | 'Governance';
   actionItemsCount: number;
 }
@@ -447,6 +449,7 @@ export interface Approval {
   status: 'Pending' | 'Approved' | 'Rejected' | 'Under Review';
   approvedBy?: string;
   approvedDate?: string;
+  archiveReadyAt?: string;
   notes?: string;
   approverIds?: string[];
   attachments?: {

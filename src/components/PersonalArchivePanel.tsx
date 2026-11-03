@@ -1,6 +1,10 @@
 import {useMeetingClock} from '../utils/useMeetingClock';
 import {canRespondToMeeting,isMeetingUpcoming} from '../utils/meetingLifecycle';
-import React, { useState } from 'react';
+import React, { useState,useEffect,useMemo } from 'react';
+import {ArchivedWorkRecords} from './ArchivedWorkRecords';
+import {isApprovalArchived,isDecisionArchived,isNoticeArchived} from '../utils/workArchive';
+import {useWorkArchiveClock} from '../utils/useWorkArchiveClock';
+import {canViewApproval} from '../utils/recordPermissions';
 import {
   Archive,
   Trash2,
@@ -23,7 +27,7 @@ import {
   MessageSquare
 } from 'lucide-react';
 import { usePortalStore } from '../services/store';
-import { Task, Meeting } from '../types';
+import { Task, Meeting,Approval,Decision,Notice } from '../types';
 import { isTaskAssignedByMe } from '../utils/taskUtils';
 import { UserAvatar } from './UserAvatar';
 
@@ -40,17 +44,38 @@ export const PersonalArchivePanel: React.FC<PersonalArchivePanelProps> = ({
   onSelectMeeting,
   className = ''
 }) => {
-  const { currentUser, tasks, meetings, actions } = usePortalStore(['currentUser', 'tasks', 'meetings']);
+  const { currentUser, tasks, meetings,approvals,decisions,notices, actions } = usePortalStore(['currentUser', 'tasks', 'meetings','approvals','decisions','notices']);
   const meetingNow=useMeetingClock(meetings);
   const targetUserId = userId || currentUser.id;
   const isSelf = targetUserId === currentUser.id;
+  const [olderWork,setOlderWork]=useState<{ownerId:string;approvals:Approval[];decisions:Decision[];notices:Notice[]}>({ownerId:'',approvals:[],decisions:[],notices:[]});
+  const [workLoadError,setWorkLoadError]=useState('');
+  const [workLoading,setWorkLoading]=useState(true);
+  const [retryWork,setRetryWork]=useState(0);
+  useEffect(()=>{
+    let active=true;setOlderWork({ownerId:'',approvals:[],decisions:[],notices:[]});setWorkLoadError('');setWorkLoading(isSelf);
+    const load=()=>{
+      if(!isSelf)return;
+      void actions.loadWorkArchive().then(rows=>{if(active){setOlderWork({...rows,ownerId:currentUser.id});setWorkLoadError('');}}).catch(()=>{if(active)setWorkLoadError('Older archive records could not load. Please retry.');}).finally(()=>{if(active)setWorkLoading(false);});
+    };load();window.addEventListener('focus',load);
+    return()=>{active=false;window.removeEventListener('focus',load);};
+  },[currentUser.id,isSelf,actions,retryWork]);
+  const merge=<T extends {id:string},>(older:T[],latest:T[])=>Array.from(new Map([...older,...latest].map(item=>[item.id,item])).values());
+  const allApprovals=useMemo(()=>merge(olderWork.ownerId===currentUser.id?olderWork.approvals:[],approvals),[olderWork,approvals,currentUser.id]);
+  const allDecisions=useMemo(()=>merge(olderWork.ownerId===currentUser.id?olderWork.decisions:[],decisions),[olderWork,decisions,currentUser.id]);
+  const allNotices=useMemo(()=>merge(olderWork.ownerId===currentUser.id?olderWork.notices:[],notices),[olderWork,notices,currentUser.id]);
+  const workNow=useWorkArchiveClock(allApprovals,allDecisions,allNotices,targetUserId);
+  const archivedApprovals=isSelf?allApprovals.filter(a=>canViewApproval(a,currentUser)&&isApprovalArchived(a,workNow)):[];
+  const archivedDecisions=isSelf?allDecisions.filter(d=>isDecisionArchived(d,workNow)):[];
+  const archivedNotices=isSelf?allNotices.filter(n=>isNoticeArchived(n,targetUserId,workNow)):[];
 
   const archiveData = actions.getUserArchive(targetUserId, tasks, meetings,{nowMs:meetingNow});
   const { tasks: archivedTasks, meetings: archivedMeetings } = archiveData;
 
-  const totalItems = archivedTasks.length + archivedMeetings.length;
+  const legacyItems=archivedTasks.length+archivedMeetings.length;
+  const totalItems = legacyItems+archivedApprovals.length+archivedDecisions.length+archivedNotices.length;
 
-  const [activeSubTab, setActiveSubTab] = useState<'all' | 'tasks' | 'meetings'>('all');
+  const [activeSubTab, setActiveSubTab] = useState<'all' | 'tasks' | 'meetings'|'approvals'|'decisions'|'notices'>('all');
   const [showClearConfirmModal, setShowClearConfirmModal] = useState(false);
   const [clearedSuccessMsg, setClearedSuccessMsg] = useState(false);
 
@@ -86,25 +111,25 @@ export const PersonalArchivePanel: React.FC<PersonalArchivePanelProps> = ({
                 </span>
               </div>
               <p className="text-xs text-slate-300 mt-0.5">
-                Completed or cancelled tasks, and all meetings 2 days (48 hours) after their scheduled end time, automatically move into archives.
+                Tasks and meetings archive after 2 days. Approved requests and approved, adopted or implemented decisions archive after 14 days; notices archive 14 days after your acknowledgement.
               </p>
             </div>
           </div>
 
-          {totalItems > 0 && isSelf && (
+          {legacyItems > 0 && isSelf && (
             <button
               type="button"
               onClick={() => setShowClearConfirmModal(true)}
               className="px-3.5 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-lg font-bold text-xs shadow-xs transition flex items-center gap-1.5 cursor-pointer shrink-0"
             >
               <Trash2 className="w-3.5 h-3.5" />
-              <span>Clear Your Archive Section</span>
+              <span>Clear Archived Tasks & Meetings</span>
             </button>
           )}
         </div>
 
         {/* Quick Filter Tabs */}
-        <div className="flex items-center gap-2 pt-1 border-t border-white/10 text-xs">
+        <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-white/10 text-xs">
           <button
             type="button"
             onClick={() => setActiveSubTab('all')}
@@ -140,10 +165,13 @@ export const PersonalArchivePanel: React.FC<PersonalArchivePanelProps> = ({
           >
             Meetings ({archivedMeetings.length})
           </button>
+          {([['approvals','Approvals',archivedApprovals.length],['decisions','Decisions',archivedDecisions.length],['notices','Notices',archivedNotices.length]] as const).map(([key,label,count])=><button key={key} type="button" onClick={()=>setActiveSubTab(key)} className={`rounded-md px-3 py-1 font-semibold ${activeSubTab===key?'bg-white text-slate-900':'text-slate-300 hover:bg-white/10 hover:text-white'}`}>{label} ({count})</button>)}
         </div>
       </div>
 
       <div className="oh-archive-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain space-y-4">
+      {workLoading&&<p role="status" className="text-xs text-slate-500">Loading older archive records…</p>}
+      {workLoadError&&<p role="alert" className="text-xs text-amber-800">{workLoadError} <button onClick={()=>setRetryWork(n=>n+1)} className="underline">Retry</button></p>}
       {clearedSuccessMsg && (
         <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-lg flex items-center gap-2 text-xs font-semibold animate-in fade-in duration-150">
           <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
@@ -152,19 +180,20 @@ export const PersonalArchivePanel: React.FC<PersonalArchivePanelProps> = ({
       )}
 
       {/* Main Content Area */}
-      {totalItems === 0 ? (
+      {totalItems === 0 && !workLoading ? (
         <div className="p-8 text-center bg-slate-50 border border-dashed border-slate-200 rounded-xl space-y-2">
           <div className="w-12 h-12 rounded-full bg-slate-100 text-slate-400 flex items-center justify-center mx-auto">
             <Archive className="w-6 h-6" />
           </div>
           <h4 className="font-bold text-slate-700 text-sm">Your Personal Archive is Empty</h4>
           <p className="text-slate-500 text-xs max-w-md mx-auto">
-            Completed or cancelled tasks after 2 days, and meetings 2 days after their scheduled time (whether joined or not), automatically appear here.
+            Tasks and meetings appear after 2 days. Approved or completed work and your acknowledged notices appear after 14 days.
           </p>
         </div>
       ) : (
         <div className="space-y-4">
           {/* ARCHIVED TASKS */}
+          <ArchivedWorkRecords approvals={archivedApprovals} decisions={archivedDecisions} notices={archivedNotices} kind={activeSubTab}/>
           {(activeSubTab === 'all' || activeSubTab === 'tasks') && archivedTasks.length > 0 && (
             <div className="space-y-2">
               <div className="flex items-center justify-between px-3 py-2 bg-slate-100/90 backdrop-blur-xs rounded-lg border border-slate-200/80 sticky top-0 z-10 shadow-2xs">
@@ -646,7 +675,7 @@ export const PersonalArchivePanel: React.FC<PersonalArchivePanelProps> = ({
               <div className="space-y-1 min-w-0 flex-1">
                 <h3 className="font-bold text-slate-900 text-sm">Clear Your Personal Archive?</h3>
                 <p className="text-slate-600 leading-relaxed">
-                  This will permanently remove <b>{totalItems} items</b> ({archivedTasks.length} tasks and {archivedMeetings.length} meetings) from your personal archive section.
+                  This will permanently remove <b>{legacyItems} items</b> ({archivedTasks.length} tasks and {archivedMeetings.length} meetings). Archived approvals, decisions and notices will be retained.
                 </p>
               </div>
             </div>
