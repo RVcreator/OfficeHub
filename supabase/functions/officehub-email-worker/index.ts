@@ -1,4 +1,4 @@
-import { graphMessage, processOne } from '../_shared/officehubEmailWorker.ts';
+import { graphRequest, processOne } from '../_shared/officehubEmailWorker.ts';
 
 const env = (key: string) => Deno.env.get(key) || '';
 const json = (body: unknown,status=200) => Response.json(body,{status});
@@ -63,11 +63,11 @@ export async function handler(req: Request): Promise<Response> {
     return result.access_token as string;
   };
   try {
-    const outcome=await processOne({rpc,token,send:async(job,accessToken)=>fetch(
+    const outcome=await processOne({rpc,token,send:async(job,accessToken)=>{const message=graphRequest(job);return fetch(
       'https://graph.microsoft.com/v1.0/users/officehub%40wipahs.org/sendMail',{
-        method:'POST',headers:{authorization:'Bearer '+accessToken,'content-type':'application/json'},
-        body:JSON.stringify(graphMessage(job)),signal:AbortSignal.timeout(15000),
-      })});
+        method:'POST',headers:{authorization:'Bearer '+accessToken,'content-type':message.contentType},
+        body:message.body,signal:AbortSignal.timeout(15000),
+      });}});
     return json({outcome});
   } catch {
     // Never log tokens, response bodies, email content, or user addresses.

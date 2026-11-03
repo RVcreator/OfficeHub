@@ -1,4 +1,5 @@
 import {canRespondToMeeting} from '../utils/meetingLifecycle';
+import {isPhysicalMeeting,meetingFormatLabel} from '../utils/meetingFormat';
 import {isApprovalArchived,isDecisionArchived,isNoticeArchived} from '../utils/workArchive';
 import {confirmedTaskSnapshot} from './taskSnapshot';
 import {createMutationGate} from './mutationGate';
@@ -2895,7 +2896,7 @@ export const portalStore = {
     const meetingTime24 = convertTo24HourTime(meetingData.time || meetingData.startTime || '10:00');
     const meetingStart12h = convertTo12HourTime(meetingTime24);
     const meetingTimeClean = meetingTime24;
-    const dedupeSignature = `${meetingTitleClean.toLowerCase()}_${meetingData.date}_${meetingTimeClean}_${organizerId}`;
+    const dedupeSignature = `${meetingTitleClean.toLowerCase()}_${meetingData.date}_${meetingTimeClean}_${organizerId}_${meetingData.meetingType}`;
 
     // 1. In-flight guard: If an identical creation is already executing, return the existing Promise
     if (inFlightMeetingCreations.has(dedupeSignature)) {
@@ -2909,7 +2910,7 @@ export const portalStore = {
       const sameDate = m.date === meetingData.date;
       const sameTime = convertTo24HourTime(m.time || m.startTime) === meetingTime24;
       const sameOrg = (m.organizerId === organizerId || m.chairId === (meetingData.chairId || organizerId));
-      return sameTitle && sameDate && sameTime && sameOrg;
+      return sameTitle && sameDate && sameTime && sameOrg && m.meetingType===meetingData.meetingType;
     });
 
     if (existingMeeting) {
@@ -2933,7 +2934,10 @@ export const portalStore = {
           startTime: meetingData.startTime || meetingStart12h,
         };
 
-        if (!newMeeting.teamsJoinUrl) {
+        if(isPhysicalMeeting(newMeeting)){
+          if(!newMeeting.location?.trim())throw new Error('Enter the physical meeting venue.');
+          newMeeting.teamsJoinUrl=undefined;newMeeting.teamsMeetingId=undefined;newMeeting.teamsPasscode=undefined;
+        }else if (!newMeeting.teamsJoinUrl) {
           try {
             const { data: fnData, error: fnError } = await supabase.functions.invoke('teams-meeting-create', {
               body: {
@@ -3001,7 +3005,7 @@ export const portalStore = {
         Promise.all(
           attendeeRecipients.map((attendee) =>
             portalStore.addNotification({
-              title: `Teams Meeting Scheduled: ${insertedMeeting.title}`,
+              title: `${meetingFormatLabel(insertedMeeting)} Scheduled: ${insertedMeeting.title}`,
               message: `You are invited to "${insertedMeeting.title}" on ${insertedMeeting.date} (${insertedMeeting.startTime || 'Scheduled'} - ${insertedMeeting.endTime || 'End'}). Organizer: ${insertedMeeting.organizerName}. Chair: ${insertedMeeting.chairName || insertedMeeting.organizerName}.`,
               type: 'meeting_scheduled',
               meetingId: insertedMeeting.id,
@@ -3013,7 +3017,7 @@ export const portalStore = {
               pushedToMicrosoftTeams: true,
               emailTriggered: true,
               emailRecipients: [attendee.email],
-              emailSubject: `[WIPAHS Teams Meeting] Invitation: ${insertedMeeting.title} - ${insertedMeeting.date} (${insertedMeeting.startTime || 'TBD'})`,
+              emailSubject: `[WIPAHS ${meetingFormatLabel(insertedMeeting)}] Invitation: ${insertedMeeting.title} - ${insertedMeeting.date} (${insertedMeeting.startTime || 'TBD'})`,
               metadata: {
                 meetingId: insertedMeeting.id,
                 date: insertedMeeting.date,
@@ -3021,6 +3025,7 @@ export const portalStore = {
                 endTime: insertedMeeting.endTime,
                 department: insertedMeeting.department,
                 teamsJoinUrl: insertedMeeting.teamsJoinUrl,
+                location:insertedMeeting.location,
               },
             })
           )

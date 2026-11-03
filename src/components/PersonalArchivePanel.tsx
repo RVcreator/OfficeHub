@@ -1,4 +1,5 @@
 import {useMeetingClock} from '../utils/useMeetingClock';
+import {isPhysicalMeeting,meetingFormatLabel} from '../utils/meetingFormat';
 import {canRespondToMeeting,isMeetingUpcoming} from '../utils/meetingLifecycle';
 import React, { useState,useEffect,useMemo } from 'react';
 import {ArchivedWorkRecords} from './ArchivedWorkRecords';
@@ -318,7 +319,7 @@ export const PersonalArchivePanel: React.FC<PersonalArchivePanelProps> = ({
                               {statusLabel}
                             </span>
                             <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-purple-50 text-purple-800 border border-purple-200">
-                              {meeting.meetingType}
+                              {meetingFormatLabel(meeting)}
                             </span>
                           </div>
 
@@ -549,7 +550,7 @@ export const PersonalArchivePanel: React.FC<PersonalArchivePanelProps> = ({
                     Archived Meeting Record
                   </span>
                   <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-50 text-purple-800 border border-purple-200">
-                    {selectedMeetingDetail.meetingType}
+                    {meetingFormatLabel(selectedMeetingDetail)}
                   </span>
                 </div>
                 <h3 className="text-base font-bold text-slate-900 leading-tight">
@@ -574,6 +575,7 @@ export const PersonalArchivePanel: React.FC<PersonalArchivePanelProps> = ({
                   <span>Time: <b>{selectedMeetingDetail.startTime} - {selectedMeetingDetail.endTime}</b></span>
                   <span>Dept: <b>{selectedMeetingDetail.department}</b></span>
                 </div>
+                {isPhysicalMeeting(selectedMeetingDetail)&&<p className="text-xs text-slate-600">Venue: {selectedMeetingDetail.location}</p>}
                 {selectedMeetingDetail.description && (
                   <p className="text-slate-600 leading-relaxed pt-1 border-t border-slate-200">
                     {selectedMeetingDetail.description}
@@ -582,7 +584,7 @@ export const PersonalArchivePanel: React.FC<PersonalArchivePanelProps> = ({
               </div>
 
               {/* Teams Join URL if available */}
-              {selectedMeetingDetail.teamsJoinUrl && (
+              {!isPhysicalMeeting(selectedMeetingDetail)&&selectedMeetingDetail.teamsJoinUrl && (
                 <div className="p-3 bg-purple-50 border border-purple-200 rounded-lg flex items-center justify-between gap-3">
                   <div className="min-w-0">
                     <p className="font-bold text-purple-900 text-xs">Microsoft Teams Meeting Link</p>

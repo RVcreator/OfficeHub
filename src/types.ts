@@ -212,6 +212,7 @@ export interface Meeting {
   attendees: MeetingAttendee[];
   agenda: string[];
   meetingType: 'Microsoft Teams' | 'In-Person Boardroom' | 'Hybrid';
+  location?: string;
   teamsJoinUrl?: string;
   teamsMeetingId?: string;
   teamsPasscode?: string;

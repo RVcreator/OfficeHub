@@ -87,6 +87,8 @@ export const QuickActionModal: React.FC<QuickActionModalProps> = ({
 
       // Reset meeting fields so old meeting details never carry over
       setMeetingTitle('');
+      setMeetingType('Microsoft Teams');setMeetingLocation('');
+      setMeetingFormError('');
       setMeetingDepartment(currentUser.department || 'Executive & Admin');
       setMeetingDate(initialDate || new Date().toISOString().split('T')[0]);
       setMeetingStartTime('10:00');
@@ -184,6 +186,9 @@ export const QuickActionModal: React.FC<QuickActionModalProps> = ({
 
   // Meeting Form State
   const [meetingTitle, setMeetingTitle] = useState('');
+  const [meetingType,setMeetingType]=useState<Meeting['meetingType']>('Microsoft Teams');
+  const [meetingLocation,setMeetingLocation]=useState('');
+  const [meetingFormError,setMeetingFormError]=useState('');
   const [meetingDepartment, setMeetingDepartment] = useState<Department>('Executive & Admin');
   const [meetingDate, setMeetingDate] = useState('2026-09-23');
   const [meetingStartTime, setMeetingStartTime] = useState('10:00');
@@ -512,6 +517,7 @@ export const QuickActionModal: React.FC<QuickActionModalProps> = ({
   const handleCreateMeeting = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isSubmitting || !meetingTitle.trim()) return;
+    setMeetingFormError('');
 
     setIsSubmitting(true);
     try {
@@ -528,7 +534,8 @@ export const QuickActionModal: React.FC<QuickActionModalProps> = ({
         time: time24, // Explicit HH:MM 24-hour format e.g. "14:30"
         startTime: start12h,
         endTime: end12h,
-        meetingType: 'Microsoft Teams',
+        meetingType,
+        location:meetingType==='In-Person Boardroom'?meetingLocation.trim():undefined,
         agenda: meetingAgenda,
         description: meetingDescription.trim() || undefined,
         attachments: meetingAttachments,
@@ -560,6 +567,8 @@ export const QuickActionModal: React.FC<QuickActionModalProps> = ({
       setMeetingChairId(currentUser.id);
       setMeetingAttachments([]);
       onClose();
+    } catch(error){
+      setMeetingFormError(error instanceof Error?error.message:'Meeting was not saved. Your details are still here.');
     } finally {
       setIsSubmitting(false);
     }
@@ -715,7 +724,7 @@ export const QuickActionModal: React.FC<QuickActionModalProps> = ({
             }`}
           >
             <Video className="w-3.5 h-3.5 text-purple-700" />
-            Teams
+            Meetings
           </button>
 
           <button
@@ -1240,6 +1249,9 @@ export const QuickActionModal: React.FC<QuickActionModalProps> = ({
           {/* TAB 2: SCHEDULE TEAMS MEETING */}
           {activeTab === 'meeting' && (
             <form onSubmit={handleCreateMeeting} className="space-y-4 text-xs">
+              {meetingFormError&&<p role="alert" className="rounded border border-rose-200 bg-rose-50 p-2 text-rose-800">{meetingFormError}</p>}
+              <div><label className="block font-semibold text-slate-700" htmlFor="new-meeting-format">Meeting format</label><select id="new-meeting-format" value={meetingType} onChange={e=>setMeetingType(e.target.value as Meeting['meetingType'])} className="w-full rounded-lg border border-slate-200 px-3 py-2"><option value="Microsoft Teams">Microsoft Teams (online)</option><option value="In-Person Boardroom">Physical meeting</option></select></div>
+              {meetingType==='In-Person Boardroom'&&<div><label className="block font-semibold text-slate-700" htmlFor="new-meeting-venue">Venue *</label><input id="new-meeting-venue" required value={meetingLocation} onChange={e=>setMeetingLocation(e.target.value)} placeholder="e.g. Main office boardroom" className="w-full rounded-lg border border-slate-200 px-3 py-2"/><p className="mt-1 text-slate-500">Reserves attendee time in OfficeHub and sends an Outlook calendar invitation. No Teams link is created.</p></div>}
               <div>
                 <label className="font-semibold text-slate-700 block mb-1">Meeting Title *</label>
                 <input
@@ -1573,10 +1585,10 @@ export const QuickActionModal: React.FC<QuickActionModalProps> = ({
               <div className="p-3 bg-purple-50 rounded-xl border border-purple-100 space-y-1">
                 <div className="flex items-center gap-1.5 text-purple-900 font-bold text-xs">
                   <Video className="w-3.5 h-3.5 text-purple-700" />
-                  <span>Microsoft Teams Virtual Room Generator</span>
+                  <span>{meetingType==='In-Person Boardroom'?'Physical meeting & calendar invitation':'Microsoft Teams Virtual Room Generator'}</span>
                 </div>
                 <p className="text-[11px] text-purple-700">
-                  A secure Microsoft Teams meeting URL, conference ID, and Outlook .ics invite will be automatically generated.
+                  {meetingType==='In-Person Boardroom'?'The venue and time will be saved for all attendees. An Outlook invitation will be sent from OfficeHub; acceptance may be required in Outlook. No Teams link is generated.':'A secure Microsoft Teams meeting URL, conference ID, and Outlook .ics invite will be automatically generated.'}
                 </p>
               </div>
 
@@ -1596,10 +1608,10 @@ export const QuickActionModal: React.FC<QuickActionModalProps> = ({
                   {isSubmitting ? (
                     <>
                       <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      <span>Scheduling & Generating Teams Link...</span>
+                      <span>{meetingType==='In-Person Boardroom'?'Scheduling physical meeting…':'Scheduling & Generating Teams Link...'}</span>
                     </>
                   ) : (
-                    <span>Schedule & Generate Teams Link</span>
+                    <span>{meetingType==='In-Person Boardroom'?'Schedule Physical Meeting':'Schedule & Generate Teams Link'}</span>
                   )}
                 </button>
               </div>

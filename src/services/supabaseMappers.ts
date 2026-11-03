@@ -478,6 +478,7 @@ export function mapMeetingRow(row: any, attendees: MeetingAttendee[] = []): Meet
     attendees,
     agenda: row.agenda || [],
     meetingType: row.meeting_type || 'Microsoft Teams',
+    location: row.location || undefined,
     teamsJoinUrl: row.teams_join_url || undefined,
     teamsMeetingId: row.teams_meeting_id || undefined,
     teamsPasscode: row.teams_passcode || undefined,
@@ -505,6 +506,7 @@ export function mapMeetingToRow(meeting: Partial<Meeting>): Record<string, any> 
   if (meeting.organizerName !== undefined) row.organizer_name = meeting.organizerName;
   if (meeting.agenda !== undefined) row.agenda = meeting.agenda;
   if (meeting.meetingType !== undefined) row.meeting_type = meeting.meetingType;
+  if (meeting.location !== undefined) row.location = meeting.location;
   if (meeting.teamsJoinUrl !== undefined) row.teams_join_url = meeting.teamsJoinUrl;
   if (meeting.teamsMeetingId !== undefined) row.teams_meeting_id = meeting.teamsMeetingId;
   if (meeting.teamsPasscode !== undefined) row.teams_passcode = meeting.teamsPasscode;
