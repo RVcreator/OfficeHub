@@ -14,7 +14,11 @@ try{
  const tomorrow=(await db.query("select to_char(now()+interval '1 day','YYYY-MM-DD') date")).rows[0].date;
  const changes={title:'Physical fixture',date:tomorrow,start_time:'10:00 AM',end_time:'11:30 AM',time:'10:00',meeting_type:'In-Person Boardroom',location:'Boardroom',teams_join_url:'https://teams.example.invalid/should-be-cleared',teams_meeting_id:'must-clear',teams_passcode:'must-clear'};
  await user(1);
+ const yesterday=(await db.query("select to_char(now()-interval '1 day','YYYY-MM-DD') date")).rows[0].date;
  const save=async(id,changes,attendees=null,create=false)=>(await db.query('select officehub_save_meeting($1,$2,$3,$4) result',[id,changes,attendees,create])).rows[0].result;
+ await assert.rejects(()=>save('past-before-fix',{...changes,date:yesterday},[{user_id:uid(2)}],true),error=>error.message.includes('This meeting is dormant'));
+ await db.exec('reset role');await db.exec(await readFile(new URL('../supabase/migrations/20261103000003_validate_new_meeting_times.sql',import.meta.url),'utf8'));await user(1);
+ await assert.rejects(()=>save('past-after-fix',{...changes,date:yesterday},[{user_id:uid(2)}],true),error=>error.code==='23514'&&error.message.includes('already ended in Tanzania'));
  const created=await save('physical',changes,[{user_id:uid(2)}],true);assert.equal(created.meeting.location,'Boardroom');assert.equal(created.meeting.teams_join_url,null);assert.equal(created.meeting.teams_meeting_id,null);assert.equal(created.meeting.teams_passcode,null);assert.equal(created.attendees.length,2);
  await db.exec('reset role');
  const mail=async()=> (await db.query("select event_type,recipient_id,calendar_payload,status from officehub_email_outbox order by created_at,id")).rows;

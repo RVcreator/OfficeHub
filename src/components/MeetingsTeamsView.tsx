@@ -1,3 +1,4 @@
+import {newMeetingDefaults} from '../utils/newMeetingSchedule';
 import {isPhysicalMeeting,meetingFormatLabel} from '../utils/meetingFormat';
 import {canRespondToMeeting,isMeetingDormant,canEditMeetingSchedule} from '../utils/meetingLifecycle';
 import {useMeetingClock} from '../utils/useMeetingClock';
@@ -595,9 +596,10 @@ export const MeetingsTeamsView: React.FC<{
     y = Math.max(16, Math.min(y, window.innerHeight - popoverHeight - 16));
 
     setQuickMeetingTitle('');setQuickMeetingType('Microsoft Teams');setQuickMeetingLocation('');
-    setQuickMeetingDate(dateStr);
-    setQuickMeetingStartTime('10:00');
-    setQuickMeetingEndTime('11:00');
+    const schedule=newMeetingDefaults(dateStr);
+    setQuickMeetingDate(schedule.date);
+    setQuickMeetingStartTime(schedule.start);
+    setQuickMeetingEndTime(schedule.end);
     setQuickMeetingDepartment(currentUser.department || 'Top management');
     setQuickMeetingAttendeeIds([currentUser.id]);
 
@@ -676,7 +678,8 @@ export const MeetingsTeamsView: React.FC<{
         attachments: [],
       });
       setQuickCreate(null);
-    } finally {
+    } catch(error){window.alert(error instanceof Error?error.message:'Meeting was not saved.');}
+    finally {
       setIsCreatingQuickMeeting(false);
     }
   };
@@ -3144,7 +3147,7 @@ export const MeetingsTeamsView: React.FC<{
             </div>
 
             <form onSubmit={handleSaveEditMeeting} className="space-y-3.5">
-{isPhysicalMeeting(editingMeeting)&&<div><label htmlFor="edit-meeting-venue" className="block text-xs font-semibold">Venue *</label><input id="edit-meeting-venue" required value={editLocation} onChange={e=>setEditLocation(e.target.value)} className="w-full rounded border border-slate-200 p-2 text-xs"/></div>}
+{isPhysicalMeeting(editingMeeting)&&<div><label htmlFor="edit-meeting-venue" className="block text-xs font-semibold">Venue *</label><input id="edit-meeting-venue" required value={editLocation} onChange={e=>setEditLocation(e.target.value)} className="block w-full min-w-0 max-w-full box-border rounded-md border border-slate-200 bg-white px-2.5 py-2 text-xs"/></div>}
               <div>
                 <label className="font-bold text-slate-700 block mb-1">Meeting Title *</label>
                 <input
@@ -3675,8 +3678,8 @@ export const MeetingsTeamsView: React.FC<{
           {/* Form Content */}
           {quickCreate.type === 'meeting' ? (
             <form onSubmit={handleQuickCreateMeeting} className="space-y-3">
-<div><label htmlFor="quick-meeting-format" className="block text-xs font-semibold">Meeting format</label><select id="quick-meeting-format" value={quickMeetingType} onChange={e=>setQuickMeetingType(e.target.value as Meeting['meetingType'])} className="w-full rounded border border-slate-200 p-2 text-xs"><option value="Microsoft Teams">Microsoft Teams (online)</option><option value="In-Person Boardroom">Physical meeting</option></select></div>
-{quickMeetingType==='In-Person Boardroom'&&<div><label htmlFor="quick-meeting-venue" className="block text-xs font-semibold">Venue *</label><input id="quick-meeting-venue" required value={quickMeetingLocation} onChange={e=>setQuickMeetingLocation(e.target.value)} className="w-full rounded border border-slate-200 p-2 text-xs"/></div>}
+<div><label htmlFor="quick-meeting-format" className="block text-xs font-semibold">Meeting format</label><select id="quick-meeting-format" value={quickMeetingType} onChange={e=>setQuickMeetingType(e.target.value as Meeting['meetingType'])} className="block w-full min-w-0 max-w-full box-border rounded-md border border-slate-200 bg-white px-2.5 py-2 text-xs"><option value="Microsoft Teams">Microsoft Teams (online)</option><option value="In-Person Boardroom">Physical meeting</option></select></div>
+{quickMeetingType==='In-Person Boardroom'&&<div><label htmlFor="quick-meeting-venue" className="block text-xs font-semibold">Venue *</label><input id="quick-meeting-venue" required value={quickMeetingLocation} onChange={e=>setQuickMeetingLocation(e.target.value)} className="block w-full min-w-0 max-w-full box-border rounded-md border border-slate-200 bg-white px-2.5 py-2 text-xs"/></div>}
 
               <div>
                 <label className="text-[11px] font-semibold text-slate-600 block mb-1">
