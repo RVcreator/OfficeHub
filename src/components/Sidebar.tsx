@@ -1,4 +1,6 @@
 import {useMeetingClock} from '../utils/useMeetingClock';
+import {isNoticeArchived} from '../utils/workArchive';
+import {useWorkArchiveClock} from '../utils/useWorkArchiveClock';
 import {canRespondToMeeting,isMeetingUpcoming} from '../utils/meetingLifecycle';
 import {requiresTaskRating} from '../utils/taskRatingState';
 import React, { useEffect, useRef, useState } from 'react';
@@ -114,7 +116,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
     if (isTaskArchived(t) || !requiresTaskRating(t,currentUser.id)) return false;
     return isTaskAssignedByMe(t, currentUser.id);
   }).length;
-  const urgentNoticesCount = notices.filter(n => n.priority === 'Urgent').length;
+  const archiveNow=useWorkArchiveClock(undefined,undefined,notices,currentUser.id);
+  const urgentNoticesCount = notices.filter(n => n.priority === 'Urgent'&&!isNoticeArchived(n,currentUser.id,archiveNow)).length;
   const scheduledMeetingsCount = meetings.filter(
     m => isMeetingUpcoming(m,meetingNow) && isUserInvolvedInMeeting(m, currentUser)
   ).length;

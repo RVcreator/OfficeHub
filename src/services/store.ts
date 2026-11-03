@@ -1,4 +1,5 @@
 import {canRespondToMeeting} from '../utils/meetingLifecycle';
+import {isApprovalArchived,isDecisionArchived,isNoticeArchived} from '../utils/workArchive';
 import {confirmedTaskSnapshot} from './taskSnapshot';
 import {createMutationGate} from './mutationGate';
 import {canViewApproval,canResolveApproval,ownsTask,canManageMeeting} from '../utils/recordPermissions';
@@ -803,7 +804,7 @@ export const portalStore = {
 
   getNotices: async (limit: number = 50, offset: number = 0, strict=false): Promise<Notice[]> => {
     try {
-      const noticesRes=await supabase.from('notices').select(NOTICE_SELECT_COLUMNS).order('pinned', {ascending:false}).range(offset,offset+limit-1);
+      const noticesRes=await supabase.rpc('officehub_active_notices',{}, {get:true}).select(NOTICE_SELECT_COLUMNS).order('pinned', {ascending:false}).order('created_at',{ascending:false}).range(offset,offset+limit-1);
 
       if (noticesRes.error) {
         if (isNetworkOrTransientError(noticesRes.error)) {
@@ -815,15 +816,20 @@ export const portalStore = {
         return storeState.notices;
       }
 
-      const parentIds=(noticesRes.data||[]).map(row=>row.id);
+      if(noticesRes.data&&!Array.isArray(noticesRes.data))throw new Error('Notice response was not a list.');
+      const noticeRows=Array.isArray(noticesRes.data)?noticesRes.data:[];
+      const parentIds=noticeRows.map(row=>row.id);
       const acksRes=parentIds.length ? await supabase.from('notice_acknowledgements').select('*').in('notice_id',parentIds) : {data:[],error:null};
       const acksByNotice: Record<string, string[]> = {};
+      const ackTimesByNotice:Record<string,Record<string,string>>={};
       (acksRes.data || []).forEach((row) => {
         if (!acksByNotice[row.notice_id]) acksByNotice[row.notice_id] = [];
         acksByNotice[row.notice_id].push(row.user_id);
+        (ackTimesByNotice[row.notice_id] ||= {})[row.user_id]=row.acknowledged_at;
       });
 
-      return (noticesRes.data || []).map((row) => mapNoticeRow(row, acksByNotice[row.id] || []));
+      if(acksRes.error)throw acksRes.error;
+      return noticeRows.map((row) => mapNoticeRow(row, acksByNotice[row.id] || [],ackTimesByNotice[row.id]||{}));
     } catch (err) {
       if(strict)throw err;
       if (isNetworkOrTransientError(err)) {
@@ -1303,6 +1309,7 @@ export const portalStore = {
       const { data, error } = await supabase
         .from('decisions')
         .select('*')
+        .or(`archive_ready_at.is.null,archive_ready_at.gt.${new Date(Date.now()-14*86400000).toISOString()}`)
         .order('date', { ascending: false });
 
       if (error) {
@@ -1329,6 +1336,7 @@ export const portalStore = {
       const { data, error } = await supabase
         .from('approvals')
         .select('*')
+        .or(`archive_ready_at.is.null,archive_ready_at.gt.${new Date(Date.now()-14*86400000).toISOString()}`)
         .order('requested_date', { ascending: false })
         .range(offset, offset + limit - 1);
 
@@ -1986,13 +1994,16 @@ export const portalStore = {
     try {
       const currentUser = storeState.currentUser;
       const userUuid = toUuidOrNull(currentUser.id);
-      if (userUuid) {
-        await supabase.from('notice_acknowledgements').insert({
+      if (!userUuid) throw new Error('Please sign in again to acknowledge this notice.');
+      const result=await supabase.from('notice_acknowledgements').insert({
           notice_id: noticeId,
           user_id: userUuid,
-          acknowledged_at: new Date().toISOString(),
-        });
-      }
+        }).select('acknowledged_at').single();
+      let acknowledgedAt=result.data?.acknowledged_at;
+      if(result.error?.code==='23505'){
+        const existing=await supabase.from('notice_acknowledgements').select('acknowledged_at').eq('notice_id',noticeId).eq('user_id',userUuid).single();
+        if(existing.error)throw existing.error;acknowledgedAt=existing.data.acknowledged_at;
+      }else if(result.error)throw result.error;
 
       let targetNotice: Notice | undefined;
       // Update acknowledgedBy array on notice in notices state directly
@@ -2000,7 +2011,7 @@ export const portalStore = {
         if (n.id === noticeId) {
           targetNotice = n;
           const acks = Array.from(new Set([...n.acknowledgedBy, currentUser.id]));
-          return { ...n, acknowledgedBy: acks };
+          return { ...n, acknowledgedBy: acks,acknowledgedAtBy:{...n.acknowledgedAtBy,[currentUser.id]:acknowledgedAt} };
         }
         return n;
       }));
@@ -2008,6 +2019,7 @@ export const portalStore = {
       if (!targetNotice) {
         targetNotice = storeState.notices.find((n) => n.id === noticeId);
       }
+      if(result.error?.code==='23505')return; // Repeated acknowledgement must not restart its clock or notify again.
 
       // Resolve author ID accurately: check authorId or lookup in staff
       let authorTargetId = targetNotice?.authorId;
@@ -2051,6 +2063,7 @@ export const portalStore = {
       }
     } catch (err: any) {
       console.error('acknowledgeNotice error:', err);
+      throw err;
     }
   },
 
@@ -3558,10 +3571,13 @@ export const portalStore = {
 
   updateDecisionStatus: async (id: string, status: Decision['status']): Promise<void> => {
     try {
-      await supabase.from('decisions').update({ status }).eq('id', id);
-      setTableData('decisions', storeState.decisions.map((d) => (d.id === id ? { ...d, status } : d)));
+      const {data,error}=await supabase.from('decisions').update({ status }).eq('id', id).select('*').single();
+      if(error)throw error;
+      const saved=mapDecisionRow(data);
+      setTableData('decisions', storeState.decisions.map((d) => (d.id === id ? saved : d)));
     } catch (err: any) {
       console.error('updateDecisionStatus error:', err);
+      throw err;
     }
   },
 
@@ -4012,7 +4028,7 @@ export const portalStore = {
     tasksList: Task[] = storeState.tasks,
     meetingsList: Meeting[] = storeState.meetings,
     options?: ArchiveCheckOptions
-  ): { tasks: Task[]; meetings: Meeting[] } => {
+  ): { tasks: Task[]; meetings: Meeting[]; approvals:Approval[]; decisions:Decision[]; notices:Notice[] } => {
     const targetUid = userId || storeState.currentUser.id;
     const targetEmail =
       (targetUid === storeState.currentUser.id ? storeState.currentUser.email : undefined) ||
@@ -4030,7 +4046,41 @@ export const portalStore = {
       return isUserInvolvedInMeeting(m, { id: targetUid, email: targetEmail }) && isMeetingArchived(m, options);
     });
 
-    return { tasks: archivedTasks, meetings: archivedMeetings };
+    const now=options?.nowMs??Date.now();
+    // The server has already scoped these records. Never infer another user's archive.
+    const self=targetUid===storeState.currentUser.id;
+    return { tasks: archivedTasks, meetings: archivedMeetings,
+      approvals:self?storeState.approvals.filter(a=>canViewApproval(a,storeState.currentUser)&&isApprovalArchived(a,now)):[],
+      decisions:self?storeState.decisions.filter(d=>isDecisionArchived(d,now)):[],
+      notices:self?storeState.notices.filter(n=>isNoticeArchived(n,targetUid,now)):[] };
+  },
+
+  loadWorkArchive:async():Promise<{approvals:Approval[];decisions:Decision[];notices:Notice[]}>=>{
+    const userId=storeState.currentUser.id;
+    if(!storeState.authSession.isAuthenticated)throw new Error('Please sign in to view your archive.');
+    const all=async(table:string,select:string,configure:(query:any)=>any)=>{
+      const rows:any[]=[];
+      for(let offset=0;;offset+=250){
+        const result=await configure(supabase.from(table).select(select)).order(table==='notice_acknowledgements'?'notice_id':'id').range(offset,offset+249);
+        if(result.error)throw result.error;rows.push(...result.data||[]);if((result.data||[]).length<250)break;
+      }return rows;
+    };
+    const cutoff=new Date(Date.now()-14*86400000).toISOString();
+    const [approvals,decisions,acks]=await Promise.all([
+      all('approvals','*',q=>q.eq('status','Approved').lte('archive_ready_at',cutoff)),
+      all('decisions','*',q=>q.in('status',['Approved','Adopted','Implemented']).lte('archive_ready_at',cutoff)),
+      all('notice_acknowledgements','notice_id,acknowledged_at',q=>q.eq('user_id',userId))
+    ]);
+    const dueAcks=acks.filter(a=>isNoticeArchived({acknowledgedBy:[userId],acknowledgedAtBy:{[userId]:a.acknowledged_at}} as Notice,userId));
+    const notices:Notice[]=[];
+    for(let start=0;start<dueAcks.length;start+=100){
+      const batch=dueAcks.slice(start,start+100);const times=new Map(batch.map(a=>[a.notice_id,a.acknowledged_at]));
+      const result=await supabase.from('notices').select(NOTICE_SELECT_COLUMNS).in('id',batch.map(a=>a.notice_id));
+      if(result.error)throw result.error;
+      notices.push(...(result.data||[]).map(row=>mapNoticeRow(row,[userId],{[userId]:times.get(row.id)})));
+    }
+    if(userId!==storeState.currentUser.id)throw new Error('Your account changed. Reopen the archive.');
+    return {approvals:approvals.map(mapApprovalRow),decisions:decisions.map(mapDecisionRow),notices};
   },
 
   clearUserArchive: async (userId?:string):Promise<void> => {

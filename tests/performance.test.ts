@@ -41,15 +41,16 @@ test('reconnect bursts produce only one cancellable timer with bounded backoff',
  reconnect.request();assert.equal(delays[2],1000);reconnect.reset();
 });
 test('task, notice and meeting child queries are limited to the loaded parent IDs',async()=>{
- const original=supabase.from;const seen:any[]=[];
+ const original=supabase.from,originalRpc=supabase.rpc;const seen:any[]=[];
  (supabase as any).from=(table:string)=>{
  const child=table==='task_subtasks'||table==='notice_acknowledgements'||table==='meeting_attendees';
  const q:any={};for(const method of ['select','order','range'])q[method]=()=>q;
  q.in=(column:string,ids:string[])=>{seen.push({table,column,ids});return q;};
  q.then=(yes:any,no:any)=>Promise.resolve({data:child?[]:[{id:'parent-only',created_at:'2026-10-29',date:'2026-10-29'}],error:null}).then(yes,no);return q;};
+ (supabase as any).rpc=(name:string,_args:unknown,options:unknown)=>{assert.equal(name,'officehub_active_notices');assert.deepEqual(options,{get:true});return supabase.from('notices');};
  try{await portalStore.getTasks();await portalStore.getNotices();await portalStore.getMeetings();
  assert.deepEqual(seen,[{table:'task_subtasks',column:'task_id',ids:['parent-only']},{table:'notice_acknowledgements',column:'notice_id',ids:['parent-only']},{table:'meeting_attendees',column:'meeting_id',ids:['parent-only']}]);
- }finally{supabase.from=original;}
+ }finally{supabase.from=original;supabase.rpc=originalRpc;}
 });
 
 test('concurrent data consumers receive the newest trailing result without parallel requests',async()=>{

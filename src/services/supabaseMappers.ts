@@ -322,7 +322,7 @@ export function mapTaskToRow(task: Partial<Task>): Record<string, any> {
 // -------------------------------------------------------------------------
 // 3. Notices
 // -------------------------------------------------------------------------
-export function mapNoticeRow(row: any, acks: string[] = []): Notice {
+export function mapNoticeRow(row: any, acks: string[] = [], acknowledgedAtBy:Record<string,string>={}): Notice {
   return {
     id: row.id,
     title: row.title || '',
@@ -336,6 +336,7 @@ export function mapNoticeRow(row: any, acks: string[] = []): Notice {
     priority: (row.priority as 'Urgent' | 'Normal') || 'Normal',
     pinned: Boolean(row.pinned),
     acknowledgedBy: acks,
+    acknowledgedAtBy,
     targetAudienceType: row.target_audience_type || undefined,
     targetOrganisations: row.target_organisations || [],
     targetDepartments: row.target_departments || [],
@@ -637,6 +638,7 @@ export function mapDecisionRow(row: any): Decision {
     date: row.date || '',
     decidedBy: row.author_name || 'Board',
     status: (row.status as any) || 'Active',
+    archiveReadyAt: row.archive_ready_at || undefined,
     actionItemsCount: 0,
   };
 }
@@ -675,6 +677,7 @@ export function mapApprovalRow(row: any): Approval {
     status: (row.status as any) || 'Pending',
     approvedBy: row.approved_by || undefined,
     approvedDate: row.approved_date || undefined,
+    archiveReadyAt: row.archive_ready_at || undefined,
     notes: row.notes || undefined,
     urgency: row.urgency || 'Normal',
     approverIds: row.approver_ids || [],
