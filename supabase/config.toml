@@ -17,3 +17,7 @@ verify_jwt = false
 
 [functions.officehub-complete-password]
 verify_jwt = false
+
+# Every request is verified with Supabase Auth getUser; deletion also checks owner/admin.
+[functions.sharepoint-document-action]
+verify_jwt = false

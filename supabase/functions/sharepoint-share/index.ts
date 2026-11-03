@@ -16,7 +16,7 @@ Deno.serve(async req => {
     const body = await req.json();
     if (typeof body.documentId !== 'string') return reply(400, { error: 'Document ID required' });
     const { data: doc, error: docError } = await admin.from('sharepoint_documents').select('*').eq('id', body.documentId).single();
-    if (docError || !doc) return reply(404, { error: 'Document not found' });
+    if (docError || !doc || doc.deleted_at || doc.deletion_pending_at) return reply(404, { error: 'Document not found' });
     const { data: isAdmin, error: roleError } = await caller.rpc('is_admin');
     if (doc.created_by_id !== user.id && (roleError || isAdmin !== true)) return reply(403, { error: 'Only the owner or administrator can manage sharing' });
     if (!doc.graph_drive_item_id) return reply(409, { error: 'This record has no confirmed Microsoft file. Upload the original file again.' });
