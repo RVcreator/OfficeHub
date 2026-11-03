@@ -1,3 +1,5 @@
+import {isMeetingUpcoming} from '../utils/meetingLifecycle';
+import {useMeetingClock} from '../utils/useMeetingClock';
 import React, { useState, useEffect, useMemo } from 'react';
 import {
   CheckSquare,
@@ -46,6 +48,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   onSelectProject,
 }) => {
   const { tasks, notices, currentUser, approvals, meetings, projects, startupSections } = usePortalStore(['tasks', 'notices', 'currentUser', 'approvals', 'meetings', 'projects', 'startupSections']);
+  const meetingNow=useMeetingClock(meetings);
   const [ayah, setAyah] = useState<QuranAyah | null>(null);
   const hijriDate = useHijriDate();
 
@@ -77,7 +80,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   );
 
   const pendingApprovals = approvals.filter(a => a.status === 'Pending');
-  const upcomingMeetings = meetings.filter(m => m.status === 'Scheduled');
+  const upcomingMeetings = meetings.filter(m => isMeetingUpcoming(m,meetingNow));
 
   return (
     <div className="oh-dashboard space-y-5">

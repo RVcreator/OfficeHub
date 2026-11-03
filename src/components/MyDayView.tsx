@@ -1,3 +1,5 @@
+import {useMeetingClock} from '../utils/useMeetingClock';
+import {canRespondToMeeting,isMeetingUpcoming} from '../utils/meetingLifecycle';
 import React, { useState, useEffect } from 'react';
 import {
   CheckSquare,
@@ -28,6 +30,7 @@ export const MyDayView: React.FC<MyDayViewProps> = ({
   onSelectMeeting,
 }) => {
   const { tasks, meetings, currentUser } = usePortalStore(['tasks', 'meetings', 'currentUser']);
+  const meetingNow=useMeetingClock(meetings);
   const [hadith, setHadith] = useState<ShiaHadith | null>(null);
   const hijriDate = useHijriDate();
 
@@ -40,7 +43,7 @@ export const MyDayView: React.FC<MyDayViewProps> = ({
     return isMyPersonalOrAssignedTask(t, currentUser.id, currentUser.name);
   });
   const todayMeetings = meetings.filter(
-    m => !isMeetingArchived(m) && m.status !== 'Cancelled' && m.status !== 'Completed' && isUserInvolvedInMeeting(m, currentUser)
+    m => isMeetingUpcoming(m,meetingNow) && isUserInvolvedInMeeting(m, currentUser)
   );
 
   return (

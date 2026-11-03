@@ -111,15 +111,15 @@ test('48-hour boundary, overnight meetings, missing endTime, and recurrence', ()
   const mtg = makeMeeting('boundary', { date: '2026-10-25', startTime: '10:00 AM', endTime: '11:00 AM' });
   const scheduledEndMs = getMeetingScheduledTimestamp(mtg)!;
 
-  assert.equal(scheduledEndMs, new Date(2026, 9, 25, 11, 0, 0, 0).getTime());
+  assert.equal(scheduledEndMs, Date.parse('2026-10-25T11:00:00+03:00'));
   assert.equal(isMeetingArchived(mtg, { nowMs: scheduledEndMs + TWO_DAYS_MS - 1 }), false);
   assert.equal(isMeetingArchived(mtg, { nowMs: scheduledEndMs + TWO_DAYS_MS }), true);
 
   const overnight = makeMeeting('overnight', { date: '2026-10-25', startTime: '11:30 PM', endTime: '12:30 AM' });
-  assert.equal(getMeetingScheduledTimestamp(overnight), new Date(2026, 9, 26, 0, 30, 0, 0).getTime());
+  assert.equal(getMeetingScheduledTimestamp(overnight), Date.parse('2026-10-26T00:30:00+03:00'));
 
   const placeholderEnd = makeMeeting('placeholder', { date: '2026-10-24', startTime: '09:15 AM', endTime: 'TBD' });
-  assert.equal(getMeetingScheduledTimestamp(placeholderEnd), new Date(2026, 9, 24, 9, 15, 0, 0).getTime());
+  assert.equal(getMeetingScheduledTimestamp(placeholderEnd), Date.parse('2026-10-24T10:15:00+03:00'));
 
   const nowMs = new Date(2026, 9, 27, 12, 0, 0, 0).getTime();
   const weeklySingle = makeMeeting('weekly', { date: '2026-10-24', recurrence: 'Weekly' });

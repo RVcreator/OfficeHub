@@ -1,3 +1,5 @@
+import {useMeetingClock} from '../utils/useMeetingClock';
+import {canRespondToMeeting,isMeetingUpcoming} from '../utils/meetingLifecycle';
 import {requiresTaskRating} from '../utils/taskRatingState';
 import {brandLogo} from '../utils/brandLogo';
 import { isNotificationForUser } from '../services/notificationDelivery';
@@ -55,6 +57,7 @@ export const Header: React.FC<HeaderProps> = ({
   onSignOut,
 }) => {
   const { currentUser, staff, actions, notices, tasks, meetings, sharePointDocs, notifications } = usePortalStore(['currentUser', 'staff', 'notices', 'tasks', 'meetings', 'sharePointDocs', 'notifications']);
+  const meetingNow=useMeetingClock(meetings);
   const [presenceMenuOpen, setPresenceMenuOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [showSearchDropdown, setShowSearchDropdown] = useState(false);
@@ -493,7 +496,7 @@ export const Header: React.FC<HeaderProps> = ({
                         )}
 
                         {/* Quick Actions for meeting proposal on notification */}
-                        {isProposal && isOrganizerOfMeeting && notif.actorId && relatedMeeting && (
+                        {isProposal && isOrganizerOfMeeting && notif.actorId && relatedMeeting && canRespondToMeeting(relatedMeeting,meetingNow) && (
                           <div className="flex items-center gap-1">
                             <button
                               type="button"

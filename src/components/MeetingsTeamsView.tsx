@@ -1,3 +1,5 @@
+import {canRespondToMeeting,isMeetingDormant,canEditMeetingSchedule} from '../utils/meetingLifecycle';
+import {useMeetingClock} from '../utils/useMeetingClock';
 import { UserAvatar } from './UserAvatar';
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import {
@@ -143,55 +145,38 @@ const InlineMeetingRsvp: React.FC<{
   const [comment, setComment] = useState<string>(userAttendee.note || userAttendee.comment || '');
   const [errorMsg, setErrorMsg] = useState('');
   const [savedSuccess, setSavedSuccess] = useState<string | null>(null);
+  const [isSaving,setIsSaving]=useState(false);
+  const savingRef=useRef(false);
   const commentInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     setComment(userAttendee.note || userAttendee.comment || '');
   }, [userAttendee.note, userAttendee.comment]);
 
-  const handleAccept = async () => {
+  const saveResponse=async(status:RsvpStatus,success:string)=>{
+    if(savingRef.current)return;
     setErrorMsg('');
-    await actions.respondToMeeting(meeting.id, 'Accepted', {
-      note: comment.trim() || undefined,
-      comment: comment.trim() || undefined
-    });
-    setSavedSuccess('Accepted');
-    setTimeout(() => setSavedSuccess(null), 3500);
+    if(!canRespondToMeeting(meeting)){setErrorMsg('This meeting is dormant. Its response window has closed.');return;}
+    savingRef.current=true;setIsSaving(true);
+    try{await actions.respondToMeeting(meeting.id,status,{note:comment.trim()||undefined,comment:comment.trim()||undefined});setSavedSuccess(success);setTimeout(()=>setSavedSuccess(null),3500);}
+    catch(error){setErrorMsg(error instanceof Error?error.message:'Your response could not be saved.');}
+    finally{savingRef.current=false;setIsSaving(false);}
   };
-
-  const handleDeclineClick = async () => {
-    if (!comment.trim()) {
-      setErrorMsg('A note explaining why you are declining is required.');
-      commentInputRef.current?.focus();
-      return;
-    }
-    setErrorMsg('');
-    await actions.respondToMeeting(meeting.id, 'Declined', {
-      note: comment.trim(),
-      comment: comment.trim()
-    });
-    setSavedSuccess('Declined');
-    setTimeout(() => setSavedSuccess(null), 3500);
+  const handleAccept=()=>saveResponse('Accepted','Accepted');
+  const handleDeclineClick=()=>{
+    if(!comment.trim()){setErrorMsg('A note explaining why you are declining is required.');commentInputRef.current?.focus();return;}
+    return saveResponse('Declined','Declined');
   };
-
-  const handleUpdateNoteOnly = async () => {
-    if (userAttendee.status === 'Declined' && !comment.trim()) {
-      setErrorMsg('Decline reason cannot be empty.');
-      commentInputRef.current?.focus();
-      return;
-    }
-    setErrorMsg('');
-    await actions.respondToMeeting(meeting.id, userAttendee.status, {
-      note: comment.trim() || undefined,
-      comment: comment.trim() || undefined
-    });
-    setSavedSuccess('Note updated');
-    setTimeout(() => setSavedSuccess(null), 3500);
+  const handleUpdateNoteOnly=()=>{
+    if(userAttendee.status==='Declined'&&!comment.trim()){setErrorMsg('Decline reason cannot be empty.');return;}
+    return saveResponse(userAttendee.status,'Note updated');
   };
 
   const hasCommentChanged = comment.trim() !== (userAttendee.note || userAttendee.comment || '').trim();
   const isDeclined = userAttendee.status === 'Declined';
   const isAccepted = userAttendee.status === 'Accepted';
+
+  if(!canRespondToMeeting(meeting))return <div role="status" className="p-3 bg-slate-100 border border-slate-200 rounded-lg text-xs text-slate-600 space-y-1"><p className="font-bold">{isMeetingDormant(meeting)?'Dormant — responses closed':'Responses closed'}</p><p>The allocated meeting time has ended or the meeting is closed. Existing responses are preserved; this meeting moves to the archive 48 hours after its scheduled end.</p>{renderRsvpBadge(userAttendee.status)}</div>;
 
   return (
     <div className={`${compact ? 'p-2.5' : 'p-3'} bg-slate-50/95 rounded-lg border ${errorMsg ? 'border-rose-400 ring-2 ring-rose-200' : 'border-slate-200'} space-y-2`}>
@@ -210,7 +195,7 @@ const InlineMeetingRsvp: React.FC<{
       <div className="grid grid-cols-3 gap-1.5 sm:gap-2">
         <button
           type="button"
-          onClick={handleAccept}
+          disabled={isSaving} onClick={handleAccept}
           className={`${compact ? 'py-1 px-1.5 text-[10px]' : 'py-1.5 px-2 text-xs'} font-bold rounded border flex items-center justify-center gap-1 transition shadow-2xs cursor-pointer ${
             isAccepted
               ? 'bg-emerald-600 text-white border-emerald-600'
@@ -224,7 +209,7 @@ const InlineMeetingRsvp: React.FC<{
 
         <button
           type="button"
-          onClick={handleDeclineClick}
+          disabled={isSaving} onClick={handleDeclineClick}
           className={`${compact ? 'py-1 px-1.5 text-[10px]' : 'py-1.5 px-2 text-xs'} font-bold rounded border flex items-center justify-center gap-1 transition shadow-2xs cursor-pointer ${
             isDeclined
               ? 'bg-rose-600 text-white border-rose-600'
@@ -238,7 +223,7 @@ const InlineMeetingRsvp: React.FC<{
 
         <button
           type="button"
-          onClick={() => onOpenProposal(meeting)}
+          disabled={isSaving} onClick={() => onOpenProposal(meeting)}
           className={`${compact ? 'py-1 px-1.5 text-[10px]' : 'py-1.5 px-2 text-xs'} font-bold rounded border flex items-center justify-center gap-1 transition shadow-2xs cursor-pointer ${
             userAttendee.status === 'Proposed New Time'
               ? 'bg-amber-600 text-white border-amber-600'
@@ -307,7 +292,7 @@ const InlineMeetingRsvp: React.FC<{
           {hasCommentChanged && userAttendee.status !== 'Pending' && (
             <button
               type="button"
-              onClick={handleUpdateNoteOnly}
+              disabled={isSaving} onClick={handleUpdateNoteOnly}
               className="px-2.5 py-1 bg-slate-700 hover:bg-slate-800 text-white font-bold text-xs rounded transition shadow-2xs shrink-0 cursor-pointer"
               title="Save updated note"
             >
@@ -501,16 +486,8 @@ export const MeetingsTeamsView: React.FC<{
   }, [selectedMeetingId]);
 
   // Active live meeting sync on mount and while user views the meetings/calendar tab
-  const [archiveTick, setArchiveTick] = useState<number>(() => Date.now());
-  useEffect(() => {
-    actions.triggerLiveMeetingSync?.();
-    const archiveTimer = setInterval(() => {
-      setArchiveTick(Date.now());
-    }, 60000);
-    return () => {
-      clearInterval(archiveTimer);
-    };
-  }, [actions]);
+  const archiveTick=useMeetingClock(meetings);
+  useEffect(()=>{actions.triggerLiveMeetingSync?.();},[actions]);
 
   // Propose New Time modal state
   const [proposingMeeting, setProposingMeeting] = useState<Meeting | null>(null);
@@ -1061,6 +1038,7 @@ export const MeetingsTeamsView: React.FC<{
 
   // Open propose new time modal with auto-format
   const handleOpenProposalModal = (meeting: Meeting) => {
+    if(!canRespondToMeeting(meeting)){window.alert('This meeting is dormant. Its response window has closed.');return;}
     const existingAttendee = meeting.attendees.find(
       a => a.userId === currentUser.id || a.email === currentUser.email || a.name === currentUser.name
     );
@@ -1071,11 +1049,12 @@ export const MeetingsTeamsView: React.FC<{
     setProposalNote(existingAttendee?.proposalNote || existingAttendee?.note || '');
   };
 
-  const handleSubmitProposal = (e: React.FormEvent) => {
+  const handleSubmitProposal = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!proposingMeeting) return;
 
-    actions.respondToMeeting(proposingMeeting.id, 'Proposed New Time', {
+    try {
+    await actions.respondToMeeting(proposingMeeting.id, 'Proposed New Time', {
       proposedDate,
       proposedTime: convertTo12HourTime(proposedStartTime),
       proposedEndTime: convertTo12HourTime(proposedEndTime),
@@ -1083,10 +1062,12 @@ export const MeetingsTeamsView: React.FC<{
     });
 
     setProposingMeeting(null);
+    }catch(error){window.alert(error instanceof Error?error.message:'Your proposal was not saved.');}
   };
 
   // Open Edit Meeting Modal
   const handleOpenEditMeeting = (meeting: Meeting) => {
+    if(!canEditMeetingSchedule(meeting)){window.alert('This meeting is dormant. Create a new meeting for a new allocation.');return;}
     setEditingMeeting(meeting);
     setEditTitle(meeting.title);
     setEditDepartment(meeting.department || 'Top management');
@@ -1657,7 +1638,7 @@ export const MeetingsTeamsView: React.FC<{
                                         </span>
                                       )}
                                     </div>
-                                    <h4 className="text-xs font-bold text-slate-900 truncate">{m.title}</h4>
+                                    <h4 className="text-xs font-bold text-slate-900 truncate">{m.title}{isMeetingDormant(m,archiveTick)&&<span className="ml-2 text-[10px] font-semibold text-slate-500">Dormant — responses closed</span>}</h4>
                                     <div className="flex items-center gap-3 text-[11px] text-slate-600">
                                       <span>Chair: <strong>{m.chairName || 'Staff'}</strong></span>
                                       <span>•</span>
@@ -1667,7 +1648,7 @@ export const MeetingsTeamsView: React.FC<{
 
                                   <div className="flex items-center gap-2 shrink-0">
                                     <a
-                                      href={m.teamsJoinUrl}
+                                      href={canRespondToMeeting(m,archiveTick)?m.teamsJoinUrl:undefined} aria-disabled={!canRespondToMeeting(m,archiveTick)} tabIndex={canRespondToMeeting(m,archiveTick)?0:-1}
                                       target="_blank"
                                       rel="noreferrer"
                                       onClick={(e) => e.stopPropagation()}
@@ -2220,7 +2201,7 @@ export const MeetingsTeamsView: React.FC<{
                             <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded bg-slate-200/70 text-slate-700">
                               {m.department}
                             </span>
-                            <h4 className="text-xs font-bold text-slate-900 mt-1">{m.title}</h4>
+                            <h4 className="text-xs font-bold text-slate-900 mt-1">{m.title}{isMeetingDormant(m,archiveTick)&&<span className="ml-2 text-[10px] font-semibold text-slate-500">Dormant — responses closed</span>}</h4>
                           </div>
                         <span className="text-[11px] font-bold text-purple-800 bg-purple-100 px-2 py-0.5 rounded shrink-0">
                           {m.startTime || m.time}
@@ -2252,7 +2233,7 @@ export const MeetingsTeamsView: React.FC<{
                           <div className="flex items-center gap-1">
                             <button
                               type="button"
-                              onClick={() => handleOpenEditMeeting(m)}
+                              disabled={!canEditMeetingSchedule(m,archiveTick)} onClick={() => handleOpenEditMeeting(m)}
                               className="px-2 py-1 bg-white hover:bg-purple-100 text-purple-800 border border-purple-200 rounded text-[10px] font-bold flex items-center gap-1 shadow-2xs"
                             >
                               <Pencil className="w-3 h-3" />
@@ -2280,7 +2261,7 @@ export const MeetingsTeamsView: React.FC<{
                       <div className="flex items-center justify-between gap-2 pt-1">
                         <div className="flex items-center gap-1.5">
                           <a
-                            href={m.teamsJoinUrl}
+                            href={canRespondToMeeting(m,archiveTick)?m.teamsJoinUrl:undefined} aria-disabled={!canRespondToMeeting(m,archiveTick)} tabIndex={canRespondToMeeting(m,archiveTick)?0:-1}
                             target="_blank"
                             rel="noreferrer"
                             className="px-2.5 py-1 bg-purple-600 hover:bg-purple-700 text-white rounded text-xs font-semibold inline-flex items-center gap-1.5 shadow-2xs transition"
@@ -2407,7 +2388,7 @@ export const MeetingsTeamsView: React.FC<{
               </div>
               <h3 className="text-sm font-bold text-slate-800">No Active Meetings</h3>
               <p className="text-xs text-slate-500 max-w-md mx-auto">
-                You have no upcoming or active sessions matching this view. Past meetings automatically move to your Personal Archive 2 days after their scheduled date.
+                You have no upcoming or active sessions matching this view. Ended meetings remain dormant for 48 hours after their scheduled end, then move to your Personal Archive.
               </p>
             </div>
           ) : (
@@ -2426,7 +2407,7 @@ export const MeetingsTeamsView: React.FC<{
 
               return (
                 <div
-                  key={meeting.id}
+                  key={meeting.id} data-meeting-id={meeting.id}
                   className="bg-white rounded-lg border border-slate-200 p-5 shadow-xs hover:border-slate-300 transition flex flex-col justify-between space-y-4"
                 >
                   <div className="space-y-3">
@@ -2447,14 +2428,15 @@ export const MeetingsTeamsView: React.FC<{
                       <div className="flex items-center gap-1.5">
                         <span
                           className={`text-[10px] px-2 py-0.5 rounded font-bold border ${
-                            meeting.status === 'Completed'
+                            isMeetingDormant(meeting,archiveTick)
+                              ? 'bg-slate-100 text-slate-700 border-slate-300' : meeting.status === 'Completed'
                               ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
                               : meeting.status === 'Cancelled'
                               ? 'bg-rose-50 text-rose-800 border-rose-200'
                               : 'bg-purple-50 text-purple-800 border-purple-200'
                           }`}
                         >
-                          {meeting.status}
+                          {isMeetingDormant(meeting,archiveTick)?'Dormant':meeting.status}
                         </span>
 
                         {/* Edit and Delete buttons for Meeting Creator only */}
@@ -2462,7 +2444,7 @@ export const MeetingsTeamsView: React.FC<{
                           <div className="flex items-center gap-1 pl-1 border-l border-slate-200">
                             <button
                               type="button"
-                              onClick={() => handleOpenEditMeeting(meeting)}
+                              disabled={!canEditMeetingSchedule(meeting,archiveTick)} onClick={() => handleOpenEditMeeting(meeting)}
                               className="p-1 rounded text-slate-500 hover:text-purple-700 hover:bg-purple-50 transition"
                               title="Edit Meeting Details"
                             >
@@ -2585,7 +2567,7 @@ export const MeetingsTeamsView: React.FC<{
                     </div>
 
                     {/* Organizer Proposal Resolver Banner (if proposals exist and user is organizer) */}
-                    {proposedAttendees.length > 0 && isCreator && (
+                    {proposedAttendees.length > 0 && isCreator && canRespondToMeeting(meeting,archiveTick) && (
                       <div className="p-3 bg-amber-50 rounded-lg border border-amber-300 space-y-2 text-xs">
                         <div className="flex items-center gap-1.5 text-amber-900 font-bold">
                           <AlertTriangle className="w-4 h-4 text-amber-600" />
@@ -2642,7 +2624,7 @@ export const MeetingsTeamsView: React.FC<{
                           <UserCheck className="w-4 h-4 text-purple-700" />
                           <span>Meeting Host & Organizer</span>
                         </div>
-                        <span className="text-[11px] text-purple-800 font-medium">Awaiting invitee responses</span>
+                        <span className="text-[11px] text-purple-800 font-medium">{canRespondToMeeting(meeting,archiveTick)?'Awaiting invitee responses':'Dormant — responses closed'}</span>
                       </div>
                     ) : null}
                   </div>
@@ -2651,7 +2633,7 @@ export const MeetingsTeamsView: React.FC<{
                   <div className="pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2 text-xs">
                     <div className="flex items-center gap-1.5">
                       <a
-                        href={meeting.teamsJoinUrl}
+                        href={canRespondToMeeting(meeting,archiveTick)?meeting.teamsJoinUrl:undefined} aria-disabled={!canRespondToMeeting(meeting,archiveTick)} tabIndex={canRespondToMeeting(meeting,archiveTick)?0:-1}
                         target="_blank"
                         rel="noreferrer"
                         className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded font-semibold flex items-center gap-1.5 shadow-2xs transition"
@@ -2788,7 +2770,7 @@ export const MeetingsTeamsView: React.FC<{
                   Cancel
                 </button>
                 <button
-                  type="submit"
+                  type="submit" disabled={!canRespondToMeeting(proposingMeeting,archiveTick)}
                   className="px-4 py-2 rounded-md bg-amber-600 hover:bg-amber-700 text-white font-semibold shadow-2xs transition"
                 >
                   Submit Proposal
@@ -2978,6 +2960,7 @@ export const MeetingsTeamsView: React.FC<{
               );
             })()}
 
+            {isMeetingDormant(selectedDetailMeeting,archiveTick)&&selectedDetailMeeting.organizerId===currentUser.id&&<div role="status" className="p-3 bg-slate-100 border border-slate-200 rounded-lg text-xs text-slate-600">Dormant — responses closed. This meeting moves to the archive 48 hours after its scheduled end.</div>}
             {/* Interactive RSVP Action Controls (ONLY for invited attendees, NOT organizer) */}
             {(() => {
               const isCreator = selectedDetailMeeting.organizerId === currentUser.id;
@@ -2994,7 +2977,7 @@ export const MeetingsTeamsView: React.FC<{
                     </div>
                     <div className="flex items-center gap-2">
                       <button
-                        onClick={() => handleOpenEditMeeting(selectedDetailMeeting)}
+                        disabled={!canEditMeetingSchedule(selectedDetailMeeting,archiveTick)} onClick={() => handleOpenEditMeeting(selectedDetailMeeting)}
                         className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded font-bold text-xs flex items-center gap-1 shadow-2xs cursor-pointer"
                       >
                         <Pencil className="w-3.5 h-3.5" />
@@ -3071,7 +3054,7 @@ export const MeetingsTeamsView: React.FC<{
                         )}
 
                         {/* If attendee proposed new time and viewer is organizer */}
-                        {a.status === 'Proposed New Time' && isUserOrganizer && (
+                        {a.status === 'Proposed New Time' && isUserOrganizer && canRespondToMeeting(selectedDetailMeeting,archiveTick) && (
                           <div className="flex items-center gap-1">
                             <button
                               type="button"
@@ -3102,7 +3085,7 @@ export const MeetingsTeamsView: React.FC<{
             <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-slate-100">
               <div className="flex items-center gap-2">
                 <a
-                  href={selectedDetailMeeting.teamsJoinUrl}
+                  href={canRespondToMeeting(selectedDetailMeeting,archiveTick)?selectedDetailMeeting.teamsJoinUrl:undefined} aria-disabled={!canRespondToMeeting(selectedDetailMeeting,archiveTick)} tabIndex={canRespondToMeeting(selectedDetailMeeting,archiveTick)?0:-1}
                   target="_blank"
                   rel="noreferrer"
                   className="px-3.5 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded font-bold flex items-center gap-1.5 shadow-2xs transition"
