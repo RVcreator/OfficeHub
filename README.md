@@ -53,4 +53,3 @@ node --import tsx --test tests/*.test.ts
 npm run build
 ```
 
-**Suggested GitHub topics:** `react` · `typescript` · `supabase` · `vite` · `tailwindcss` · `task-management` · `project-management` · `microsoft-365` · `microsoft-teams` · `sharepoint` · `internal-tools` · `cpanel`
