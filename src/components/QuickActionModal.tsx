@@ -2085,12 +2085,14 @@ export const QuickActionModal: React.FC<QuickActionModalProps> = ({
                     />
                     <button
                       type="button"
-                      onClick={() => {
+                      onClick={async () => {
                           if (newFolderName.trim()) {
-                              actions.addFolder(newFolderName.trim());
+                            try {
+                              await actions.addFolder(newFolderName.trim());
                               setSpFolder(newFolderName.trim() as any);
                               setNewFolderName('');
                               setIsCreatingFolder(false);
+                            } catch(error) { window.alert(error instanceof Error?error.message:'Microsoft folder creation failed.'); }
                           }
                       }}
                       className="px-3 py-2 rounded-md bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700"

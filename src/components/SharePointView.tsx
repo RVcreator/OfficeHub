@@ -32,13 +32,13 @@ export const SharePointView: React.FC<{ onOpenUploadModal: () => void }> = ({ on
   const { sharePointDocs, currentUser, actions, folderList, staff, departments } = usePortalStore(['sharePointDocs', 'currentUser', 'folderList', 'staff', 'departments']);
 
   useEffect(() => {
-    actions.getSharePointDocs();
-    actions.getFolderList();
+    actions.getSharePointDocs().then(()=>actions.getFolderList()).catch(error=>window.alert(error.message));
   }, []);
 
   const [selectedFolder, setSelectedFolder] = useState<string>('All');
   const [searchQuery, setSearchQuery] = useState('');
   const [activeDocPreview, setActiveDocPreview] = useState<SharePointDocument | null>(null);
+  const [deletingDocId,setDeletingDocId] = useState<string | null>(null);
   const [syncingDocId, setSyncingDocId] = useState<string | null>(null);
   const [isNewFolderModalOpen, setIsNewFolderModalOpen] = useState(false);
   const [newFolderName, setNewFolderName] = useState('');
@@ -65,12 +65,12 @@ export const SharePointView: React.FC<{ onOpenUploadModal: () => void }> = ({ on
     return Array.from(map.values());
   }, [staff]);
 
-  const handleCreateFolder = () => {
-    if (newFolderName.trim()) {
-      actions.addFolder(newFolderName.trim());
-      setNewFolderName('');
-      setIsNewFolderModalOpen(false);
-    }
+  const handleCreateFolder = async () => {
+    if (!newFolderName.trim()) return;
+    try {
+      await actions.addFolder(newFolderName.trim());
+      setNewFolderName(''); setIsNewFolderModalOpen(false);
+    } catch(error) { window.alert(error instanceof Error?error.message:'Microsoft folder creation failed.'); }
   };
 
   const filteredDocs = sharePointDocs.filter(doc => {
@@ -83,12 +83,11 @@ export const SharePointView: React.FC<{ onOpenUploadModal: () => void }> = ({ on
     return true;
   });
 
-  const handleSyncDoc = (docId: string) => {
+  const handleSyncDoc = async (docId: string) => {
     setSyncingDocId(docId);
-    setTimeout(() => {
-      actions.syncSharePointDocument(docId);
-      setSyncingDocId(null);
-    }, 500);
+    try { await actions.syncSharePointDocument(docId); }
+    catch(error) { window.alert(error instanceof Error?error.message:'Microsoft sync failed.'); }
+    finally { setSyncingDocId(null); }
   };
 
   const getFileBadgeColor = (type: SharePointDocument['fileType']) => {
@@ -137,11 +136,13 @@ export const SharePointView: React.FC<{ onOpenUploadModal: () => void }> = ({ on
   };
 
   const handleDeleteDocument = async (docId: string) => {
-    if ((actions as any).deleteSharePointDocument) {
-      await (actions as any).deleteSharePointDocument(docId);
-    }
-    setPermissionDoc(null);
-    setActiveDocPreview(null);
+    if(deletingDocId || !window.confirm('Delete this document from OfficeHub and move the Microsoft file to the SharePoint recycle bin?'))return;
+    setDeletingDocId(docId);
+    try {
+      await actions.deleteSharePointDocument(docId);
+      setPermissionDoc(null); setActiveDocPreview(null);
+    } catch(error) { window.alert(error instanceof Error?error.message:'Microsoft deletion could not be confirmed.'); }
+    finally { setDeletingDocId(null); }
   };
 
   return (
@@ -167,9 +168,8 @@ export const SharePointView: React.FC<{ onOpenUploadModal: () => void }> = ({ on
 
         <div className="flex flex-wrap items-center gap-2">
           <button
-            onClick={() => {
-              sharePointDocs.forEach(d => handleSyncDoc(d.id));
-            }}
+            disabled={!!syncingDocId || !!deletingDocId}
+            onClick={async () => { for (const doc of filteredDocs) await handleSyncDoc(doc.id); }}
             className="px-3 py-1.5 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer"
           >
             <RefreshCw className="w-3.5 h-3.5" />
@@ -282,6 +282,7 @@ export const SharePointView: React.FC<{ onOpenUploadModal: () => void }> = ({ on
 
                 <div className="oh-document-actions flex flex-wrap items-center gap-2 self-start sm:self-center shrink-0 max-w-full">
                   <button
+                    disabled={!!deletingDocId}
                     onClick={() => handleDeleteDocument(doc.id)}
                     className="p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded text-xs font-medium flex items-center justify-center transition cursor-pointer"
                     title="Delete Document"
@@ -365,14 +366,13 @@ export const SharePointView: React.FC<{ onOpenUploadModal: () => void }> = ({ on
               <div className="flex flex-wrap items-center gap-3">
                 <span className="text-xs text-blue-700 flex items-center gap-1">
                   <ShieldCheck className="w-3.5 h-3.5" />
-                  <span>SharePoint Online Verified</span>
+                  <span>{activeDocPreview.syncedWithSharePoint?'Linked to SharePoint':'Microsoft confirmation required'}</span>
                 </span>
                 <button
                   type="button"
                   onClick={() => {
                     const docId = activeDocPreview.id;
-                    setActiveDocPreview(null);
-                    handleDeleteDocument(docId);
+                    void handleDeleteDocument(docId);
                   }}
                   className="px-2.5 py-1.5 text-rose-600 hover:bg-rose-50 rounded text-xs font-semibold flex items-center gap-1 cursor-pointer"
                 >
@@ -505,6 +505,7 @@ export const SharePointView: React.FC<{ onOpenUploadModal: () => void }> = ({ on
             <div className="flex items-center justify-between pt-3 border-t border-slate-100">
               <button
                 type="button"
+                disabled={!!deletingDocId}
                 onClick={() => handleDeleteDocument(permissionDoc.id)}
                 className="px-2.5 py-1.5 text-rose-600 hover:bg-rose-50 rounded text-xs font-semibold flex items-center gap-1 cursor-pointer"
               >

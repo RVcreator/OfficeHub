@@ -1,3 +1,4 @@
+import { createMicrosoftFolder } from '../_shared/documentActions.ts';
 let cachedToken: string | null = null;
 let tokenExpiresAt = 0;
 
@@ -156,6 +157,7 @@ serve(async (req: Request) => {
         bytes = new TextEncoder().encode(JSON.stringify(fileData));
       }
 
+      await createMicrosoftFolder(fetch, graphToken, driveId, folder);
       const cleanFolder = encodeURIComponent(folder.trim());
       const cleanName = encodeURIComponent(`${docId}-${name.trim()}`);
       const uploadUrl = `https://graph.microsoft.com/v1.0/sites/${siteId}/drives/${driveId}/root:/${cleanFolder}/${cleanName}:/content`;

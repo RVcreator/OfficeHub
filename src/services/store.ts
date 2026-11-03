@@ -1,3 +1,4 @@
+let documentReadGeneration = 0;
 import {canRespondToMeeting} from '../utils/meetingLifecycle';
 import {newMeetingTimeError} from '../utils/newMeetingSchedule';
 import {isPhysicalMeeting,meetingFormatLabel} from '../utils/meetingFormat';
@@ -166,20 +167,6 @@ try {
   localStorage.removeItem('wipahs_deleted_staff_ids');
 } catch {}
 
-export function getDeletedDocumentIds(): Set<string> {
-  try {
-    const raw = localStorage.getItem('wipahs_deleted_document_ids');
-    if (raw) return new Set(JSON.parse(raw));
-  } catch {}
-  return new Set();
-}
-
-export function saveDeletedDocumentIds(set: Set<string>): void {
-  try {
-    localStorage.setItem('wipahs_deleted_document_ids', JSON.stringify(Array.from(set)));
-  } catch {}
-}
-
 export function getDepartmentsFromLocalStorage(): DepartmentInfo[] {
   try {
     const raw = localStorage.getItem('wipahs_custom_departments');
@@ -194,18 +181,10 @@ export function saveDepartmentsToLocalStorage(depts: DepartmentInfo[]): void {
   } catch {}
 }
 
-export function getDocumentsFromLocalStorage(): SharePointDocument[] {
-  try {
-    const raw = localStorage.getItem('wipahs_sharepoint_documents');
-    if (raw) return JSON.parse(raw);
-  } catch {}
-  return [];
-}
-
-export function saveDocumentsToLocalStorage(docs: SharePointDocument[]): void {
-  try {
-    localStorage.setItem('wipahs_sharepoint_documents', JSON.stringify(docs));
-  } catch {}
+export function getDocumentsFromLocalStorage(): SharePointDocument[] { return []; }
+export function saveDocumentsToLocalStorage(_docs: SharePointDocument[]): void {
+  // Document audiences can change between sessions. Do not persist shared account data.
+  try { localStorage.removeItem('wipahs_sharepoint_documents'); localStorage.removeItem('wipahs_sharepoint_docs'); } catch {}
 }
 
 export function getProjectsFromLocalStorage(): Project[] {
@@ -376,8 +355,8 @@ const storeState: StoreData = {
   projects: [],
   meetings: [],
   staff: [],
-  sharePointDocs: getDocumentsFromLocalStorage(),
-  folderList: Array.from(new Set([...DEFAULT_FOLDERS, ...getDocumentsFromLocalStorage().map((d) => d.folder).filter(Boolean)])),
+  sharePointDocs: [],
+  folderList: [...DEFAULT_FOLDERS],
   teamsRules: [],
   auditLogs: [],
   currentUser: {
@@ -522,7 +501,7 @@ export async function initStoreOnce():Promise<void>{
     if(identity===storeState.authSession.userId&&generation===storeInitGeneration)storeInitPromise=null;
   });
   void portalStore.getDepartments().then(rows=>{if(identity===storeState.authSession.userId&&generation===storeInitGeneration)setTableData('departments',rows);}).catch(()=>{});
-  setTimeout(()=>{if(storeState.authSession.isAuthenticated&&identity===storeState.authSession.userId&&generation===storeInitGeneration)void portalStore.getSharePointDocs();},1000);
+  setTimeout(()=>{if(storeState.authSession.isAuthenticated&&identity===storeState.authSession.userId&&generation===storeInitGeneration)void portalStore.getSharePointDocs().catch(error=>console.warn('Document refresh failed',error));},1000);
   return storeInitPromise;
 }
 
@@ -1152,89 +1131,32 @@ export const portalStore = {
   },
 
   getSharePointDocs: async (): Promise<SharePointDocument[]> => {
-    const identity=storeState.authSession.userId;
-    const deletedDocs = getDeletedDocumentIds();
-    try {
-      const localDocs = getDocumentsFromLocalStorage().filter((d) => !deletedDocs.has(d.id));
-
-      let dbDocs: SharePointDocument[] = [];
-      try {
-        const { data, error } = await supabase
-          .from('sharepoint_documents')
-          .select('*')
-          .order('modified_at', { ascending: false });
-
-        if (!error && data) {
-          dbDocs = data.map(mapSharePointDocRow).filter((d) => !deletedDocs.has(d.id));
-        }
-      } catch (err) {
-        console.warn('Supabase getSharePointDocs error:', err);
-      }
-
-      if(identity!==storeState.authSession.userId)return [];
-      setTableData('sharePointDocs',dbDocs.length ? dbDocs : localDocs);
-      const fnDocuments = await invokeSharePointListSafe();
-      if(identity!==storeState.authSession.userId)return [];
-      if (fnDocuments && fnDocuments.length > 0) {
-        const fnDocs = fnDocuments.map(mapSharePointDocRow).filter((d: SharePointDocument) => !deletedDocs.has(d.id));
-        fnDocs.forEach((d: SharePointDocument) => {
-          if (!dbDocs.some((existing) => existing.id === d.id)) {
-            dbDocs.push(d);
-          }
-        });
-      }
-
-      const docMap = new Map<string, SharePointDocument>();
-      dbDocs.forEach(d => docMap.set(d.id, d));
-      localDocs.forEach(d => {
-        if (!deletedDocs.has(d.id)) {
-          if (docMap.has(d.id)) {
-            const existing = docMap.get(d.id)!;
-            docMap.set(d.id, {
-              ...existing,
-              visibility: d.visibility || existing.visibility,
-              allowedUserIds: d.allowedUserIds?.length ? d.allowedUserIds : existing.allowedUserIds,
-              editableUserIds: d.editableUserIds?.length ? d.editableUserIds : existing.editableUserIds,
-              targetDepartment: d.targetDepartment || existing.targetDepartment,
-            });
-          } else {
-            docMap.set(d.id, d);
-          }
-        }
-      });
-
-      const merged = Array.from(docMap.values()).filter((d) => !deletedDocs.has(d.id));
-      if (merged.length > 0) {
-        saveDocumentsToLocalStorage(merged);
-        const docFolders = merged.map((d) => d.folder).filter(Boolean);
-        const combinedFolders = Array.from(new Set([...DEFAULT_FOLDERS, ...storeState.folderList, ...docFolders]));
-        setTableData('folderList', combinedFolders);
-      }
-      setTableData('sharePointDocs', merged);
-
-      // Cached documents are read-only; fetching must never recreate an upload.
-
-      return merged;
-    } catch (err) {
-      console.error('getSharePointDocs exception:', err);
-      const fallback = getDocumentsFromLocalStorage().filter((d) => !deletedDocs.has(d.id));
-      setTableData('sharePointDocs', fallback);
-      return fallback;
+    const identity = storeState.authSession.userId;
+    if (!identity) return [];
+    const generation=documentReadGeneration;
+    const rows: SharePointDocument[] = [];
+    for (let offset=0;;offset+=500) {
+      const { data, error } = await supabase.from('sharepoint_documents').select('*').is('deleted_at',null).order('id').range(offset,offset+499);
+      if (error) throw new Error('Documents could not be refreshed. Please retry.');
+      if (identity !== storeState.authSession.userId) return [];
+      if(generation!==documentReadGeneration)return storeState.sharePointDocs;
+      rows.push(...(data || []).map(mapSharePointDocRow));
+      if (!data || data.length<500) break;
     }
+    setTableData('sharePointDocs',rows);
+    // A successful empty RLS response is authoritative, never merge an old account cache.
+    saveDocumentsToLocalStorage([]);
+    return rows;
   },
 
   getFolderList: async (): Promise<string[]> => {
-    try {
-      const localDocFolders = getDocumentsFromLocalStorage().map((d) => d.folder).filter(Boolean);
-      const { data } = await supabase.from('sharepoint_documents').select('folder');
-      const customFolders = (data || []).map((d) => d.folder).filter(Boolean);
-      const combined = Array.from(new Set([...DEFAULT_FOLDERS, ...storeState.folderList, ...localDocFolders, ...customFolders]));
-      setTableData('folderList', combined);
-      return combined;
-    } catch (err) {
-      console.error('getFolderList exception:', err);
-      return storeState.folderList;
-    }
+    const identity=storeState.authSession.userId;
+    const { data, error } = await supabase.from('officehub_document_folders').select('name');
+    if (error) throw new Error('Microsoft folders could not be refreshed.');
+    if(identity!==storeState.authSession.userId)return [];
+    const folders=Array.from(new Set([...DEFAULT_FOLDERS,...storeState.sharePointDocs.map(d=>d.folder),...(data || []).map(d=>d.name)].filter(Boolean)));
+    setTableData('folderList',folders);
+    return folders;
   },
 
   getTeamsRules: async (): Promise<TeamsNotificationRule[]> => {
@@ -3198,9 +3120,9 @@ export const portalStore = {
   // Actions: SharePoint & Folders (UPDATES SHAREPOINT/FOLDER STATES ONLY)
   // -----------------------------------------------------------------------
   addFolder: async (folderName: string): Promise<void> => {
-    if (!storeState.folderList.includes(folderName)) {
-      setTableData('folderList', [...storeState.folderList, folderName]);
-    }
+    const { data, error } = await supabase.functions.invoke('sharepoint-document-action', { body: { action:'create_folder',folderName } });
+    if(error || !data?.success) throw new Error(data?.error || 'Microsoft folder creation could not be confirmed.');
+    setTableData('folderList',Array.from(new Set([...storeState.folderList,data.folder])));
   },
 
   addSharePointDocument: async (
@@ -3231,33 +3153,7 @@ export const portalStore = {
   },
 
   getProjectSharePointDocs: async (projectId: string): Promise<SharePointDocument[]> => {
-    const fnDocuments = await invokeSharePointListSafe({ projectId });
-    if (fnDocuments && fnDocuments.length > 0) {
-      const filtered = fnDocuments.filter(
-        (d: any) => d.projectId === projectId || (d.folder && d.folder.toLowerCase().includes(projectId.toLowerCase()))
-      );
-      if (filtered.length > 0) {
-        return filtered;
-      }
-    }
-
-    try {
-      const { data, error } = await supabase
-        .from('sharepoint_documents')
-        .select('*')
-        .eq('project_id', projectId)
-        .order('modified_at', { ascending: false });
-
-      if (!error && data && data.length > 0) {
-        return data.map(mapSharePointDocRow);
-      }
-    } catch (sbErr) {
-      // fallback
-    }
-
-    return storeState.sharePointDocs.filter(
-      (d) => d.projectId === projectId || (d.folder && d.folder.toLowerCase().includes(projectId.toLowerCase()))
-    );
+    return (await portalStore.getSharePointDocs()).filter(d=>d.projectId===projectId);
   },
 
   updateSharePointDocument: async (docId: string, updates: Partial<SharePointDocument>): Promise<void> => {
@@ -3278,37 +3174,27 @@ export const portalStore = {
   },
 
   deleteSharePointDocument: async (docId: string): Promise<void> => {
-    try {
-      const deletedDocs = getDeletedDocumentIds();
-      deletedDocs.add(docId);
-      saveDeletedDocumentIds(deletedDocs);
-
-      const remainingDocs = storeState.sharePointDocs.filter((d) => d.id !== docId);
-      setTableData('sharePointDocs', remainingDocs);
-      saveDocumentsToLocalStorage(remainingDocs);
-
-      try {
-        await supabase.from('sharepoint_documents').delete().eq('id', docId);
-      } catch (sbErr) {
-        console.warn('Supabase deleteSharePointDocument note:', sbErr);
-      }
-    } catch (err: any) {
-      console.error('deleteSharePointDocument error:', err);
-    }
+    const identity=storeState.authSession.userId;
+    const { data, error } = await supabase.functions.invoke('sharepoint-document-action', { body: { action:'delete',documentId:docId } });
+    let message=data?.error;
+    if(error && !message) { try { message=(await error.context.json()).error; } catch {} }
+    if(error || !data?.success || !data.deleted) throw new Error(message || 'Microsoft deletion was not confirmed. The document has been kept; retry.');
+    if(identity!==storeState.authSession.userId)return;
+    documentReadGeneration++;
+    portalStore.logAudit('sharepoint_doc_deleted','Deleted a document from OfficeHub and the Microsoft drive','blue');
+    setTableData('sharePointDocs',storeState.sharePointDocs.filter(d=>d.id!==docId));
+    saveDocumentsToLocalStorage([]);
   },
 
   syncSharePointDocument: async (docId: string): Promise<void> => {
-    try {
-      const now = new Date().toISOString();
-      await supabase
-        .from('sharepoint_documents')
-        .update({ modified_at: now, synced_with_sharepoint: true })
-        .eq('id', docId);
-
-      setTableData('sharePointDocs', storeState.sharePointDocs.map((d) => (d.id === docId ? { ...d, modifiedAt: now, syncedWithSharePoint: true } : d)));
-    } catch (err: any) {
-      console.error('syncSharePointDocument error:', err);
-    }
+    const identity=storeState.authSession.userId;
+    const { data, error } = await supabase.functions.invoke('sharepoint-document-action', { body: { action:'sync',documentId:docId } });
+    let message=data?.error;
+    if(error && !message) { try { message=(await error.context.json()).error; } catch {} }
+    if(error || !data?.success || !data.document) throw new Error(message || 'Microsoft sync could not be confirmed.');
+    if(identity!==storeState.authSession.userId)return;
+    documentReadGeneration++;
+    setTableData('sharePointDocs',storeState.sharePointDocs.map(d=>d.id===docId?mapSharePointDocRow(data.document):d));
   },
 
   toggleDocumentCollaboration: async (docId: string): Promise<void> => {
@@ -4319,7 +4205,7 @@ for(const method of ['getTasks','getNotices','getMeetings','getStaff','getDepart
 
 // Identical concurrent button actions share one write; failures remain retryable.
 const mutationGate=createMutationGate();
-for(const method of ['addTask','updateTask','updateTaskStatus','rateTask','toggleSubtask','addSubtask','addNotice','acknowledgeNotice','addApproval','approveApproval','rejectApproval','addMeeting','respondToMeeting'] as const){
+for(const method of ['addTask','updateTask','updateTaskStatus','rateTask','toggleSubtask','addSubtask','addNotice','acknowledgeNotice','addApproval','approveApproval','rejectApproval','addMeeting','respondToMeeting','deleteSharePointDocument','syncSharePointDocument','addFolder'] as const){
  const write=portalStore[method] as (...args:any[])=>Promise<any>;
  (portalStore as any)[method]=(...args:any[])=>mutationGate.run(JSON.stringify([method,storeState.currentUser.id,args]),()=>write(...args));
 }

@@ -507,13 +507,13 @@ export const ProjectModal: React.FC<ProjectModalProps> = ({
   };
 
   const handleRemoveProjectDocument = async (docId: string, docName: string) => {
-    if (!project) return;
+    if (!project || !window.confirm('Delete this document from OfficeHub and move the Microsoft file to the SharePoint recycle bin?')) return;
     try {
       await actions.deleteSharePointDocument(docId);
       actions.addProjectActivityLog(project.id, `Removed project document "${docName}" by ${currentUser.name}`);
       setProjectDocs(prev => prev.filter(d => d.id !== docId));
     } catch (err) {
-      console.error('Error removing document:', err);
+      window.alert(err instanceof Error ? err.message : 'Microsoft deletion could not be confirmed.');
     }
   };
 
