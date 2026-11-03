@@ -1,7 +1,9 @@
+import {calendarMime,type CalendarPayload} from './officehubCalendar.ts';
 export interface EmailJob {
   id: string; lease_token: string; attempts: number;
   recipient_email: string; recipient_name: string; subject: string; body_text: string;
   digest_payload?: PlanningDigest | null;
+  calendar_payload?:CalendarPayload|null;
 }
 type Outcome = 'accepted' | 'retry' | 'failed' | 'review';
 export interface WorkerDependencies {
@@ -61,6 +63,11 @@ export function graphMessage(job: EmailJob) {
     },
     saveToSentItems: true,
   };
+}
+
+export function graphRequest(job:EmailJob){
+ if(job.calendar_payload)return {contentType:'text/plain',body:calendarMime({...job,calendar_payload:job.calendar_payload})};
+ return {contentType:'application/json',body:JSON.stringify(graphMessage(job))};
 }
 
 // Every durable transition is checked. A stale worker cannot finish another lease.

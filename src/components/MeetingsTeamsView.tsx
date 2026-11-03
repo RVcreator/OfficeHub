@@ -1,3 +1,4 @@
+import {isPhysicalMeeting,meetingFormatLabel} from '../utils/meetingFormat';
 import {canRespondToMeeting,isMeetingDormant,canEditMeetingSchedule} from '../utils/meetingLifecycle';
 import {useMeetingClock} from '../utils/useMeetingClock';
 import { UserAvatar } from './UserAvatar';
@@ -504,6 +505,7 @@ export const MeetingsTeamsView: React.FC<{
   const [editStartTime, setEditStartTime] = useState('10:00 AM');
   const [editEndTime, setEditEndTime] = useState('11:00 AM');
   const [editDescription, setEditDescription] = useState('');
+  const [editLocation,setEditLocation]=useState('');
   const [editAgenda, setEditAgenda] = useState<string[]>([]);
   const [newAgendaInput, setNewAgendaInput] = useState('');
   const [editAttendees, setEditAttendees] = useState<string[]>([]);
@@ -527,6 +529,8 @@ export const MeetingsTeamsView: React.FC<{
 
   // Quick Create Meeting Fields
   const [quickMeetingTitle, setQuickMeetingTitle] = useState('');
+  const [quickMeetingType,setQuickMeetingType]=useState<Meeting['meetingType']>('Microsoft Teams');
+  const [quickMeetingLocation,setQuickMeetingLocation]=useState('');
   const [quickMeetingDate, setQuickMeetingDate] = useState('');
   const [quickMeetingStartTime, setQuickMeetingStartTime] = useState('10:00');
   const [quickMeetingEndTime, setQuickMeetingEndTime] = useState('11:00');
@@ -590,7 +594,7 @@ export const MeetingsTeamsView: React.FC<{
     x = Math.max(16, Math.min(x, window.innerWidth - popoverWidth - 16));
     y = Math.max(16, Math.min(y, window.innerHeight - popoverHeight - 16));
 
-    setQuickMeetingTitle('');
+    setQuickMeetingTitle('');setQuickMeetingType('Microsoft Teams');setQuickMeetingLocation('');
     setQuickMeetingDate(dateStr);
     setQuickMeetingStartTime('10:00');
     setQuickMeetingEndTime('11:00');
@@ -661,7 +665,8 @@ export const MeetingsTeamsView: React.FC<{
         startTime: start12h,
         endTime: end12h,
         time: time24, // 24-hour HH:MM format e.g. "14:30"
-        meetingType: 'Microsoft Teams',
+        meetingType: quickMeetingType,
+        location:quickMeetingType==='In-Person Boardroom'?quickMeetingLocation.trim():undefined,
         agenda: ['Meeting discussion'],
         attendees: attendeesList,
         chairId: currentUser.id,
@@ -806,7 +811,7 @@ export const MeetingsTeamsView: React.FC<{
     const startHourStr = hour24.toString().padStart(2, '0') + ':00';
     const endHourStr = ((hour24 + 1) % 24).toString().padStart(2, '0') + ':00';
 
-    setQuickMeetingTitle('');
+    setQuickMeetingTitle('');setQuickMeetingType('Microsoft Teams');setQuickMeetingLocation('');
     setQuickMeetingDate(dateStr);
     setQuickMeetingStartTime(startHourStr);
     setQuickMeetingEndTime(endHourStr);
@@ -1072,9 +1077,9 @@ export const MeetingsTeamsView: React.FC<{
     setEditTitle(meeting.title);
     setEditDepartment(meeting.department || 'Top management');
     setEditDate(meeting.date);
-    setEditStartTime(meeting.startTime || meeting.time || '10:00 AM');
-    setEditEndTime(meeting.endTime || '11:00 AM');
-    setEditDescription(meeting.description || '');
+    setEditStartTime(convertTo24HourTime(meeting.startTime || meeting.time || '10:00'));
+    setEditEndTime(convertTo24HourTime(meeting.endTime || '11:00'));
+    setEditDescription(meeting.description || '');setEditLocation(meeting.location||'');
     setEditAgenda(meeting.agenda ? [...meeting.agenda] : []);
     setNewAgendaInput('');
     setEditAttendees(meeting.attendees.map(a => a.userId));
@@ -1184,6 +1189,7 @@ export const MeetingsTeamsView: React.FC<{
       endTime: editEndTime,
       time: editStartTime,
       description: editDescription.trim(),
+      location:editLocation.trim(),
       agenda: editAgenda,
       chairId: chairStaff.id,
       chairName: chairStaff.name,
@@ -1647,7 +1653,7 @@ export const MeetingsTeamsView: React.FC<{
                                   </div>
 
                                   <div className="flex items-center gap-2 shrink-0">
-                                    <a
+                                    {isPhysicalMeeting(m)?<span className="rounded bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-900">Physical meeting · {m.location}</span>:(<a
                                       href={canRespondToMeeting(m,archiveTick)?m.teamsJoinUrl:undefined} aria-disabled={!canRespondToMeeting(m,archiveTick)} tabIndex={canRespondToMeeting(m,archiveTick)?0:-1}
                                       target="_blank"
                                       rel="noreferrer"
@@ -1656,7 +1662,7 @@ export const MeetingsTeamsView: React.FC<{
                                     >
                                       <Video className="w-3.5 h-3.5" />
                                       <span>Join</span>
-                                    </a>
+                                    </a>)} 
                                     <button
                                       type="button"
                                       onClick={(e) => {
@@ -2260,7 +2266,7 @@ export const MeetingsTeamsView: React.FC<{
 
                       <div className="flex items-center justify-between gap-2 pt-1">
                         <div className="flex items-center gap-1.5">
-                          <a
+                          {isPhysicalMeeting(m)?<span className="rounded bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-900">Physical meeting · {m.location}</span>:(<a
                             href={canRespondToMeeting(m,archiveTick)?m.teamsJoinUrl:undefined} aria-disabled={!canRespondToMeeting(m,archiveTick)} tabIndex={canRespondToMeeting(m,archiveTick)?0:-1}
                             target="_blank"
                             rel="noreferrer"
@@ -2268,7 +2274,7 @@ export const MeetingsTeamsView: React.FC<{
                           >
                             <Video className="w-3.5 h-3.5" />
                             <span>Join</span>
-                          </a>
+                          </a>)} 
                           <button
                             onClick={() => downloadCalendarInvite(m)}
                             className="px-2 py-1 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded text-xs font-medium inline-flex items-center gap-1 shadow-2xs"
@@ -2632,7 +2638,7 @@ export const MeetingsTeamsView: React.FC<{
                   {/* Card Bottom Links */}
                   <div className="pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2 text-xs">
                     <div className="flex items-center gap-1.5">
-                      <a
+                      {isPhysicalMeeting(meeting)?<span className="rounded bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-900">Physical meeting · {meeting.location}</span>:(<a
                         href={canRespondToMeeting(meeting,archiveTick)?meeting.teamsJoinUrl:undefined} aria-disabled={!canRespondToMeeting(meeting,archiveTick)} tabIndex={canRespondToMeeting(meeting,archiveTick)?0:-1}
                         target="_blank"
                         rel="noreferrer"
@@ -2640,9 +2646,9 @@ export const MeetingsTeamsView: React.FC<{
                       >
                         <Video className="w-3.5 h-3.5" />
                         <span>Join Teams</span>
-                      </a>
+                      </a>)} 
 
-                      <button
+                      {!isPhysicalMeeting(meeting)&&(<button
                         onClick={() => handleCopyLink(meeting)}
                         className="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded transition"
                         title="Copy Teams Link"
@@ -2652,7 +2658,7 @@ export const MeetingsTeamsView: React.FC<{
                         ) : (
                           <Copy className="w-3.5 h-3.5" />
                         )}
-                      </button>
+                      </button>)}
 
                       <button
                         onClick={() => downloadCalendarInvite(meeting)}
@@ -2799,7 +2805,7 @@ export const MeetingsTeamsView: React.FC<{
                     {selectedDetailMeeting.department}
                   </span>
                   <span className="text-[10px] px-2 py-0.5 rounded font-bold bg-purple-100 text-purple-800">
-                    {selectedDetailMeeting.meetingType}
+                    {meetingFormatLabel(selectedDetailMeeting)}
                   </span>
                   {selectedDetailMeeting.organizerId === currentUser.id && (
                     <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-purple-100 text-purple-900 border border-purple-200 flex items-center gap-1">
@@ -3084,7 +3090,7 @@ export const MeetingsTeamsView: React.FC<{
             {/* Bottom Actions */}
             <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-slate-100">
               <div className="flex items-center gap-2">
-                <a
+                {isPhysicalMeeting(selectedDetailMeeting)?<span className="rounded bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-900">Physical meeting · {selectedDetailMeeting.location}</span>:(<a
                   href={canRespondToMeeting(selectedDetailMeeting,archiveTick)?selectedDetailMeeting.teamsJoinUrl:undefined} aria-disabled={!canRespondToMeeting(selectedDetailMeeting,archiveTick)} tabIndex={canRespondToMeeting(selectedDetailMeeting,archiveTick)?0:-1}
                   target="_blank"
                   rel="noreferrer"
@@ -3092,7 +3098,7 @@ export const MeetingsTeamsView: React.FC<{
                 >
                   <Video className="w-4 h-4" />
                   <span>Join Teams Virtual Room</span>
-                </a>
+                </a>)} 
 
                 <button
                   onClick={() => downloadCalendarInvite(selectedDetailMeeting)}
@@ -3138,6 +3144,7 @@ export const MeetingsTeamsView: React.FC<{
             </div>
 
             <form onSubmit={handleSaveEditMeeting} className="space-y-3.5">
+{isPhysicalMeeting(editingMeeting)&&<div><label htmlFor="edit-meeting-venue" className="block text-xs font-semibold">Venue *</label><input id="edit-meeting-venue" required value={editLocation} onChange={e=>setEditLocation(e.target.value)} className="w-full rounded border border-slate-200 p-2 text-xs"/></div>}
               <div>
                 <label className="font-bold text-slate-700 block mb-1">Meeting Title *</label>
                 <input
@@ -3668,6 +3675,9 @@ export const MeetingsTeamsView: React.FC<{
           {/* Form Content */}
           {quickCreate.type === 'meeting' ? (
             <form onSubmit={handleQuickCreateMeeting} className="space-y-3">
+<div><label htmlFor="quick-meeting-format" className="block text-xs font-semibold">Meeting format</label><select id="quick-meeting-format" value={quickMeetingType} onChange={e=>setQuickMeetingType(e.target.value as Meeting['meetingType'])} className="w-full rounded border border-slate-200 p-2 text-xs"><option value="Microsoft Teams">Microsoft Teams (online)</option><option value="In-Person Boardroom">Physical meeting</option></select></div>
+{quickMeetingType==='In-Person Boardroom'&&<div><label htmlFor="quick-meeting-venue" className="block text-xs font-semibold">Venue *</label><input id="quick-meeting-venue" required value={quickMeetingLocation} onChange={e=>setQuickMeetingLocation(e.target.value)} className="w-full rounded border border-slate-200 p-2 text-xs"/></div>}
+
               <div>
                 <label className="text-[11px] font-semibold text-slate-600 block mb-1">
                   Meeting Title <span className="text-rose-500">*</span>

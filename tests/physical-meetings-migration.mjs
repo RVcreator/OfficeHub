@@ -1,0 +1,38 @@
+import {readFile} from 'node:fs/promises';import assert from 'node:assert/strict';
+const {PGlite}=await import(process.env.OFFICEHUB_PGLITE_MODULE||'@electric-sql/pglite');
+(async()=>{const db=new PGlite();const uid=n=>`10000000-0000-4000-8000-${String(n).padStart(12,'0')}`;
+const user=async n=>db.exec(`reset role;select set_config('request.jwt.claim.sub','${uid(n)}',false),set_config('request.jwt.claim.role','authenticated',false);set role authenticated;`);
+try{
+ await db.exec(await readFile(new URL('fixtures/participant-schema.sql',import.meta.url),'utf8'));
+ await db.exec('create table auth.users(id uuid primary key,email text,email_confirmed_at timestamptz,banned_until timestamptz)');
+ const base=await readFile(new URL('../supabase/migrations/20261026000000_officehub_email_outbox.sql',import.meta.url),'utf8');
+ await db.exec(base.slice(base.indexOf('create sequence officehub_private.email_event_seq;'),base.indexOf('create function officehub_private.notice_recipients')));
+ await db.exec(base.slice(base.indexOf('create function officehub_private.email_meeting_event()'),base.indexOf('create function officehub_private.email_recipient_is_current')));
+ await db.exec("create function officehub_private.email_recipient_is_current(text,text,uuid)returns boolean language sql as $$select $1 in ('meeting','meeting_invite','meeting_rsvp')$$;update officehub_private.email_settings set capture_enabled=true;");
+ for(let n=1;n<=3;n++){await db.query('insert into profiles(id,name,email) values($1,$2,$3)',[uid(n),`Fixture ${n}`,`fixture${n}@wipahs.org`]);await db.query('insert into auth.users(id,email,email_confirmed_at)values($1,$2,now())',[uid(n),`fixture${n}@wipahs.org`]);}
+ for(const file of ['20261030000002_participant_privacy.sql','20261030000003_atomic_meeting_permissions.sql','20261103000000_meeting_response_deadline.sql','20261103000002_physical_meetings.sql'])await db.exec(await readFile(new URL('../supabase/migrations/'+file,import.meta.url),'utf8'));
+ const tomorrow=(await db.query("select to_char(now()+interval '1 day','YYYY-MM-DD') date")).rows[0].date;
+ const changes={title:'Physical fixture',date:tomorrow,start_time:'10:00 AM',end_time:'11:30 AM',time:'10:00',meeting_type:'In-Person Boardroom',location:'Boardroom',teams_join_url:'https://teams.example.invalid/should-be-cleared',teams_meeting_id:'must-clear',teams_passcode:'must-clear'};
+ await user(1);
+ const save=async(id,changes,attendees=null,create=false)=>(await db.query('select officehub_save_meeting($1,$2,$3,$4) result',[id,changes,attendees,create])).rows[0].result;
+ const created=await save('physical',changes,[{user_id:uid(2)}],true);assert.equal(created.meeting.location,'Boardroom');assert.equal(created.meeting.teams_join_url,null);assert.equal(created.meeting.teams_meeting_id,null);assert.equal(created.meeting.teams_passcode,null);assert.equal(created.attendees.length,2);
+ await db.exec('reset role');
+ const mail=async()=> (await db.query("select event_type,recipient_id,calendar_payload,status from officehub_email_outbox order by created_at,id")).rows;
+ let jobs=await mail();assert.equal(jobs.length,2);assert.ok(jobs.every(j=>j.event_type==='physical_calendar_request'&&j.calendar_payload.location==='Boardroom'));assert.deepEqual(new Set(jobs.map(j=>j.recipient_id)),new Set([uid(1),uid(2)]));
+ assert.equal(new Date(jobs[0].calendar_payload.start).toISOString().slice(11,16),'07:00');assert.equal(new Date(jobs[0].calendar_payload.end).toISOString().slice(11,16),'08:30');
+ await db.exec("update officehub_email_outbox set status='accepted' where event_type='physical_calendar_request'");
+ const previousSequence=Math.max(...jobs.map(j=>j.calendar_payload.sequence));
+ await user(1);await save('physical',{title:'Physical fixture'},[{user_id:uid(2)}]);await db.exec('reset role');assert.equal((await mail()).length,2,'No-op save does not duplicate calendar mail');
+ await user(1);await save('physical',{location:'Training room'},[{user_id:uid(2)}]);await db.exec('reset role');jobs=await mail();assert.equal(jobs.filter(j=>j.status==='queued').length,2);assert.ok(jobs.filter(j=>j.status==='queued').every(j=>j.calendar_payload.location==='Training room'&&j.calendar_payload.sequence>previousSequence));
+ await user(1);await save('physical',{},[]);await db.exec('reset role');jobs=await mail();assert.ok(jobs.some(j=>j.recipient_id===uid(2)&&j.status==='queued'&&j.calendar_payload.method==='CANCEL'&&j.calendar_payload.location===''));assert.ok(jobs.filter(j=>j.recipient_id===uid(2)&&j.status==='queued').every(j=>!JSON.stringify(j.calendar_payload).includes('Training room')));
+ assert.equal((await db.query("select officehub_private.email_recipient_is_current('physical_calendar_request','physical',$1) allowed",[uid(2)])).rows[0].allowed,false);
+ assert.equal((await db.query("select officehub_private.email_recipient_is_current('physical_calendar_cancel','physical',$1) allowed",[uid(2)])).rows[0].allowed,true);
+ await user(1);await save('physical',{},[{user_id:uid(2)}]);await db.exec('reset role');jobs=await mail();assert.ok(jobs.some(j=>j.recipient_id===uid(2)&&j.status==='queued'&&j.calendar_payload.method==='REQUEST'));
+ await user(3);assert.equal((await db.query("select count(*)::int n from meetings where id='physical'")).rows[0].n,0);await assert.rejects(()=>save('physical',{location:'Unrelated edit'}));
+ await user(1);await assert.rejects(()=>save('invalid',{...changes,location:''},[{user_id:uid(2)}],true));
+ await db.exec("reset role;update officehub_email_outbox set status='accepted' where status='queued' and event_type='physical_calendar_request';");await user(1);
+ await db.exec("delete from meetings where id='physical'");await db.exec('reset role');jobs=await mail();assert.equal(jobs.filter(j=>j.status==='queued'&&j.calendar_payload.method==='CANCEL').length,2);
+ const beforeOnline=jobs.length;await user(1);await save('online',{...changes,meeting_type:'Microsoft Teams',teams_join_url:'https://teams.example.invalid/retained'},[{user_id:uid(2)}],true);await db.exec('reset role');jobs=await mail();assert.equal(jobs.filter(j=>j.calendar_payload).length,beforeOnline);assert.ok(jobs.some(j=>j.event_type==='meeting_invite'&&!j.calendar_payload));
+ assert.equal((await db.query("select teams_join_url from meetings where id='online'")).rows[0].teams_join_url,'https://teams.example.invalid/retained');
+ console.log('PASS: physical venue/times persist, Teams details cleared, exactly one calendar request per attendee, correct EAT allocation, no-op dedup, reschedule/location supersession, remove/re-add/cancel lifecycle, unrelated access denied and online meeting mail preserved.');
+}finally{await db.close();}})().catch(error=>{console.error(error.message,error.query||'');process.exitCode=1;});

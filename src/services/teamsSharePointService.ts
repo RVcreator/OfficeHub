@@ -1,3 +1,6 @@
+import {isPhysicalMeeting} from '../utils/meetingFormat';
+import {getMeetingScheduledTimestamp,parseMeetingTimeOfDay} from '../utils/archiveUtils';
+import {calendarIcs} from '../../supabase/functions/_shared/officehubCalendar';
 import { Meeting, SharePointDocument, Task, Notice } from '../types';
 
 export interface TeamsAdaptiveCard {
@@ -30,6 +33,7 @@ export interface TeamsAdaptiveCard {
 /**
  * Generates a standard Microsoft Teams meeting invitation payload with join URL
  */
+function physicalMeetingCard(meeting:Meeting):TeamsAdaptiveCard{return {type:'message',attachments:[{contentType:'application/vnd.microsoft.card.adaptive',content:{$schema:'http://adaptivecards.io/schemas/adaptive-card.json',type:'AdaptiveCard',version:'1.4',body:[{type:'TextBlock',text:'Physical meeting: '+meeting.title,weight:'Bolder',wrap:true},{type:'FactSet',facts:[{title:'Venue',value:meeting.location||'See OfficeHub'},{title:'When (EAT)',value:meeting.date+' '+meeting.startTime+' – '+meeting.endTime},{title:'Organizer',value:meeting.organizerName}]}]}}]};}
 export function generateTeamsMeetingPayload(meeting: Partial<Meeting>) {
   const safeTitle = encodeURIComponent(meeting.title || 'WIPAHS Meeting');
   const meetingId = `${Math.floor(100 + Math.random() * 900)} ${Math.floor(100 + Math.random() * 900)} ${Math.floor(100 + Math.random() * 900)}`;
@@ -46,32 +50,17 @@ export function generateTeamsMeetingPayload(meeting: Partial<Meeting>) {
 /**
  * Creates an .ics file string for direct calendar download
  */
+export function buildCalendarInvite(meeting:Meeting){
+ const start=parseMeetingTimeOfDay(meeting.startTime)||parseMeetingTimeOfDay(meeting.time);
+ const end=getMeetingScheduledTimestamp({...meeting,recurrence:'None'});
+ if(!start||end===null||!/^\d{4}-\d{2}-\d{2}$/.test(meeting.date))throw new Error('This meeting has no valid calendar time.');
+ const beginning=Date.parse(meeting.date+'T00:00:00+03:00')+(start.hours*3600+start.minutes*60+start.seconds)*1000;
+ return calendarIcs({version:1,id:meeting.id,title:meeting.title,description:(meeting.description||'')+'\nOrganizer: '+meeting.organizerName+(!isPhysicalMeeting(meeting)&&meeting.teamsJoinUrl?'\nJoin: '+meeting.teamsJoinUrl:''),
+  location:isPhysicalMeeting(meeting)?meeting.location||'Physical meeting':meeting.meetingType||'Microsoft Teams',
+  start:new Date(beginning).toISOString(),end:new Date(end).toISOString(),sequence:0,method:meeting.status==='Cancelled'?'CANCEL':'PUBLISH',organizerName:meeting.organizerName});
+}
 export function downloadCalendarInvite(meeting: Meeting) {
-  const startClean = meeting.date.replace(/-/g, '') + 'T090000Z';
-  const endClean = meeting.date.replace(/-/g, '') + 'T100000Z';
-
-  const chairDisplayName = meeting.chairName || meeting.organizerName;
-  const chairDisplayEmail = meeting.chairEmail || `${chairDisplayName.toLowerCase().replace(/[^a-z0-9]/g, '.')}@wipahs.org`;
-
-  const icsContent = [
-    'BEGIN:VCALENDAR',
-    'VERSION:2.0',
-    'PRODID:-//WIPAHS OfficeHub//Meeting Scheduler//EN',
-    'CALSCALE:GREGORIAN',
-    'METHOD:REQUEST',
-    'BEGIN:VEVENT',
-    `UID:wipahs-meeting-${meeting.id}@wipahs.org`,
-    `DTSTAMP:${new Date().toISOString().replace(/[-:]/g, '').split('.')[0]}Z`,
-    `DTSTART:${startClean}`,
-    `DTEND:${endClean}`,
-    `SUMMARY:${meeting.title}`,
-    `DESCRIPTION:WIPAHS Microsoft Teams Meeting\\nChair: ${chairDisplayName}\\nOrganizer: ${meeting.organizerName}\\nJoin URL: ${meeting.teamsJoinUrl || 'Teams Link'}\\nDepartment: ${meeting.department}`,
-    `ORGANIZER;CN=${chairDisplayName}:MAILTO:${chairDisplayEmail}`,
-    `LOCATION:${meeting.meetingType === 'Microsoft Teams' ? 'Microsoft Teams' : 'WIPAHS Headquarters'}`,
-    'STATUS:CONFIRMED',
-    'END:VEVENT',
-    'END:VCALENDAR',
-  ].join('\r\n');
+  const icsContent=buildCalendarInvite(meeting);
 
   const blob = new Blob([icsContent], { type: 'text/calendar;charset=utf-8' });
   const url = URL.createObjectURL(blob);
@@ -93,6 +82,7 @@ export function buildTeamsAdaptiveCard(
 ): TeamsAdaptiveCard {
   if (type === 'meeting_update' || type === 'meeting_reschedule') {
     const meeting = data as Meeting;
+    if(isPhysicalMeeting(meeting))return physicalMeetingCard(meeting);
     return {
       type: 'message',
       attachments: [
@@ -328,6 +318,7 @@ export function buildTeamsAdaptiveCard(
 
   if (type === 'meeting') {
     const meeting = data as Meeting;
+    if(isPhysicalMeeting(meeting))return physicalMeetingCard(meeting);
     return {
       type: 'message',
       attachments: [
