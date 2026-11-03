@@ -138,6 +138,19 @@ export const QuickActionModal: React.FC<QuickActionModalProps> = ({
   const [isUploadingTaskFile, setIsUploadingTaskFile] = useState(false);
   const [taskFormError, setTaskFormError] = useState<string | null>(null);
 
+  // Protect the unsaved task if browser navigation would unload the app.
+  // Draft text stays in memory rather than being saved on the device.
+  const hasTaskDraft = Boolean(taskTitle || taskDescription || taskSubtasks.length || taskAttachments.length);
+  useEffect(() => {
+    if (!isOpen || activeTab !== 'task' || !hasTaskDraft) return;
+    const protectDraft = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', protectDraft);
+    return () => window.removeEventListener('beforeunload', protectDraft);
+  }, [isOpen, activeTab, hasTaskDraft]);
+
   const handleTaskFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files || e.target.files.length === 0) return;
     setIsUploadingTaskFile(true);
