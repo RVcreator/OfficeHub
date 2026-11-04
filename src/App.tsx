@@ -107,14 +107,18 @@ export default function App() {
           return;
         }
         if (!session?.user) return;
-        const { data: verified, error } = await supabase.auth.getUser();
+        // Both are fresh server reads. Nothing is published until Auth and the
+        // matching UUID/email profile pass validation. An explicit session JWT
+        // avoids holding the SDK auth lock while the profile read starts.
+        const profileRead=actions.readAuthenticatedUserProfile(session.user.id).catch(error=>({data:null,error}));
+        const { data: verified, error } = await supabase.auth.getUser(session.access_token);
         if(error?.status===401||error?.status===404){
           if(!isCurrent())return;
           stopWatching();await actions.logoutUser();setAuthError(false);return;
         }
         if (error || !verified.user) throw new Error('Account verification failed');
         if (!isCurrent()) return;
-        const resolvedUser = await actions.syncAuthenticatedUserProfile(verified.user);
+        const resolvedUser = await actions.syncAuthenticatedUserProfile(verified.user,profileRead);
         if (!isCurrent()) return;
         const mustChange = actions.shouldForcePasswordChange(verified.user, resolvedUser, {
           isRecoveryEvent: event === 'PASSWORD_RECOVERY',
