@@ -18,6 +18,11 @@ function microsoft(){
  };
  return {request,calls,get event(){return event;},set event(value){event=value;},get online(){return online;}};
 }
+test('a slow sync stops remote operations before its database lease can expire',async t=>{
+ let clock=0,calls=0;t.mock.method(Date,'now',()=>{clock+=50000;return clock;});
+ await assert.rejects(()=>syncTeamsJob(fixture(),{token:'token',checkpoint:async()=>{},request:async()=>{calls++;return Response.json({id:'owner-id'});}}),/took too long/);
+ assert.equal(calls,0);
+});
 test('Teams invitations use every saved attendee, UTC times, escaped text and stable transaction ID',async()=>{
  const job=fixture(),ms=microsoft(),checkpoints:any[]=[];
  const result=await syncTeamsJob(job,{request:ms.request,token:'server-token',checkpoint:async b=>{checkpoints.push(b);}});

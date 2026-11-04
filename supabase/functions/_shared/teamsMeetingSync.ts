@@ -21,9 +21,11 @@ export function eventFields(job:TeamsJob){
 const same=(a:unknown,b:unknown)=>JSON.stringify(a)===JSON.stringify(b);
 const addresses=(list:any[]=[])=>list.map(a=>String(a.emailAddress?.address||'').toLowerCase()).sort();
 async function fingerprint(value:unknown){return [...new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify(value))))].map(n=>n.toString(16).padStart(2,'0')).join('');}
-export async function syncTeamsJob(job:TeamsJob,dependencies:{request:typeof fetch;token:string;checkpoint:(binding:Record<string,unknown>)=>Promise<void>}){
+export async function syncTeamsJob(job:TeamsJob,dependencies:{request:typeof fetch;token:string;deadline?:number;checkpoint:(binding:Record<string,unknown>)=>Promise<void>}){
  const {request,token,checkpoint}=dependencies;
+ const deadline=Math.min(Date.now()+90000,dependencies.deadline??Infinity); // Stop before the database lease.
  const graph=async(path:string,method='GET',body?:unknown,etag?:string):Promise<any>=>{
+  if(Date.now()>=deadline)throw new TeamsSyncError('Microsoft sync took too long. The saved changes will be retried.');
   let response:Response;try{response=await request('https://graph.microsoft.com/v1.0'+path,{method,headers:{authorization:'Bearer '+token,'content-type':'application/json',Prefer:'IdType="ImmutableId", include-unknown-enum-members',...(etag?{'If-Match':etag}:{})},...(body===undefined?{}:{body:JSON.stringify(body)}),signal:AbortSignal.timeout(12000)});}catch{throw new TeamsSyncError('Microsoft did not respond. OfficeHub will retry the saved changes.');}
   if(!response.ok){
    const target=path.includes('/onlineMeetings')?'Teams co-organizer':'Microsoft calendar';
@@ -106,9 +108,10 @@ export async function syncTeamsJob(job:TeamsJob,dependencies:{request:typeof fet
 export async function processTeamsSync(deps:{rpc:Rpc;token:()=>Promise<string>;request?:typeof fetch},meetingId:string|null=null){
  const job=await deps.rpc('officehub_claim_teams_sync',{p_meeting:meetingId}) as TeamsJob|null;
  if(!job)return 'idle';
+ const deadline=Date.now()+90000;
  const args={p_meeting:job.meeting_id,p_lease:job.lease_token};
  try{
-  const binding=await syncTeamsJob(job,{request:deps.request||fetch,token:await deps.token(),checkpoint:async binding=>{await deps.rpc('officehub_checkpoint_teams_sync',{...args,p_binding:binding});}});
+  const binding=await syncTeamsJob(job,{request:deps.request||fetch,token:await deps.token(),deadline,checkpoint:async binding=>{await deps.rpc('officehub_checkpoint_teams_sync',{...args,p_binding:binding});}});
   await deps.rpc('officehub_finish_teams_sync',{...args,p_revision:job.revision,p_binding:binding,p_error:null,p_blocked:false});return 'synced';
  }catch(error){
   const safe=error instanceof TeamsSyncError?error:new TeamsSyncError('Microsoft meeting sync is unavailable. The saved changes will be retried.');
