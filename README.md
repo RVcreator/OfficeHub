@@ -34,10 +34,6 @@ The application uses **React, TypeScript and Vite**, with **Tailwind CSS** for s
 
 **Supabase** provides authentication, PostgreSQL, realtime updates and server-side Edge Functions. Database policies and protected server operations enforce access; notification emails run through an outbox with deduplication and retries. Microsoft integrations run through server-side services, keeping service credentials out of the browser.
 
-The project was developed with **Google AI Studio and Codex**, then refined through staff feedback, code review and automated tests. **GitHub Actions** checks and builds the app before publishing the static output to **cPanel over FTPS** when changes reach `main`. Supabase migrations and Edge Functions are released separately.
-
-The public demo is a separate static HTML/CSS/JavaScript showcase. It imports no production app code, reads no staff session, and makes no application API requests.
-
 ## Local development
 
 ```sh
