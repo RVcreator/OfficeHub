@@ -5,7 +5,8 @@ import {transformSync} from 'esbuild';
 async function handlerFor(path:string,client:any){
  const source=(await readFile(new URL('../supabase/functions/'+path+'/index.ts',import.meta.url),'utf8')).replace(/^import .*;$/gm,'');
  let handler:any;const compiled=transformSync(source,{loader:'ts',target:'es2022',format:'cjs'}).code;
- new Function('createClient','serve','Deno',compiled)(()=>client,(fn:any)=>{handler=fn;},{env:{get:(k:string)=>k==='SUPABASE_URL'?'https://example.supabase.co':k==='SUPABASE_SERVICE_ROLE_KEY'?'test-key':''}});
+ const verifiedClient={rpc:async()=>({data:true,error:null}),...client};
+ new Function('createClient','serve','Deno',compiled)(()=>verifiedClient,(fn:any)=>{handler=fn;},{env:{get:(k:string)=>k==='SUPABASE_URL'?'https://example.supabase.co':k==='SUPABASE_SERVICE_ROLE_KEY'?'test-key':''}});
  return handler;
 }
 const request=(body:any)=>new Request('https://example/reset',{method:'POST',headers:{authorization:'Bearer user-token'},body:JSON.stringify(body)});

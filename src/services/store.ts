@@ -1,3 +1,4 @@
+import {emptyAdministrationAccess,administrationAccessFromServer,canViewAdministration,canManageAdministration,type AdministrationAccess,type AdministrationGrant} from './administrationAccess';
 let documentReadGeneration = 0;
 import {canRespondToMeeting} from '../utils/meetingLifecycle';
 import {newMeetingTimeError} from '../utils/newMeetingSchedule';
@@ -125,6 +126,8 @@ export type StartupState=Record<StartupSection,'idle'|'loading'|'ready'|'error'>
 const emptyStartup=():StartupState=>({staff:'idle',tasks:'idle',notices:'idle',meetings:'idle',approvals:'idle'});
 export interface StoreData {
   startupSections:StartupState;
+  administrationAccess:AdministrationAccess;
+  administrationGrants:AdministrationGrant[];
   tasks: Task[];
   notices: Notice[];
   projects: Project[];
@@ -350,6 +353,8 @@ const initialSavedUser = getSavedCurrentUserProfile();
 
 const storeState: StoreData = {
   startupSections:emptyStartup(),
+  administrationAccess:emptyAdministrationAccess(),
+  administrationGrants:[],
   tasks: [],
   notices: [],
   projects: [],
@@ -1186,6 +1191,8 @@ export const portalStore = {
   },
 
   getAuditLogs: async (): Promise<AuditEvent[]> => {
+    const identity=storeState.authSession.userId;
+    if(!canViewAdministration(storeState.administrationAccess,identity))return [];
     try {
       const { data, error } = await supabase
         .from('audit_log')
@@ -1199,16 +1206,16 @@ export const portalStore = {
         } else {
           console.error('Supabase getAuditLogs error:', error.message);
         }
-        return storeState.auditLogs;
+        return identity===storeState.authSession.userId&&canViewAdministration(storeState.administrationAccess,identity)?storeState.auditLogs:[];
       }
-      return (data || []).map(mapAuditLogRow);
+      return identity===storeState.authSession.userId&&canViewAdministration(storeState.administrationAccess,identity)?(data || []).map(mapAuditLogRow):[];
     } catch (err) {
       if (isNetworkOrTransientError(err)) {
         console.warn('getAuditLogs: Network or transient exception, using cached audit logs.');
       } else {
         console.error('getAuditLogs exception:', err);
       }
-      return storeState.auditLogs;
+      return identity===storeState.authSession.userId&&canViewAdministration(storeState.administrationAccess,identity)?storeState.auditLogs:[];
     }
   },
 
@@ -1300,7 +1307,39 @@ export const portalStore = {
     return rows;
   },
 
+  getAdministrationAccess: async (): Promise<void> => {
+    const identity=storeState.authSession.userId;
+    if(!identity||!storeState.authSession.isAuthenticated){setTableData('administrationAccess',emptyAdministrationAccess());return;}
+    if(storeState.administrationAccess.userId!==identity)setTableData('administrationAccess',{...emptyAdministrationAccess(),userId:identity,status:'loading'});
+    try{
+      const {data,error}=await supabase.rpc('officehub_administration_access',undefined,{get:true});
+      if(error)throw error;
+      if(identity!==storeState.authSession.userId)return;
+      const access=administrationAccessFromServer(data,identity);
+      setTableData('administrationAccess',access);
+      if(!access.canView){setTableData('roles',[]);setTableData('auditLogs',[]);setTableData('administrationGrants',[]);}
+    }catch{
+      if(identity!==storeState.authSession.userId)return;
+      setTableData('administrationAccess',{...emptyAdministrationAccess(),userId:identity,status:'error'});
+      setTableData('roles',[]);setTableData('auditLogs',[]);setTableData('administrationGrants',[]);
+    }
+  },
+  getAdministrationGrants: async (): Promise<void> => {
+    const identity=storeState.authSession.userId;
+    const {data,error}=await supabase.rpc('officehub_list_administration_access',undefined,{get:true});
+    if(error||!Array.isArray(data))throw new Error(error?.message||'Administration assignments could not be loaded.');
+    if(identity===storeState.authSession.userId&&canManageAdministration(storeState.administrationAccess,identity))setTableData('administrationGrants',data);
+  },
+  setAdministrationGrant: async (userId:string,enabled:boolean): Promise<void> => {
+    const {data,error}=await supabase.rpc('officehub_set_administration_access',{p_user:userId,p_enabled:enabled});
+    if(error||data?.success!==true||data.user_id!==userId||data.enabled!==enabled)throw new Error(error?.message||'Administration assignment was not confirmed.');
+    await portalStore.getAdministrationGrants();
+    await portalStore.getAdministrationAccess();
+  },
+
   getRoles: async (): Promise<RolePermission[]> => {
+    const identity=storeState.authSession.userId;
+    if(!canViewAdministration(storeState.administrationAccess,identity))return [];
     try {
       const { data, error } = await supabase
         .from('role_permissions')
@@ -1313,16 +1352,16 @@ export const portalStore = {
         } else {
           console.error('Supabase getRoles error:', error.message);
         }
-        return storeState.roles;
+        return identity===storeState.authSession.userId&&canViewAdministration(storeState.administrationAccess,identity)?storeState.roles:[];
       }
-      return (data || []).map(mapRoleRow);
+      return identity===storeState.authSession.userId&&canViewAdministration(storeState.administrationAccess,identity)?(data || []).map(mapRoleRow):[];
     } catch (err) {
       if (isNetworkOrTransientError(err)) {
         console.warn('getRoles: Network or transient exception, using cached roles.');
       } else {
         console.error('getRoles exception:', err);
       }
-      return storeState.roles;
+      return identity===storeState.authSession.userId&&canViewAdministration(storeState.administrationAccess,identity)?storeState.roles:[];
     }
   },
 
@@ -3420,9 +3459,9 @@ export const portalStore = {
         timestamp: new Date().toISOString(),
         badge_color: badgeColor || 'blue',
       };
-      const { data } = await supabase.from('audit_log').insert(row).select('*').single();
-      const newAudit = data ? mapAuditLogRow(data) : mapAuditLogRow(row);
-      setTableData('auditLogs', [newAudit, ...storeState.auditLogs.slice(0, 199)]);
+      const {error}=await supabase.from('audit_log').insert(row);
+      if(error)throw error;
+      if(canViewAdministration(storeState.administrationAccess,storeState.authSession.userId))setTableData('auditLogs',[mapAuditLogRow(row),...storeState.auditLogs.slice(0,199)]);
     } catch (err: any) {
       console.error('logAudit error:', err);
     }
@@ -3557,34 +3596,14 @@ export const portalStore = {
     setTableData('departments',rows);saveDepartmentsToLocalStorage(rows);
   },
 
-  updateRolePermission: async (
-    roleId: string,
-    moduleName: string,
-    permKey: 'view' | 'create' | 'edit' | 'approve',
-    value: boolean
-  ): Promise<void> => {
-    try {
-      const targetRole = storeState.roles.find((r) => r.id === roleId);
-      if (targetRole) {
-        const perms = [...targetRole.permissions];
-        const match = perms.find((p) => p.module === moduleName);
-        if (match) {
-          match[permKey] = value;
-        } else {
-          perms.push({
-            module: moduleName,
-            view: permKey === 'view' ? value : false,
-            create: permKey === 'create' ? value : false,
-            edit: permKey === 'edit' ? value : false,
-            approve: permKey === 'approve' ? value : false,
-          });
-        }
-        await supabase.from('role_permissions').update({ permissions: perms }).eq('role_id', roleId);
-        setTableData('roles', storeState.roles.map((r) => (r.id === roleId ? { ...r, permissions: perms } : r)));
-      }
-    } catch (err: any) {
-      console.error('updateRolePermission error:', err);
-    }
+  updateRolePermission: async (roleId:string,moduleName:string,permKey:'view'|'create'|'edit'|'approve',value:boolean):Promise<void> => {
+    const target=storeState.roles.find(role=>role.id===roleId);
+    if(!target)throw new Error('Role no longer available. Refresh and retry.');
+    const permissions=target.permissions.map(permission=>permission.module===moduleName?{...permission,[permKey]:value}:{...permission});
+    if(!permissions.some(permission=>permission.module===moduleName))permissions.push({module:moduleName,view:false,create:false,edit:false,approve:false,[permKey]:value});
+    const {data,error}=await supabase.from('role_permissions').update({permissions}).eq('role_id',roleId).select('*').single();
+    if(error||!data||data.role_id!==roleId)throw new Error(error?.message||'Role permission change was not saved.');
+    setTableData('roles',storeState.roles.map(role=>role.id===roleId?mapRoleRow(data):role));
   },
 
   addRole: async (roleData: Omit<RolePermission, 'id' | 'userCount'>): Promise<RolePermission | null> => {
@@ -3610,23 +3629,15 @@ export const portalStore = {
     }
   },
 
-  updateRole: async (id: string, updates: Partial<RolePermission>): Promise<void> => {
-    try {
-      const rowUpdates = mapRoleToRow(updates);
-      await supabase.from('role_permissions').update(rowUpdates).eq('role_id', id);
-      setTableData('roles', storeState.roles.map((r) => (r.id === id ? { ...r, ...updates } : r)));
-    } catch (err: any) {
-      console.error('updateRole error:', err);
-    }
+  updateRole: async (id:string,updates:Partial<RolePermission>):Promise<void> => {
+    const {data,error}=await supabase.from('role_permissions').update(mapRoleToRow(updates)).eq('role_id',id).select('*').single();
+    if(error||!data||data.role_id!==id)throw new Error(error?.message||'Role change was not saved.');
+    setTableData('roles',storeState.roles.map(role=>role.id===id?mapRoleRow(data):role));
   },
-
-  deleteRole: async (id: string): Promise<void> => {
-    try {
-      await supabase.from('role_permissions').delete().eq('role_id', id);
-      setTableData('roles', storeState.roles.filter((r) => r.id !== id));
-    } catch (err: any) {
-      console.error('deleteRole error:', err);
-    }
+  deleteRole: async (id:string):Promise<void> => {
+    const {data,error}=await supabase.from('role_permissions').delete().eq('role_id',id).select('role_id');
+    if(error||!data?.some(role=>role.role_id===id))throw new Error(error?.message||'Role deletion was not confirmed.');
+    setTableData('roles',storeState.roles.filter(role=>role.id!==id));
   },
 
   // -----------------------------------------------------------------------
@@ -4036,6 +4047,7 @@ export const portalStore = {
       presenceCache.clear();storeInitGeneration++;isStoreInitialized=false;storeInitPromise=null;
       for(const table of ['staff','tasks','notices','meetings','approvals','departments','projects','decisions','roles','conversations','messages','sharePointDocs'] as const)setTableData(table,[]);
       setTableData('startupSections',emptyStartup());
+      setTableData('administrationAccess',emptyAdministrationAccess());setTableData('administrationGrants',[]);setTableData('auditLogs',[]);
     }
     setTableData('currentUser', authenticatedUser);
     saveCurrentUserProfileToLocalStorage(authenticatedUser);
@@ -4064,6 +4076,7 @@ export const portalStore = {
 
   logoutUser: async (signOut = true): Promise<void> => {
     const prevId = storeState.currentUser?.id;
+    setTableData('administrationAccess',emptyAdministrationAccess());setTableData('administrationGrants',[]);setTableData('auditLogs',[]);setTableData('roles',[]);
     stopRealtimeEngine();
     isStoreInitialized=false;storeInitPromise=null;storeInitGeneration++;
     await presenceController?.stop();
@@ -4209,7 +4222,7 @@ export const portalStore = {
 
 // Deduplicate independent view, realtime and focus consumers per identity and page.
 const reads=createReadQueue();
-for(const method of ['getTasks','getNotices','getMeetings','getStaff','getDepartments','getRoles','getDecisions','getMessages','getApprovals','getConversations','getSharePointDocs','getNotifications'] as const){
+for(const method of ['getTasks','getNotices','getMeetings','getStaff','getDepartments','getRoles','getDecisions','getMessages','getApprovals','getConversations','getSharePointDocs','getNotifications','getAdministrationAccess'] as const){
  const read=portalStore[method] as (...args:any[])=>Promise<any>;
  (portalStore as any)[method]=(...args:any[])=>reads.run(JSON.stringify([method,storeState.authSession.userId,...args]),()=>read(...args));
 }

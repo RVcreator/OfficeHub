@@ -23,10 +23,11 @@ import {useDepartmentDirectory} from '../hooks/useDepartmentDirectory';
 import {organisationName,sameOrganisation,belongsToDepartment,departmentName} from '../utils/departmentDirectory';
 
 interface DepartmentsViewProps {
+  readOnly?:boolean;
   onSelectDepartmentTasks?: (dept: string) => void;
 }
 
-export const DepartmentsView: React.FC<DepartmentsViewProps> = ({ onSelectDepartmentTasks }) => {
+export const DepartmentsView: React.FC<DepartmentsViewProps> = ({ onSelectDepartmentTasks,readOnly=true }) => {
   const { departments, tasks, projects, staff, actions } = usePortalStore(['departments', 'tasks', 'projects', 'staff']);
   const [dataError,setDataError]=useState<string|null>(null);
   const [saving,setSaving]=useState(false);
@@ -84,6 +85,7 @@ export const DepartmentsView: React.FC<DepartmentsViewProps> = ({ onSelectDepart
 
   const handleSaveDepartment = async (e: React.FormEvent) => {
     e.preventDefault();
+    if(readOnly)return;
     const cleanName = formData.name.trim();
     if (!cleanName) {
       alert('Please provide a department name.');
@@ -128,6 +130,7 @@ export const DepartmentsView: React.FC<DepartmentsViewProps> = ({ onSelectDepart
   };
 
   const handleDeleteDepartment = async (dept: DepartmentInfo) => {
+    if(readOnly)return;
     try{await actions.deleteDepartment(dept.id);setDeleteConfirmDept(null);setDataError(null);}
     catch(error){setDataError(error instanceof Error?error.message:'Department could not be deleted.');}
   };
@@ -204,7 +207,8 @@ export const DepartmentsView: React.FC<DepartmentsViewProps> = ({ onSelectDepart
           </button>
 
           <button
-            onClick={handleOpenAdd}
+            disabled={readOnly}
+                onClick={handleOpenAdd}
             className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-[#00ad1d] hover:bg-[#009218] text-white text-xs font-semibold rounded-md shadow-xs transition"
           >
             <Plus className="w-4 h-4" />
@@ -488,6 +492,7 @@ export const DepartmentsView: React.FC<DepartmentsViewProps> = ({ onSelectDepart
 
             <div className="flex items-center gap-1">
               <button
+                disabled={readOnly}
                 onClick={() => handleOpenEdit(dept)}
                 className="p-1 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded transition"
                 title="Edit Department"
@@ -495,6 +500,7 @@ export const DepartmentsView: React.FC<DepartmentsViewProps> = ({ onSelectDepart
                 <Edit2 className="w-3.5 h-3.5" />
               </button>
               <button
+                disabled={readOnly}
                 onClick={() => setDeleteConfirmDept(dept)}
                 className="p-1 text-rose-400 hover:text-rose-700 hover:bg-rose-50 rounded transition"
                 title="Delete Department"

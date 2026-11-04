@@ -20,6 +20,7 @@ const fs=require('fs'),path=require('path'),http=require('http'),assert=require(
    if(u.origin===origin){const file=path.resolve(root,'.'+(u.pathname==='/'?'/index.html':u.pathname));if(!file.startsWith(root+path.sep))return route.abort();return route.fulfill({contentType:file.endsWith('.js')?'application/javascript':file.endsWith('.css')?'text/css':'text/html',body:fs.readFileSync(file)});}
    if(!u.hostname.endsWith('.supabase.co'))return route.abort();let body=[];
    if(u.pathname==='/auth/v1/user')body=user;
+   else if(u.pathname==='/rest/v1/rpc/officehub_administration_access')body={user_id:user.id,can_view:true,can_manage:true,automatic:false};
    else if(u.pathname==='/rest/v1/profiles_public')body=[profile];
    else if(u.pathname==='/rest/v1/profiles')body=profile;
    else if(u.pathname==='/rest/v1/sharepoint_documents'){
