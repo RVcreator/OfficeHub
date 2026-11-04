@@ -1,3 +1,4 @@
+import {readMicrosoftLibraryIdentities,reconcileLegacyDocuments} from '../_shared/documentReconciliation.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { getMsGraphAppToken } from '../_shared/msGraphToken.ts';
 import { DocumentActionError, inspectMicrosoftFile, recycleMicrosoftFile, deleteConfirmedDocument, createMicrosoftFolder } from '../_shared/documentActions.ts';
@@ -15,10 +16,22 @@ Deno.serve(async req => {
     const { data: profile } = await caller.from('profiles').select('id,app_metadata').eq('id',user.id).single();
     if (!profile || profile.app_metadata?.deactivated === true || user.app_metadata?.deactivated === true) return reply(403, { error: 'An active staff account is required' });
     const body = await req.json();
-    if (!['delete','sync','create_folder'].includes(body.action) || Object.keys(body).some(k => !['action','documentId','folderName'].includes(k))) return reply(400, { error: 'Invalid document action' });
+    if (!['delete','sync','create_folder','reconcile'].includes(body.action) || Object.keys(body).some(k => !['action','documentId','folderName'].includes(k))) return reply(400, { error: 'Invalid document action' });
     const admin = createClient(url, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, { auth: { persistSession: false } });
     const drive = Deno.env.get('MS_DRIVE_ID');
     if (!drive) throw new DocumentActionError(503, 'SharePoint drive is not configured');
+    if (body.action === 'reconcile') {
+      const {data:isAdmin,error:roleError}=await caller.rpc('is_admin');
+      if(roleError||isAdmin!==true)return reply(403,{error:'Only an administrator can repair older Microsoft links.'});
+      if(body.documentId!==undefined||body.folderName!==undefined)return reply(400,{error:'Repair uses saved OfficeHub links only.'});
+      const {data:documents,error:readError}=await admin.from('sharepoint_documents').select('id,web_url').is('graph_drive_item_id',null).is('deleted_at',null).is('deletion_pending_at',null).order('id').limit(100);
+      if(readError)throw new DocumentActionError(503,'Older document records could not be inspected.');
+      const result=await reconcileLegacyDocuments({isAdmin:true,documents:documents||[],drive,
+        inspect:async()=>readMicrosoftLibraryIdentities(fetch,await getMsGraphAppToken(),drive,(documents||[]).map(doc=>doc.web_url)),
+        confirm:async(doc,file,proof)=>{const {error}=await admin.rpc('officehub_confirm_document_link',{p_document:doc.id,p_expected_url:doc.web_url,p_item:file.id,p_canonical_url:file.webUrl,p_proof:proof,p_actor:user.id});if(error)throw error;}
+      });
+      return reply(200,{success:true,...result});
+    }
     if (body.action === 'create_folder') {
       const token = await getMsGraphAppToken();
       const folder = await createMicrosoftFolder(fetch, token, drive, body.folderName);
@@ -38,7 +51,7 @@ Deno.serve(async req => {
       if (!visible || doc.deletion_pending_at) return reply(403, { error: 'Document is unavailable or deletion is pending' });
     }
     if (doc.deleted_at) return reply(200, { success: true, deleted: true });
-    if (!doc.graph_drive_item_id) throw new DocumentActionError(409, 'This older record has no confirmed Microsoft file ID. An administrator must reconcile it in SharePoint.');
+    if (!doc.graph_drive_item_id) throw new DocumentActionError(409, 'This older record needs its Microsoft link repaired. An administrator can use Repair older links in the document library, then retry deletion.');
     const token = await getMsGraphAppToken();
     if (body.action === 'delete') {
       await deleteConfirmedDocument({

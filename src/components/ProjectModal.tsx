@@ -507,7 +507,7 @@ export const ProjectModal: React.FC<ProjectModalProps> = ({
   };
 
   const handleRemoveProjectDocument = async (docId: string, docName: string) => {
-    if (!project || !window.confirm('Delete this document from OfficeHub and move the Microsoft file to the SharePoint recycle bin?')) return;
+    if (!project || !window.confirm('Move this Microsoft file to the SharePoint recycle bin? Every OfficeHub entry linked to this same file will be removed from the library.')) return;
     try {
       await actions.deleteSharePointDocument(docId);
       actions.addProjectActivityLog(project.id, `Removed project document "${docName}" by ${currentUser.name}`);

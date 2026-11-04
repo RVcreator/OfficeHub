@@ -38,6 +38,9 @@ export const SharePointView: React.FC<{ onOpenUploadModal: () => void }> = ({ on
   const [selectedFolder, setSelectedFolder] = useState<string>('All');
   const [searchQuery, setSearchQuery] = useState('');
   const [activeDocPreview, setActiveDocPreview] = useState<SharePointDocument | null>(null);
+  const [repairingLinks,setRepairingLinks]=useState(false);
+  const [repairNotice,setRepairNotice]=useState('');
+  const canRepairLinks=/admin|manager|director/i.test(currentUser.role||'');
   const [deletingDocId,setDeletingDocId] = useState<string | null>(null);
   const [syncingDocId, setSyncingDocId] = useState<string | null>(null);
   const [isNewFolderModalOpen, setIsNewFolderModalOpen] = useState(false);
@@ -135,8 +138,16 @@ export const SharePointView: React.FC<{ onOpenUploadModal: () => void }> = ({ on
     }
   };
 
+  const handleRepairLinks=async()=>{
+    if(repairingLinks)return;
+    setRepairingLinks(true);setRepairNotice('');
+    try{const result=await actions.reconcileSharePointDocuments();setRepairNotice(`${result.repaired} Microsoft link(s) repaired. ${result.unresolved.length} record(s) need administrator review. No files were deleted.`);}
+    catch(error){setRepairNotice(error instanceof Error?error.message:'Microsoft links could not be inspected.');}
+    finally{setRepairingLinks(false);}
+  };
+
   const handleDeleteDocument = async (docId: string) => {
-    if(deletingDocId || !window.confirm('Delete this document from OfficeHub and move the Microsoft file to the SharePoint recycle bin?'))return;
+    if(deletingDocId || !window.confirm('Move this Microsoft file to the SharePoint recycle bin? Every OfficeHub entry linked to this same file will be removed from the library.'))return;
     setDeletingDocId(docId);
     try {
       await actions.deleteSharePointDocument(docId);
@@ -147,6 +158,7 @@ export const SharePointView: React.FC<{ onOpenUploadModal: () => void }> = ({ on
 
   return (
     <div className="space-y-5">
+      {repairNotice && <div role="status" className="rounded-md border border-slate-200 bg-white p-3 text-xs text-slate-700">{repairNotice}</div>}
       {/* Authentic Header */}
       <div className="bg-white border border-slate-200 rounded-md p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-2xs">
         <div>
@@ -167,6 +179,7 @@ export const SharePointView: React.FC<{ onOpenUploadModal: () => void }> = ({ on
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          {canRepairLinks && <button type="button" disabled={repairingLinks||!!deletingDocId} onClick={handleRepairLinks} className="px-3 py-1.5 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer"><RefreshCw className="w-3.5 h-3.5" />{repairingLinks?'Checking Microsoft links…':'Repair older links'}</button>}
           <button
             disabled={!!syncingDocId || !!deletingDocId}
             onClick={async () => { for (const doc of filteredDocs) await handleSyncDoc(doc.id); }}
