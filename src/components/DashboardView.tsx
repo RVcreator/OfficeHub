@@ -22,7 +22,7 @@ import {
 } from 'lucide-react';
 import { usePortalStore } from '../services/store';
 import { TabId } from './Sidebar';
-import { fetchAyahOfTheDay, QuranAyah } from '../services/quranService';
+import { fetchAyahOfTheDay, getAyahOfTheDaySnapshot } from '../services/quranService';
 import { useHijriDate } from '../utils/hijriDate';
 import { isMyPersonalOrAssignedTask } from '../utils/taskUtils';
 import { Project } from '../types';
@@ -49,17 +49,19 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 }) => {
   const { tasks, notices, currentUser, approvals, meetings, projects, startupSections } = usePortalStore(['tasks', 'notices', 'currentUser', 'approvals', 'meetings', 'projects', 'startupSections']);
   const meetingNow=useMeetingClock(meetings);
-  const [ayah, setAyah] = useState<QuranAyah | null>(null);
+  const [ayah] = useState(getAyahOfTheDaySnapshot);
   const hijriDate = useHijriDate();
 
   useEffect(() => {
-    fetchAyahOfTheDay().then(setAyah);
+    // Keep this visit's complete banner stable while warming the next visit's
+    // cache. Slow third-party content must not move the workspace.
+    void fetchAyahOfTheDay();
   }, []);
 
-  const myTasks = tasks.filter(t => {
+  const myTasks = useMemo(()=>tasks.filter(t => {
     if (t.status === 'Cancelled') return false;
     return isMyPersonalOrAssignedTask(t, currentUser.id, currentUser.name);
-  });
+  }),[tasks,currentUser.id,currentUser.name]);
 
   const todayStr = new Date().toISOString().split('T')[0];
   const openTasks = myTasks.filter(t => t.status !== 'Done');
@@ -74,13 +76,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   }).length;
   const doneTasksCount = myTasks.filter(t => t.status === 'Done').length;
 
-  const unacknowledgedNotices = notices.filter(n =>
+  const unacknowledgedNotices = useMemo(()=>notices.filter(n =>
     !n.acknowledgedBy.includes(currentUser.id) &&
     !n.acknowledgedBy.includes(currentUser.name)
-  );
+  ),[notices,currentUser.id,currentUser.name]);
 
-  const pendingApprovals = approvals.filter(a => a.status === 'Pending');
-  const upcomingMeetings = meetings.filter(m => isMeetingUpcoming(m,meetingNow));
+  const pendingApprovals = useMemo(()=>approvals.filter(a => a.status === 'Pending'),[approvals]);
+  const upcomingMeetings = useMemo(()=>meetings.filter(m => isMeetingUpcoming(m,meetingNow)),[meetings,meetingNow]);
 
   return (
     <div className="oh-dashboard space-y-5">

@@ -1,7 +1,8 @@
 import {canViewAdministration,canManageAdministration,isAdministrationTab} from './services/administrationAccess';
 import type {SettingsTabType} from './components/SettingsModal';
 import React, { useState, useEffect, useRef, useTransition, Suspense, lazy } from 'react';
-import { usePortalStore } from './services/store';
+import { usePortalStore, getTaskSnapshot } from './services/store';
+import { WorkspaceStatus } from './components/WorkspaceStatus';
 import { supabase } from './services/supabaseClient';
 import type { AuthChangeEvent, Session } from '@supabase/supabase-js';
 import { createDeferredAuthHandler } from './services/deferredAuth';
@@ -28,8 +29,8 @@ const DecisionsView = lazy(() => import('./components/DecisionsView').then(m => 
 const QuickActionModal = lazy(() => import('./components/QuickActionModal').then(m => ({default:m.QuickActionModal})));
 const ProjectModal = lazy(() => import('./components/ProjectModal').then(m => ({default:m.ProjectModal})));
 const SettingsModal = lazy(() => import('./components/SettingsModal').then(m => ({default:m.SettingsModal})));
-import { LoginScreen } from './components/LoginScreen';
-import { ForcedPasswordChangeScreen } from './components/ForcedPasswordChangeScreen';
+const LoginScreen = lazy(() => import('./components/LoginScreen').then(m=>({default:m.LoginScreen})));
+const ForcedPasswordChangeScreen = lazy(() => import('./components/ForcedPasswordChangeScreen').then(m=>({default:m.ForcedPasswordChangeScreen})));
 import { Project, StaffUser, Task } from './types';
 import { isTaskAssignedByMe } from './utils/taskUtils';
 
@@ -49,10 +50,7 @@ function warmPage(tab:TabId){
 }
 
 export default function App() {
-  const { authSession, currentUser, tasks, staff, actions, startupSections, notificationError, administrationAccess } = usePortalStore(['authSession', 'currentUser', 'tasks', 'staff', 'startupSections', 'notificationError','administrationAccess']);
-
-  const failedSections=Object.entries(startupSections).filter(([,state])=>state==='error').map(([name])=>name);
-  const pendingSections=Object.entries(startupSections).filter(([,state])=>state==='loading').map(([name])=>name);
+  const { authSession, currentUser, actions, administrationAccess } = usePortalStore(['authSession', 'currentUser','administrationAccess']);
   const [activeTab, setRenderedTab] = useState<TabId>('dashboard');
   const [isNavigating,startNavigation]=useTransition();
   const mainRef=useRef<HTMLElement>(null);
@@ -179,11 +177,11 @@ export default function App() {
   // 1. Check if user is authenticated
   if (!authSession.isAuthenticated || !currentUser || currentUser.id === 'usr-default') {
     return (
-      <LoginScreen
+      <Suspense fallback={<div role="status" className="min-h-screen flex items-center justify-center bg-slate-50 text-slate-500">Opening sign in…</div>}><LoginScreen
         onLoginSuccess={(user, mustChange, token) => {
           actions.loginUser(user, mustChange, token);
         }}
-      />
+      /></Suspense>
     );
   }
 
@@ -192,14 +190,14 @@ export default function App() {
 
   if (mustChangePassword) {
     return (
-      <ForcedPasswordChangeScreen
+      <Suspense fallback={<div role="status" className="min-h-screen flex items-center justify-center bg-slate-50 text-slate-500">Opening password settings…</div>}><ForcedPasswordChangeScreen
         user={currentUser}
         sessionToken={authSession.sessionToken}
         onPasswordChanged={(updatedUser) => actions.completeForcedPasswordChange(updatedUser)}
         onSignOut={() => {
           actions.logoutUser();
         }}
-      />
+      /></Suspense>
     );
   }
 
@@ -216,7 +214,7 @@ export default function App() {
     setSelectedNoticeId(null);
     setSelectedMeetingId(null);
     setSelectedApprovalId(null);
-    const task = tasks.find((t: Task) => t.id === id);
+    const task = getTaskSnapshot(id);
     if (task && currentUser && isTaskAssignedByMe(task, currentUser.id)) {
       setActiveTab('tasks-assigned-by-me');
     } else {
@@ -304,7 +302,7 @@ export default function App() {
         />
 
         {/* Content View */}
-        <main ref={mainRef} aria-busy={isNavigating} className="oh-main flex-1 min-w-0 min-h-0 overflow-y-auto p-3 sm:p-5 xl:p-6">{notificationError && <div role="alert" className="mb-4 rounded-lg border border-amber-300 bg-amber-50 p-3 text-amber-900">{notificationError}</div>}{pendingSections.length>0&&<p role="status" className="mb-3 text-xs text-slate-500">Loading {pendingSections.join(', ')}… You can continue using OfficeHub.</p>}{failedSections.length>0&&<div role="alert" className="mb-3 rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">Could not load {failedSections.join(', ')}. Check your connection. <button onClick={()=>void actions.retryStartupSections()} className="font-semibold underline">Retry workspace data</button></div>}<Suspense fallback={<div role="status" className="p-6 text-slate-500">Loading your workspace…</div>}><AppErrorBoundary key={activeTab} onReturn={() => setActiveTab('dashboard')}>
+        <main ref={mainRef} aria-busy={isNavigating} className="oh-main flex-1 min-w-0 min-h-0 overflow-y-auto p-3 sm:p-5 xl:p-6"><WorkspaceStatus/><Suspense fallback={<div role="status" className="p-6 text-slate-500">Loading your workspace…</div>}><AppErrorBoundary key={activeTab} onReturn={() => setActiveTab('dashboard')}>
           {/* Active View Router */}
 
             {activeTab === 'dashboard' && (

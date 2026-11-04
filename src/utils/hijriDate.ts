@@ -29,13 +29,10 @@ export async function fetchHijriDate(date: Date = new Date()): Promise<string> {
   const cacheKey = `officehub_hijri_date_${year}-${month}-${day}`;
 
   // Check cache first
-  const cached = localStorage.getItem(cacheKey);
-  if (cached) {
-    return cached;
-  }
+  try{const cached=localStorage.getItem(cacheKey);if(cached)return cached;}catch{}
 
   try {
-    const res = await fetch(`https://api.aladhan.com/v1/gToH/${dateStr}`);
+    const res = await fetch(`https://api.aladhan.com/v1/gToH/${dateStr}`,{signal:AbortSignal.timeout(3500)});
     if (res.ok) {
       const data = await res.json();
       if (data?.data?.hijri) {
@@ -44,7 +41,7 @@ export async function fetchHijriDate(date: Date = new Date()): Promise<string> {
         const hYear = data.data.hijri.year;
         const monthName = SHIA_HIJRI_MONTHS[hMonthNum] || data.data.hijri.month.en;
         const formatted = `${hDay} ${monthName} ${hYear} AH`;
-        localStorage.setItem(cacheKey, formatted);
+        try{localStorage.setItem(cacheKey, formatted);}catch{}
         return formatted;
       }
     }
@@ -87,7 +84,7 @@ export function useHijriDate(): string {
   const [hijriDate, setHijriDate] = useState<string>('');
 
   useEffect(() => {
-    fetchHijriDate().then(setHijriDate);
+    let active=true;fetchHijriDate().then(value=>{if(active)setHijriDate(value);});return()=>{active=false;};
   }, []);
 
   return hijriDate;
