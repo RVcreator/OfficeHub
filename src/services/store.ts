@@ -3173,6 +3173,16 @@ export const portalStore = {
     saveDocumentsToLocalStorage(updatedDocs);
   },
 
+  reconcileSharePointDocuments: async (): Promise<{repaired:number;unresolved:{id:string;reason:string}[]}> => {
+    const {data,error}=await supabase.functions.invoke('sharepoint-document-action',{body:{action:'reconcile'}});
+    let message=data?.error;
+    if(error&&!message){try{message=(await error.context.json()).error;}catch{}}
+    if(error||!data?.success)throw new Error(message||'Microsoft links could not be inspected.');
+    documentReadGeneration++;
+    try{await portalStore.getSharePointDocs();}catch{console.warn('Confirmed Microsoft links saved; refresh the library to view them.');}
+    return {repaired:data.repaired,unresolved:data.unresolved};
+  },
+
   deleteSharePointDocument: async (docId: string): Promise<void> => {
     const identity=storeState.authSession.userId;
     const { data, error } = await supabase.functions.invoke('sharepoint-document-action', { body: { action:'delete',documentId:docId } });
@@ -3184,6 +3194,7 @@ export const portalStore = {
     portalStore.logAudit('sharepoint_doc_deleted','Deleted a document from OfficeHub and the Microsoft drive','blue');
     setTableData('sharePointDocs',storeState.sharePointDocs.filter(d=>d.id!==docId));
     saveDocumentsToLocalStorage([]);
+    try{await portalStore.getSharePointDocs();}catch{console.warn('Microsoft confirmed deletion; refresh to update duplicate entries.');}
   },
 
   syncSharePointDocument: async (docId: string): Promise<void> => {
@@ -4205,7 +4216,7 @@ for(const method of ['getTasks','getNotices','getMeetings','getStaff','getDepart
 
 // Identical concurrent button actions share one write; failures remain retryable.
 const mutationGate=createMutationGate();
-for(const method of ['addTask','updateTask','updateTaskStatus','rateTask','toggleSubtask','addSubtask','addNotice','acknowledgeNotice','addApproval','approveApproval','rejectApproval','addMeeting','respondToMeeting','deleteSharePointDocument','syncSharePointDocument','addFolder'] as const){
+for(const method of ['addTask','updateTask','updateTaskStatus','rateTask','toggleSubtask','addSubtask','addNotice','acknowledgeNotice','addApproval','approveApproval','rejectApproval','addMeeting','respondToMeeting','deleteSharePointDocument','syncSharePointDocument','addFolder','reconcileSharePointDocuments'] as const){
  const write=portalStore[method] as (...args:any[])=>Promise<any>;
  (portalStore as any)[method]=(...args:any[])=>mutationGate.run(JSON.stringify([method,storeState.currentUser.id,args]),()=>write(...args));
 }

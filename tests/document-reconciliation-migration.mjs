@@ -1,0 +1,46 @@
+import {readFile} from 'node:fs/promises';import assert from 'node:assert/strict';
+const {PGlite}=await import(process.env.OFFICEHUB_PGLITE_MODULE||'@electric-sql/pglite');
+const db=new PGlite(),owner='10000000-0000-4000-8000-000000000001',other='10000000-0000-4000-8000-000000000002';
+try {
+ await db.exec(`create role anon;create role authenticated;create role service_role bypassrls;create schema auth;create schema officehub_private;
+ create function auth.uid()returns uuid language sql stable as $$select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid$$;
+ create function auth.role()returns text language sql stable as $$select current_setting('request.jwt.claim.role',true)$$;
+ create table profiles(id uuid primary key);create function public.is_admin() returns boolean language sql stable as $$select false$$;
+ create table sharepoint_documents(id text primary key,name text,folder text,graph_drive_item_id text,web_url text,modified_at text,modified_by text,version text,visibility text,target_department text,allowed_user_ids text[],editable_user_ids text[],synced_with_sharepoint boolean,content_summary text,created_at timestamptz,created_by_id uuid,file_type text,size text,project_id text);
+ alter table sharepoint_documents enable row level security;grant usage on schema public,auth to authenticated,service_role;grant select,update,delete on sharepoint_documents to authenticated;grant all on sharepoint_documents to service_role;grant select on profiles to authenticated;
+ create policy audience on sharepoint_documents for select to authenticated using(created_by_id=auth.uid());create policy owner_edits on sharepoint_documents for update to authenticated using(created_by_id=auth.uid());create policy owner_deletes on sharepoint_documents for delete to authenticated using(created_by_id=auth.uid());
+ create function officehub_commit_document_shares(text,jsonb,jsonb,uuid)returns void language sql as $$select null::void$$;
+ revoke all on function officehub_commit_document_shares(text,jsonb,jsonb,uuid)from public;grant execute on function officehub_commit_document_shares(text,jsonb,jsonb,uuid)to service_role;
+ create function officehub_private.email_recipient_is_current(text,text,uuid)returns boolean language sql as $$select true$$;`);
+ await db.query('insert into profiles values($1),($2)',[owner,other]);await db.query("insert into sharepoint_documents(id,name,graph_drive_item_id,created_by_id)values('doc','Fixture','item',$1)",[owner]);
+ await db.exec(await readFile(new URL('../supabase/migrations/20261103000004_document_microsoft_lifecycle.sql',import.meta.url),'utf8'));
+ await db.exec(await readFile(new URL('../supabase/migrations/20261104000000_reconcile_document_links.sql',import.meta.url),'utf8'));
+ const asUser=async id=>db.exec(`reset role;select set_config('request.jwt.claim.sub','${id}',false),set_config('request.jwt.claim.role','authenticated',false);set role authenticated;`);
+ await asUser(other);assert.equal((await db.query('select * from sharepoint_documents')).rows.length,0);
+ await asUser(owner);assert.equal((await db.query('select * from sharepoint_documents')).rows.length,1);
+ await assert.rejects(db.exec("delete from sharepoint_documents where id='doc'"),/permission denied/);
+ await assert.rejects(db.exec("update sharepoint_documents set synced_with_sharepoint=true where id='doc'"),/Microsoft document service/);
+ await assert.rejects(db.query('select officehub_finish_document_delete($1,$2,$3)',['doc','item',owner]),/permission denied/);
+ await assert.rejects(db.query('select officehub_confirm_document_link($1,$2,$3,$4,$5,$6)',['forged','old','item','canonical','exact_web_url',owner]),/permission denied/);
+ await db.exec("reset role;select set_config('request.jwt.claim.role','service_role',false);set role service_role;");
+ await assert.rejects(db.query('select officehub_prepare_document_delete($1,$2,$3)',['doc','wrong',owner]),/identity changed/);
+ await db.query("insert into sharepoint_documents(id,name,web_url,created_by_id,visibility,allowed_user_ids)values('legacy','Retained name','https://old-link',$1,'Specific People',array[($1::uuid)::text])",[other]);
+ await assert.rejects(db.query('select officehub_confirm_document_link($1,$2,$3,$4,$5,$6)',['legacy','changed-url','item','https://canonical','exact_web_url',owner]),/link changed/);
+ await db.query('select officehub_confirm_document_link($1,$2,$3,$4,$5,$6)',['legacy','https://old-link','item','https://canonical','exact_web_url',owner]);
+ await assert.rejects(db.query('select officehub_confirm_document_link($1,$2,$3,$4,$5,$6)',['legacy','https://canonical','different-item','https://canonical','exact_web_url',owner]),/cannot be replaced/);
+ const linked=(await db.query("select name,visibility,allowed_user_ids from sharepoint_documents where id='legacy'")).rows[0];assert.equal(linked.name,'Retained name');assert.equal(linked.visibility,'Specific People');assert.deepEqual(linked.allowed_user_ids,[other]);
+ assert.equal((await db.query("select count(*)::int n from officehub_document_link_repairs")).rows[0].n,1);
+ await db.query('select officehub_prepare_document_delete($1,$2,$3)',['doc','item',owner]);
+ await assert.rejects(db.query('select officehub_commit_document_shares($1,$2,$3,$4)',['doc',{},[],owner]),/deletion pending/);
+ await db.query('select officehub_finish_document_delete($1,$2,$3)',['doc','item',owner]);
+ await db.query('select officehub_finish_document_delete($1,$2,$3)',['doc','item',owner]);
+ const record=(await db.query("select * from sharepoint_documents where id='doc'")).rows[0];assert.ok(record.deleted_at);assert.equal(record.graph_drive_item_id,'item');assert.equal(record.deletion_pending_at,null);
+ await db.exec('reset role');assert.equal((await db.query("select officehub_private.email_recipient_is_current('document_shared','doc',$1) allowed",[owner])).rows[0].allowed,false);
+ assert.equal((await db.query("select officehub_private.email_recipient_is_current('physical_calendar_request','meeting',$1) allowed",[owner])).rows[0].allowed,true);
+ await asUser(owner);assert.equal((await db.query('select * from sharepoint_documents')).rows.length,0);
+ await asUser(other);assert.equal((await db.query('select * from sharepoint_documents')).rows.length,0,'all same-file aliases hidden after confirmed Microsoft deletion');
+ await assert.rejects(db.exec('select * from officehub_document_link_repairs'),/permission denied/);
+ await assert.rejects(db.exec("insert into officehub_document_folders values('fake','Fake',null)"),/permission denied/);
+ console.log('Document reconciliation and lifecycle SQL passed: audience unchanged, raw deletes/false sync blocked, server-only reconciliation idempotent, deleted rows hidden, sharing/email blocked, unrelated email eligibility preserved.');
+}finally{await db.close();}
+
