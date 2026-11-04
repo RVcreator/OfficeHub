@@ -61,10 +61,13 @@ revoke all on function public.officehub_save_meeting(text,jsonb,jsonb,boolean)fr
 grant execute on function public.officehub_save_meeting(text,jsonb,jsonb,boolean)to authenticated;
 create function public.officehub_guard_teams_fields()returns trigger language plpgsql set search_path='' as $$
 begin
+ if tg_op='INSERT' then
+  if current_user='authenticated' and coalesce(new.teams_join_url,new.teams_meeting_id,new.teams_passcode,new.microsoft_sync_status,new.microsoft_sync_error) is not null then raise exception 'Microsoft meeting state is server-managed' using errcode='42501';end if;return new;
+ end if;
  if current_user='authenticated' and (new.teams_join_url,new.teams_meeting_id,new.teams_passcode,new.microsoft_sync_status,new.microsoft_sync_error)
  is distinct from (old.teams_join_url,old.teams_meeting_id,old.teams_passcode,old.microsoft_sync_status,old.microsoft_sync_error) then raise exception 'Microsoft meeting state is server-managed' using errcode='42501';end if;return new;
 end $$;
-create trigger officehub_guard_teams_fields before update on public.meetings for each row execute function public.officehub_guard_teams_fields();
+create trigger officehub_guard_teams_fields before insert or update on public.meetings for each row execute function public.officehub_guard_teams_fields();
 create function public.officehub_teams_sync_authorized(p_actor uuid,p_meeting text)returns boolean language sql stable security definer set search_path='' as $$
  select exists(select 1 from auth.users u join public.profiles p on p.id=u.id where u.id=p_actor and u.email_confirmed_at is not null and u.deleted_at is null
  and (u.banned_until is null or u.banned_until<=now()) and coalesce(u.raw_app_meta_data->>'must_change_password','false')<>'true'

@@ -20,6 +20,7 @@ try{
  await user(1);await save('online',changes,[{user_id:uid(2)}],true);
  await assert.rejects(()=>db.query('select officehub_claim_teams_sync($1)',['online']),error=>error.code==='42501');
  await assert.rejects(()=>save('online',{teams_join_url:'https://evil.invalid'}));
+ await assert.rejects(()=>db.query("insert into meetings(id,title,organizer_id,teams_join_url)values('forged','Forged',$1,'https://evil.invalid')",[uid(1)]),error=>error.code==='42501');
  await db.exec('reset role');let j=await claim('online');assert.equal(j.payload.attendees.length,2);assert.equal(j.payload.organizer_email,'fixture1@wipahs.org');assert.equal(new Date(j.payload.start).toISOString(),'2099-11-05T07:00:00.000Z');assert.equal(await claim('online'),null,'Only one lease per meeting');
  await user(1);await save('online',{chair_id:uid(2)},[{user_id:uid(2)},{user_id:uid(3)}]);await db.exec('reset role');await finish(j);
  let next=await claim('online');assert.ok(next.revision>j.revision);assert.equal(next.event_id,'immutable-event','Checkpoint survives newer edit');assert.equal(next.payload.chair_email,'fixture2@wipahs.org');assert.equal(next.payload.attendees.length,3);
