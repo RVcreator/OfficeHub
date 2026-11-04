@@ -1206,9 +1206,9 @@ export const MeetingsTeamsView: React.FC<{
     }catch(error){window.alert(error instanceof Error?error.message:'Meeting was not saved.');}
   };
 
-  const handleConfirmDelete = () => {
+  const handleConfirmDelete = async () => {
     if (deletingMeeting) {
-      actions.deleteMeeting(deletingMeeting.id);
+      try{await actions.deleteMeeting(deletingMeeting.id);}catch(error){window.alert(error instanceof Error?error.message:'Meeting deletion was not confirmed.');return;}
       setDeletingMeeting(null);
       if (detailMeetingId === deletingMeeting.id) {
         setDetailMeetingId(null);
@@ -2426,6 +2426,7 @@ export const MeetingsTeamsView: React.FC<{
                         <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-slate-100 text-slate-700">
                           {meeting.department}
                         </span>
+                        {!isPhysicalMeeting(meeting)&&meeting.microsoftSyncStatus&&meeting.microsoftSyncStatus!=='synced'&&<span role="status" className="text-xs text-amber-800">{meeting.microsoftSyncError||'Microsoft sync pending — invitations and host roles are not confirmed yet.'}{(isCreator||meeting.chairId===currentUser.id)&&<button type="button" onClick={e=>{e.stopPropagation();void actions.syncMeetingMicrosoft(meeting.id,true);}} className="ml-2 underline">Retry sync</button>}</span>}
                         {isCreator && (
                           <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-purple-100 text-purple-900 border border-purple-200 flex items-center gap-1">
                             <ShieldCheck className="w-3 h-3 text-purple-700" />
@@ -3321,6 +3322,7 @@ export const MeetingsTeamsView: React.FC<{
 
               <div>
                 <label className="font-bold text-slate-700 block mb-1">Meeting Host / Chair</label>
+                {!isPhysicalMeeting(editingMeeting)&&<p className="text-xs text-slate-500 mb-2">The selected host becomes a Teams co-organizer. The original organizer and meeting link stay the same.</p>}
                 <select
                   value={editChairId}
                   onChange={(e) => setEditChairId(e.target.value)}

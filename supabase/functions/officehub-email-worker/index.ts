@@ -1,4 +1,5 @@
 import { graphRequest, processOne } from '../_shared/officehubEmailWorker.ts';
+import {processTeamsSync} from '../_shared/teamsMeetingSync.ts';
 
 const env = (key: string) => Deno.env.get(key) || '';
 const json = (body: unknown,status=200) => Response.json(body,{status});
@@ -63,12 +64,15 @@ export async function handler(req: Request): Promise<Response> {
     return result.access_token as string;
   };
   try {
+    // Keep the existing protected scheduler and normal email delivery separate.
+    let meetingOutcome='unavailable';
+    try{meetingOutcome=await processTeamsSync({rpc,token});}catch{/* the queue retains pending work */}
     const outcome=await processOne({rpc,token,send:async(job,accessToken)=>{const message=graphRequest(job);return fetch(
       'https://graph.microsoft.com/v1.0/users/officehub%40wipahs.org/sendMail',{
         method:'POST',headers:{authorization:'Bearer '+accessToken,'content-type':message.contentType},
         body:message.body,signal:AbortSignal.timeout(15000),
       });}});
-    return json({outcome});
+    return json({outcome,meetingOutcome});
   } catch {
     // Never log tokens, response bodies, email content, or user addresses.
     return json({error:'Email queue processing failed; inspect queue status before retrying'},500);

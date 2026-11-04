@@ -1613,7 +1613,7 @@ export const QuickActionModal: React.FC<QuickActionModalProps> = ({
                       <span>{meetingType==='In-Person Boardroom'?'Scheduling physical meeting…':'Scheduling & Generating Teams Link...'}</span>
                     </>
                   ) : (
-                    <span>{meetingType==='In-Person Boardroom'?'Schedule Physical Meeting':'Schedule & Generate Teams Link'}</span>
+                    <span>{meetingType==='In-Person Boardroom'?'Schedule Physical Meeting':'Schedule Teams Meeting'}</span>
                   )}
                 </button>
               </div>

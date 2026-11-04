@@ -92,7 +92,7 @@ import {
   sanitizeDenormalizedAvatar,
   recoverTruncatedJsonArray,
 } from './supabaseMappers';
-import { generateTeamsMeetingPayload } from './teamsSharePointService';
+
 import { playNotificationSound } from '../utils/sound';
 import { NotificationChimeTracker, visibleNotifications, persistNotification, reconcileNotificationSnapshot } from './notificationDelivery';
 import { isPersonalTask } from '../utils/taskUtils';
@@ -2901,39 +2901,12 @@ export const portalStore = {
         if(isPhysicalMeeting(newMeeting)){
           if(!newMeeting.location?.trim())throw new Error('Enter the physical meeting venue.');
           newMeeting.teamsJoinUrl=undefined;newMeeting.teamsMeetingId=undefined;newMeeting.teamsPasscode=undefined;
-        }else if (!newMeeting.teamsJoinUrl) {
-          try {
-            const { data: fnData, error: fnError } = await supabase.functions.invoke('teams-meeting-create', {
-              body: {
-                title: newMeeting.title,
-                date: newMeeting.date,
-                time: meetingTime24, // Guaranteed HH:MM 24-hour format (e.g. "14:30")
-                durationMinutes: newMeeting.durationMinutes || 60,
-                organizerEmail: currentUser.email,
-                organizerName: currentUser.name,
-                department: newMeeting.department,
-                description: newMeeting.description,
-              },
-            });
-            if (!fnError && fnData && fnData.teamsJoinUrl) {
-              newMeeting.teamsJoinUrl = fnData.teamsJoinUrl;
-              newMeeting.teamsMeetingId = fnData.teamsMeetingId;
-              newMeeting.teamsPasscode = fnData.teamsPasscode;
-            } else {
-              const teamsData = generateTeamsMeetingPayload(newMeeting);
-              newMeeting.teamsJoinUrl = teamsData.teamsJoinUrl;
-              newMeeting.teamsMeetingId = teamsData.teamsMeetingId;
-              newMeeting.teamsPasscode = teamsData.teamsPasscode;
-            }
-          } catch (e) {
-            const teamsData = generateTeamsMeetingPayload(newMeeting);
-            newMeeting.teamsJoinUrl = teamsData.teamsJoinUrl;
-            newMeeting.teamsMeetingId = teamsData.teamsMeetingId;
-            newMeeting.teamsPasscode = teamsData.teamsPasscode;
-          }
+        }else{
+          // Microsoft creates the real link only after the validated record commits.
+          newMeeting.teamsJoinUrl=undefined;newMeeting.teamsMeetingId=undefined;newMeeting.teamsPasscode=undefined;
         }
 
-        const {data:result,error}=await supabase.rpc('officehub_save_meeting',{p_id:id,p_changes:mapMeetingToRow(newMeeting),p_attendees:newMeeting.attendees.map(a=>({user_id:a.userId})),p_create:true});
+        const {data:result,error}=await supabase.rpc('officehub_save_meeting',{p_id:id,p_changes:mapMeetingToRow({...newMeeting,teamsJoinUrl:undefined,teamsMeetingId:undefined,teamsPasscode:undefined}),p_attendees:newMeeting.attendees.map(a=>({user_id:a.userId})),p_create:true});
         if(error||!result?.meeting)throw new Error(error?.message||'Meeting was not saved.');
         const insertedMeeting=mapMeetingRow(result.meeting,(result.attendees||[]).map(mapMeetingAttendeeRow));
         // Ensure no duplicate exists in state before prepending
@@ -2995,6 +2968,7 @@ export const portalStore = {
           )
         ).catch((notifErr) => console.warn('Failed to dispatch meeting notification/email:', notifErr));
 
+        if(!isPhysicalMeeting(insertedMeeting))void portalStore.syncMeetingMicrosoft(insertedMeeting.id);
         return insertedMeeting;
       } catch (err: any) {
         console.error('addMeeting error:', err);
@@ -3015,6 +2989,20 @@ export const portalStore = {
     if(error||!data?.meeting)throw new Error(error?.message||'Meeting was not saved.');
     const saved=mapMeetingRow(data.meeting,(data.attendees||[]).map(mapMeetingAttendeeRow));
     setTableData('meetings',storeState.meetings.map(m=>m.id===meetingId?saved:m));
+    if(!isPhysicalMeeting(saved)||saved.microsoftSyncStatus==='pending')void portalStore.syncMeetingMicrosoft(meetingId);
+  },
+
+  syncMeetingMicrosoft: async(meetingId:string,retry=false):Promise<void>=>{
+    const identity=storeState.authSession.userId;
+    try{
+      const {error}=await supabase.functions.invoke('teams-meeting-sync',{body:{meetingId,...(retry?{retry:true}:{})}});
+      if(error)throw error;
+      const meetings=await portalStore.getMeetings();
+      if(identity===storeState.authSession.userId)setTableData('meetings',meetings);
+    }catch{
+      if(identity!==storeState.authSession.userId)return;
+      setTableData('meetings',storeState.meetings.map(m=>m.id===meetingId?{...m,microsoftSyncStatus:'retry',microsoftSyncError:'Microsoft sync could not be confirmed. Your meeting is saved and will be retried.'}:m));
+    }
   },
 
   deleteMeeting: async (meetingId: string): Promise<void> => {
@@ -3027,6 +3015,7 @@ export const portalStore = {
       }
       if(!data)throw new Error('Meeting deletion was not permitted.');
       setTableData('meetings', storeState.meetings.filter((m) => m.id !== meetingId));
+      void portalStore.syncMeetingMicrosoft(meetingId);
     } catch (err: any) {
       console.error('deleteMeeting error:', err);
       throw err;

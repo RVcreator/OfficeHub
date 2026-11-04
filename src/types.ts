@@ -213,6 +213,8 @@ export interface Meeting {
   agenda: string[];
   meetingType: 'Microsoft Teams' | 'In-Person Boardroom' | 'Hybrid';
   location?: string;
+  microsoftSyncStatus?: 'pending' | 'retry' | 'blocked' | 'synced';
+  microsoftSyncError?: string;
   teamsJoinUrl?: string;
   teamsMeetingId?: string;
   teamsPasscode?: string;

@@ -479,6 +479,8 @@ export function mapMeetingRow(row: any, attendees: MeetingAttendee[] = []): Meet
     agenda: row.agenda || [],
     meetingType: row.meeting_type || 'Microsoft Teams',
     location: row.location || undefined,
+    microsoftSyncStatus:row.microsoft_sync_status||undefined,
+    microsoftSyncError:row.microsoft_sync_error||undefined,
     teamsJoinUrl: row.teams_join_url || undefined,
     teamsMeetingId: row.teams_meeting_id || undefined,
     teamsPasscode: row.teams_passcode || undefined,
