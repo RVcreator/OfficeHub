@@ -34,19 +34,6 @@ export interface TeamsAdaptiveCard {
  * Generates a standard Microsoft Teams meeting invitation payload with join URL
  */
 function physicalMeetingCard(meeting:Meeting):TeamsAdaptiveCard{return {type:'message',attachments:[{contentType:'application/vnd.microsoft.card.adaptive',content:{$schema:'http://adaptivecards.io/schemas/adaptive-card.json',type:'AdaptiveCard',version:'1.4',body:[{type:'TextBlock',text:'Physical meeting: '+meeting.title,weight:'Bolder',wrap:true},{type:'FactSet',facts:[{title:'Venue',value:meeting.location||'See OfficeHub'},{title:'When (EAT)',value:meeting.date+' '+meeting.startTime+' – '+meeting.endTime},{title:'Organizer',value:meeting.organizerName}]}]}}]};}
-export function generateTeamsMeetingPayload(meeting: Partial<Meeting>) {
-  const safeTitle = encodeURIComponent(meeting.title || 'WIPAHS Meeting');
-  const meetingId = `${Math.floor(100 + Math.random() * 900)} ${Math.floor(100 + Math.random() * 900)} ${Math.floor(100 + Math.random() * 900)}`;
-  const passcode = `wipahs${Math.floor(1000 + Math.random() * 9000)}`;
-  const joinUrl = `https://teams.microsoft.com/l/meetup-join/19%3ameeting_${safeTitle}%40thread.v2/0?context=%7b%22Tid%22%3a%22wipahs-org-tenant-id%22%2c%22Oid%22%3a%22rija-virani-admin%22%7d`;
-
-  return {
-    teamsJoinUrl: joinUrl,
-    teamsMeetingId: meetingId,
-    teamsPasscode: passcode,
-  };
-}
-
 /**
  * Creates an .ics file string for direct calendar download
  */
