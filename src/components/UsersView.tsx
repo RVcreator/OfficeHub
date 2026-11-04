@@ -69,6 +69,8 @@ export const UsersView: React.FC<UsersViewProps> = ({ onAssignTaskToUser,readOnl
   const [deleteEmail,setDeleteEmail]=useState('');
   const [deleteError,setDeleteError]=useState<string|null>(null);
   const [deleting,setDeleting]=useState(false);
+  const savingMemberRef=useRef(false);
+  const [savingMember,setSavingMember]=useState(false);
 
   // Form state
   const [formData, setFormData] = useState({
@@ -162,6 +164,7 @@ export const UsersView: React.FC<UsersViewProps> = ({ onAssignTaskToUser,readOnl
     const isOoo = formData.outOfOffice;
 
     if (editingUser) {
+      if(formData.email.trim().toLowerCase()!==editingUser.email.trim().toLowerCase()&&!window.confirm(`Change this member's sign-in email from ${editingUser.email} to ${formData.email.trim().toLowerCase()}? Their password and history will stay the same.`))return;
       try{await actions.updateStaffMember(editingUser.id, {
         name: formData.name.trim(),
         email: formData.email.trim(),
@@ -719,7 +722,7 @@ export const UsersView: React.FC<UsersViewProps> = ({ onAssignTaskToUser,readOnl
               </button>
             </div>
 
-            <form onSubmit={handleSaveMember} className="space-y-3.5 text-xs">
+            <form onSubmit={async event=>{event.preventDefault();if(savingMemberRef.current)return;savingMemberRef.current=true;setSavingMember(true);try{await handleSaveMember(event);}finally{savingMemberRef.current=false;setSavingMember(false);}}} className="space-y-3.5 text-xs">
               <div>
                 <label className="font-semibold text-slate-700 block mb-1">
                   Full Name (EMPL) <span className="text-rose-500">*</span>
@@ -755,13 +758,14 @@ export const UsersView: React.FC<UsersViewProps> = ({ onAssignTaskToUser,readOnl
                   </label>
                   <input
                     type="email"
-                    readOnly={!!editingUser}
+                    disabled={savingMember}
                     required
                     placeholder="name@wipahs.org"
                     value={formData.email}
                     onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                     className="w-full px-3 py-1.5 rounded-md border border-slate-200 text-xs focus:outline-none focus:ring-1 focus:ring-[#00ad1d]"
                   />
+                  {editingUser&&<p className="mt-1 text-[11px] text-slate-500">An administrator can correct the sign-in email to a verified Microsoft work address. The member keeps their password and history.</p>}
                 </div>
               </div>
 
@@ -899,10 +903,10 @@ export const UsersView: React.FC<UsersViewProps> = ({ onAssignTaskToUser,readOnl
                   Cancel
                 </button>
                 <button
-                  type="submit" disabled={directory.loading||Boolean(directory.error)||!validDepartment}
+                  type="submit" disabled={savingMember||directory.loading||Boolean(directory.error)||!validDepartment}
                   className="px-4 py-1.5 bg-[#00ad1d] hover:bg-[#009218] text-white font-semibold rounded-md text-xs shadow-2xs"
                 >
-                  {editingUser ? 'Update Member' : 'Create Member Account'}
+                  {savingMember?'Saving…':editingUser ? 'Update Member' : 'Create Member Account'}
                 </button>
               </div>
             </form>
