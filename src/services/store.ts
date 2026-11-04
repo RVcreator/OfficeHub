@@ -4009,10 +4009,15 @@ export const portalStore = {
   // -----------------------------------------------------------------------
   // Auth & Session
   // -----------------------------------------------------------------------
-  syncAuthenticatedUserProfile: async (sbUser: any): Promise<StaffUser> => {
+  readAuthenticatedUserProfile: async (userId:string) => {
+    const uid=toUuidOrNull(userId);
+    if(!uid)throw new Error('A valid sign-in account is required.');
+    return await supabase.from('profiles').select(PROFILE_SELECT_COLUMNS).eq('id',uid).maybeSingle();
+  },
+  syncAuthenticatedUserProfile: async (sbUser: any,profileRead?:Promise<{data:any;error:unknown}>): Promise<StaffUser> => {
     const uid=toUuidOrNull(sbUser?.id);
     if(!uid)throw new Error('Your sign-in account could not be verified. Please sign in again.');
-    const {data:row,error}=await supabase.from('profiles').select(PROFILE_SELECT_COLUMNS).eq('id',uid).maybeSingle();
+    const {data:row,error}=await (profileRead||portalStore.readAuthenticatedUserProfile(uid));
     if(error)throw new Error('Your staff profile could not be loaded. Please check your connection and try again.');
     if(!row||row.id!==uid)throw new Error('This sign-in account has no matching staff profile. Please contact your administrator to repair the account.');
     const matched=mapStaffRow(row);

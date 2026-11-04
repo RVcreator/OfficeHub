@@ -5,6 +5,7 @@ let state:any={authSession:{isAuthenticated:false,userId:null,mustChangePassword
 const listeners=new Set<()=>void>();const update=(next:any)=>{state={...state,...next};listeners.forEach(fn=>fn());};
 export const portalStore={
  getAdministrationAccess:async()=>state.administrationAccess,
+ readAuthenticatedUserProfile:async()=>({data:null,error:null}),
  syncAuthenticatedUserProfile:async(user:any)=>({...user,name:'Fixture Staff',role:'Staff Member',department:'Test',organisation:'Fixture',avatar:'',status:'Online'}),
  shouldForcePasswordChange:(user:any,profile:any,options:any={})=>passwordChangeRequired(user,profile,options.isRecoveryEvent),
  loginUser:(user:any,required:boolean,token:string)=>update({currentUser:user,authSession:{isAuthenticated:true,userId:user.id,mustChangePassword:retainPasswordRequirement(user.id,required,state.authSession),sessionToken:token}}),
