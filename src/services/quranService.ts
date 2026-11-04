@@ -141,6 +141,13 @@ function getDeterministicIndexForDate(dateStr: string, max: number): number {
   return Math.abs(hash) % max;
 }
 
+/** A complete first-paint snapshot; a background refresh is used on the next visit. */
+export function getAyahOfTheDaySnapshot(customDate?:string):QuranAyah {
+ const date=customDate||new Date().toISOString().split('T')[0];
+ try{const value=JSON.parse(localStorage.getItem(`wipahs_ayah_v2_${date}`)||'null');if(value&&typeof value.arabicText==='string'&&typeof value.translation==='string'&&typeof value.citation==='string')return value;}catch{}
+ return LOCAL_AYAH_DATASET[getDeterministicIndexForDate(date,LOCAL_AYAH_DATASET.length)];
+}
+
 export async function fetchAyahOfTheDay(customDate?: string): Promise<QuranAyah> {
   const todayStr = customDate || new Date().toISOString().split('T')[0];
   const cacheKey = `wipahs_ayah_v2_${todayStr}`;

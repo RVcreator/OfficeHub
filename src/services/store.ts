@@ -4243,6 +4243,7 @@ for(const method of ['addTask','updateTask','updateTaskStatus','rateTask','toggl
 // Updates to 'notices' only re-render components that consume notices.
 // =========================================================================
 
+export function getTaskSnapshot(id:string){return storeState.tasks.find(task=>task.id===id);}
 export function usePortalStore(keys?: readonly TableKey[]) {
   const signature=(keys || Object.keys(storeState) as TableKey[]).join('|');
   const selection=useMemo(()=>{

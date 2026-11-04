@@ -5,7 +5,7 @@ import {canRespondToMeeting,isMeetingUpcoming} from '../utils/meetingLifecycle';
 import {requiresTaskRating} from '../utils/taskRatingState';
 import {brandLogo} from '../utils/brandLogo';
 import { isNotificationForUser } from '../services/notificationDelivery';
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { UserAvatar } from './UserAvatar';
 import {
   Search,
@@ -103,9 +103,9 @@ export const Header: React.FC<HeaderProps> = ({
     };
   }, []);
 
-  const userNotifications = notifications.filter(n => isNotificationForUser(n, currentUser));
-  const unreadNotifCount = userNotifications.filter(n => !n.read).length;
-  const myPendingTasks = tasks.filter(t => (t.assignedToId === currentUser.id || (Array.isArray(t.assignedToIds) && t.assignedToIds.includes(currentUser.id))) && t.status !== 'Done');
+  const userNotifications = useMemo(()=>notifications.filter(n => isNotificationForUser(n, currentUser)),[notifications,currentUser]);
+  const unreadNotifCount = useMemo(()=>userNotifications.filter(n => !n.read).length,[userNotifications]);
+  const myPendingTasks = useMemo(()=>tasks.filter(t => (t.assignedToId === currentUser.id || (Array.isArray(t.assignedToIds) && t.assignedToIds.includes(currentUser.id))) && t.status !== 'Done'),[tasks,currentUser.id]);
 
   const isOutOfOffice = currentUser.outOfOffice || currentUser.status === 'Out of Office';
 

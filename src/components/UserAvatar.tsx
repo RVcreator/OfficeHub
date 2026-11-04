@@ -1,4 +1,5 @@
-import React from 'react';
+import React, {useState} from 'react';
+import {avatarImage} from '../utils/avatarImage';
 
 interface UserAvatarProps {
   name?: string;
@@ -11,6 +12,7 @@ export const UserAvatar: React.FC<UserAvatarProps> = ({
   avatar,
   className = 'w-8 h-8',
 }) => {
+  const [failedSource,setFailedSource]=useState<string|null>(null);
   const getBgColor = (str: string) => {
     let hash = 0;
     for (let i = 0; i < str.length; i++) {
@@ -32,16 +34,14 @@ export const UserAvatar: React.FC<UserAvatarProps> = ({
   const initial = name && name.trim().length > 0 ? name.trim().charAt(0).toUpperCase() : 'U';
   const bgColor = getBgColor(name);
 
-  if (avatar && avatar.trim() !== '') {
+  if (avatar && avatar.trim() !== '' && failedSource!==avatar) {
     return (
       <img
-        src={avatar}
+        {...avatarImage(avatar,className)}
         loading="lazy" decoding="async" width={32} height={32}
         alt={name}
         className={`${className} rounded-full object-cover shrink-0`}
-        onError={(e) => {
-          (e.currentTarget as HTMLElement).style.display = 'none';
-        }}
+        onError={() => setFailedSource(avatar)}
       />
     );
   }
