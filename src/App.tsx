@@ -1,3 +1,4 @@
+import {canViewAdministration,canManageAdministration,isAdministrationTab} from './services/administrationAccess';
 import type {SettingsTabType} from './components/SettingsModal';
 import React, { useState, useEffect, useRef, useTransition, Suspense, lazy } from 'react';
 import { usePortalStore } from './services/store';
@@ -48,14 +49,24 @@ function warmPage(tab:TabId){
 }
 
 export default function App() {
-  const { authSession, currentUser, tasks, staff, actions, startupSections, notificationError } = usePortalStore(['authSession', 'currentUser', 'tasks', 'staff', 'startupSections', 'notificationError']);
+  const { authSession, currentUser, tasks, staff, actions, startupSections, notificationError, administrationAccess } = usePortalStore(['authSession', 'currentUser', 'tasks', 'staff', 'startupSections', 'notificationError','administrationAccess']);
 
   const failedSections=Object.entries(startupSections).filter(([,state])=>state==='error').map(([name])=>name);
   const pendingSections=Object.entries(startupSections).filter(([,state])=>state==='loading').map(([name])=>name);
   const [activeTab, setRenderedTab] = useState<TabId>('dashboard');
   const [isNavigating,startNavigation]=useTransition();
   const mainRef=useRef<HTMLElement>(null);
-  const setActiveTab=(tab:TabId)=>startNavigation(()=>setRenderedTab(tab));
+  const canViewAdmin=canViewAdministration(administrationAccess,authSession.userId);
+  const canManageAdmin=canManageAdministration(administrationAccess,authSession.userId);
+  const setActiveTab=(tab:TabId)=>{if(isAdministrationTab(tab)&&!canViewAdmin)return;startNavigation(()=>setRenderedTab(tab));};
+  useEffect(()=>{if(isAdministrationTab(activeTab)&&!canViewAdmin)setRenderedTab('dashboard');},[activeTab,canViewAdmin]);
+  useEffect(()=>{
+    if(!authSession.isAuthenticated||!authSession.userId||authSession.mustChangePassword)return;
+    const refresh=()=>{if(document.visibilityState!=='hidden')void actions.getAdministrationAccess();};
+    refresh();const timer=window.setInterval(refresh,30000);
+    window.addEventListener('focus',refresh);document.addEventListener('visibilitychange',refresh);
+    return()=>{window.clearInterval(timer);window.removeEventListener('focus',refresh);document.removeEventListener('visibilitychange',refresh);};
+  },[authSession.isAuthenticated,authSession.userId,authSession.mustChangePassword]);
   useEffect(()=>{mainRef.current?.scrollTo({top:0});},[activeTab]);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isQuickActionOpen, setIsQuickActionOpen] = useState(false);
@@ -445,23 +456,23 @@ export default function App() {
               />
             )}
 
-            {activeTab === 'departments' && (
-              <DepartmentsView onSelectDepartmentTasks={() => setActiveTab('tasks-department')} />
+            {canViewAdmin && activeTab === 'departments' && (
+              <DepartmentsView readOnly={!canManageAdmin} onSelectDepartmentTasks={() => setActiveTab('tasks-department')} />
             )}
 
-            {activeTab === 'users' && (
-              <UsersView onAssignTaskToUser={handleAssignTaskToUser} />
+            {canViewAdmin && activeTab === 'users' && (
+              <UsersView readOnly={!canManageAdmin} onAssignTaskToUser={handleAssignTaskToUser} />
             )}
 
             {activeTab === 'staff' && (
               <StaffDirectoryView onAssignTaskToUser={handleAssignTaskToUser} />
             )}
 
-            {activeTab === 'roles-permissions' && (
+            {canViewAdmin && activeTab === 'roles-permissions' && (
               <RolesPermissionsView />
             )}
 
-            {activeTab === 'audit-log' && (
+            {canViewAdmin && activeTab === 'audit-log' && (
               <AuditLogView />
             )}
 

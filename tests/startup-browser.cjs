@@ -21,6 +21,7 @@ const fs=require('fs'),path=require('path'),http=require('http'),assert=require(
    else if(u.pathname==='/rest/v1/approvals'){await held;if(denyApprovals)return route.fulfill({status:503,contentType:'application/json',body:JSON.stringify({message:'Fixture approvals unavailable'})});}
    else if(u.pathname==='/rest/v1/tasks')body=[{id:'10000000-0000-4000-8000-000000000002',title:'Startup fixture task',status:'Pending',assigned_to_id:user.id,assigned_to_name:profile.name,created_by_id:user.id,created_at:new Date().toISOString(),department:'IT',organisation:'WIPAHS'}];
    else if(u.pathname==='/auth/v1/user')body=user;
+   else if(u.pathname==='/rest/v1/rpc/officehub_administration_access')body={user_id:user.id,can_view:true,can_manage:true,automatic:false};
    else if(u.pathname.includes('/profiles'))body=u.searchParams.has('or')||u.searchParams.has('id')?profile:[profile];
    else if(u.pathname.includes('/rpc/officehub_presence_snapshot'))body=[{user_id:user.id,status:'Online',fresh_seconds:120,out_of_office:false}];
    else if(u.pathname.includes('/rpc/officehub_presence_'))body=null;

@@ -1,3 +1,4 @@
+import {canManageAdministration} from '../services/administrationAccess';
 import React, { useState, useEffect } from 'react';
 import { UserAvatar } from './UserAvatar';
 import { ConfirmDialog } from './ConfirmDialog';
@@ -49,10 +50,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onSelectTask,
   onSelectMeeting
 }) => {
-  const { actions, currentUser, departments, tasks, staff } = usePortalStore(['currentUser', 'departments', 'tasks', 'staff']);
+  const { actions, currentUser, departments, tasks, staff, administrationAccess } = usePortalStore(['currentUser', 'departments', 'tasks', 'staff','administrationAccess']);
+  const canManage=canManageAdministration(administrationAccess,currentUser.id);
   const ratingSummary = getUserRatingSummary(currentUser.id, tasks, currentUser);
 
   const [activeTab, setActiveTab] = useState<SettingsTabType>(initialTab);
+  useEffect(()=>{if(!canManage&&(activeTab==='admin'||activeTab==='integrations'))setActiveTab('profile');},[canManage,activeTab]);
 
   useEffect(() => {
     if (isOpen && initialTab) {
@@ -284,20 +287,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           </button>
 
           {(() => {
-            const dept = (currentUser.department || '').toLowerCase();
-            const role = (currentUser.role || '').toLowerCase();
-            const appMetaRole = (currentUser.app_metadata?.role || '').toLowerCase();
-            const appMetaDept = (currentUser.app_metadata?.department || '').toLowerCase();
-
-            const hasAdminRights = 
-              role.includes('admin') ||
-              appMetaRole.includes('admin') ||
-              dept.includes('it') ||
-              dept.includes('executive') ||
-              appMetaDept.includes('it') ||
-              appMetaDept.includes('executive');
-
-            if (!hasAdminRights) return null;
+            if(!canManage)return null;
             return (
               <>
                 <button
@@ -847,7 +837,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           )}
 
           {/* 3. INTEGRATIONS TAB */}
-          {activeTab === 'integrations' && (
+          {canManage && activeTab === 'integrations' && (
             <form onSubmit={handleSaveIntegrations} className="space-y-5 w-full max-w-3xl mx-auto">
               {integrationSaved && (
                 <div className="p-3.5 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-lg flex items-center gap-2 text-xs font-semibold">
@@ -901,7 +891,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           )}
 
           {/* 4. ADMIN TAB */}
-          {activeTab === 'admin' && (
+          {canManage && activeTab === 'admin' && (
             <div className="space-y-5 w-full max-w-3xl mx-auto">
               <div className="p-5 bg-white border border-slate-200 rounded-xl shadow-2xs space-y-2">
                 <div className="flex items-center gap-2 font-bold text-slate-800 text-sm">

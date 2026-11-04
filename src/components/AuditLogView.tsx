@@ -1,3 +1,4 @@
+import {canViewAdministration} from '../services/administrationAccess';
 import React, { useState, useEffect } from 'react';
 import {
   ScrollText,
@@ -13,13 +14,15 @@ import {
 import { usePortalStore, setTableData } from '../services/store';
 
 export const AuditLogView: React.FC = () => {
-  const { auditLogs, actions } = usePortalStore(['auditLogs']);
+  const { auditLogs, actions,administrationAccess,currentUser } = usePortalStore(['auditLogs','administrationAccess','currentUser']);
 
+  const allowed=canViewAdministration(administrationAccess,currentUser.id);
   useEffect(() => {
+    if(!allowed)return;
     if (auditLogs.length === 0) {
       actions.getAuditLogs().then(data => setTableData('auditLogs', data));
     }
-  }, []);
+  }, [allowed]);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedBadge, setSelectedBadge] = useState<string>('All');
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -57,6 +60,7 @@ export const AuditLogView: React.FC = () => {
     }
   };
 
+  if(!allowed)return <p>Administration access is required.</p>;
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
       {/* Header Banner */}

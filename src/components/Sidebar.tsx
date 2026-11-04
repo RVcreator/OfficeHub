@@ -1,3 +1,4 @@
+import {canViewAdministration} from '../services/administrationAccess';
 import {useMeetingClock} from '../utils/useMeetingClock';
 import {isNoticeArchived} from '../utils/workArchive';
 import {useWorkArchiveClock} from '../utils/useWorkArchiveClock';
@@ -101,7 +102,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     document.addEventListener('keydown', onKeyDown);
     return () => { document.body.style.overflow = oldOverflow; document.removeEventListener('keydown', onKeyDown); previousFocus?.focus(); };
   }, [isSidebarVisible, isCompact]);
-  const { tasks, notices, meetings, sharePointDocs, currentUser, approvals, decisions } = usePortalStore(['tasks', 'notices', 'meetings', 'sharePointDocs', 'currentUser', 'approvals', 'decisions']);
+  const { tasks, notices, meetings, sharePointDocs, currentUser, approvals, decisions, administrationAccess } = usePortalStore(['tasks', 'notices', 'meetings', 'sharePointDocs', 'currentUser', 'approvals', 'decisions','administrationAccess']);
 
   const meetingNow=useMeetingClock(meetings);
   const myTasksCount = tasks.filter(t => {
@@ -290,30 +291,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <p className="section-label">Documents</p>
           {renderNavGroup(documentsGroup)}
 
-          {/* Administration Section: Visible to admin role, IT, or Executive Office */}
-          {(() => {
-            const dept = (currentUser.department || '').toLowerCase();
-            const role = (currentUser.role || '').toLowerCase();
-            const appMetaRole = (currentUser.app_metadata?.role || '').toLowerCase();
-            const appMetaDept = (currentUser.app_metadata?.department || '').toLowerCase();
-
-            const hasAdminRights = 
-              role.includes('admin') ||
-              appMetaRole.includes('admin') ||
-              dept.includes('it') ||
-              dept.includes('executive') ||
-              appMetaDept.includes('it') ||
-              appMetaDept.includes('executive');
-
-            if (!hasAdminRights) return null;
-            return (
-              <>
-                <div className="border-t border-[#cbd5e1]/60 my-2"></div>
-                <p className="section-label">Administration</p>
-                {renderNavGroup(administrationGroup)}
-              </>
-            );
-          })()}
+          {canViewAdministration(administrationAccess,currentUser.id) && <>
+            <div className="border-t border-[#cbd5e1]/60 my-2"></div>
+            <p className="section-label">Administration</p>
+            {renderNavGroup(administrationGroup)}
+          </>}
 
           <div className="space-y-0.5 mt-1">
             <button

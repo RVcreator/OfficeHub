@@ -80,10 +80,8 @@ serve(async (req: Request) => {
       .eq('id', user.id)
       .single();
 
-    const userRole = profile?.role || 'Staff Member';
-    const r = (userRole || '').toLowerCase();
-    const d = (profile?.department || '').toLowerCase();
-    const isAdmin = r.includes('admin') || r.includes('manager') || r.includes('director') || d.includes('it') || d.includes('executive');
+    const {data:permission,error:permissionError}=await supabaseAdmin.rpc('officehub_administration_manager_allowed',{p_actor:user.id});
+    const isAdmin=!permissionError&&permission===true;
     if (!isAdmin) {
       return new Response(JSON.stringify({ error: 'Unauthorized: Admin privileges required to reset passwords' }), {
         status: 403,

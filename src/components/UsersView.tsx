@@ -35,10 +35,11 @@ import {useDepartmentDirectory} from '../hooks/useDepartmentDirectory';
 import {departmentNamesForOrganisation,organisationName,sameOrganisation,selectedDepartment} from '../utils/departmentDirectory';
 
 interface UsersViewProps {
+  readOnly?:boolean;
   onAssignTaskToUser?: (user: StaffUser) => void;
 }
 
-export const UsersView: React.FC<UsersViewProps> = ({ onAssignTaskToUser }) => {
+export const UsersView: React.FC<UsersViewProps> = ({ onAssignTaskToUser,readOnly=true }) => {
   const { staff, actions, currentUser, tasks, departments } = usePortalStore(['staff', 'currentUser', 'tasks', 'departments']);
 
   const [organisationFilter, setOrganisationFilter] = useState<string>('All');
@@ -124,11 +125,13 @@ export const UsersView: React.FC<UsersViewProps> = ({ onAssignTaskToUser }) => {
   };
 
   const handleOpenAdd = () => {
+    if(readOnly)return;
     resetForm();
     setIsAddModalOpen(true);
   };
 
   const handleOpenEdit = (user: StaffUser) => {
+    if(readOnly)return;
     setEditingUser(user);
     const isOoo = Boolean(user.outOfOffice || user.status === 'Out of Office');
     setFormData({
@@ -147,6 +150,7 @@ export const UsersView: React.FC<UsersViewProps> = ({ onAssignTaskToUser }) => {
 
   const handleSaveMember = async (e: React.FormEvent) => {
     e.preventDefault();
+    if(readOnly)return;
     if (!formData.name.trim() || !formData.email.trim() || !formData.role.trim() || !formData.department.trim()) {
       alert('Please fill in all required fields (Name, Email, Role, Department)');
       return;
@@ -205,6 +209,7 @@ export const UsersView: React.FC<UsersViewProps> = ({ onAssignTaskToUser }) => {
   };
 
   const handleDeleteUser = async (user: StaffUser) => {
+    if(readOnly)return;
     if (user.id === currentUser.id) {
       alert('You cannot delete your own logged-in account.');
       return;
@@ -218,6 +223,7 @@ export const UsersView: React.FC<UsersViewProps> = ({ onAssignTaskToUser }) => {
   const resettingRef=useRef(false);
   const [resettingUserId,setResettingUserId]=useState<string|null>(null);
   const handleResetPassword = async (user: StaffUser) => {
+    if(readOnly)return;
     if(resettingRef.current)return;
     resettingRef.current=true;setResettingUserId(user.id);
     try {
@@ -323,6 +329,7 @@ export const UsersView: React.FC<UsersViewProps> = ({ onAssignTaskToUser }) => {
 
         <div className="flex items-center gap-3">
           <button
+            disabled={readOnly}
             onClick={handleOpenAdd}
             className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-[#00ad1d] hover:bg-[#009218] text-white text-xs font-semibold rounded-md shadow-2xs transition"
           >
@@ -644,7 +651,7 @@ export const UsersView: React.FC<UsersViewProps> = ({ onAssignTaskToUser }) => {
 
                                       <button
                                         onClick={() => handleResetPassword(member)}
-                                        disabled={resettingUserId!==null}
+                                        disabled={readOnly||resettingUserId!==null}
                                         className="inline-flex items-center gap-1 text-[11px] text-amber-700 bg-amber-50 hover:bg-amber-100 px-2 py-1 rounded font-medium transition"
                                         title="Reset Password"
                                       >
@@ -653,6 +660,7 @@ export const UsersView: React.FC<UsersViewProps> = ({ onAssignTaskToUser }) => {
                                       </button>
 
                                       <button
+                                        disabled={readOnly}
                                         onClick={() => handleOpenEdit(member)}
                                         className="p-1 rounded text-slate-500 hover:text-slate-800 hover:bg-slate-100 transition"
                                         title="Edit Member"
@@ -662,6 +670,7 @@ export const UsersView: React.FC<UsersViewProps> = ({ onAssignTaskToUser }) => {
 
                                       {!isMe && (
                                         <button
+                                          disabled={readOnly}
                                           onClick={() => {setDeleteEmail('');setDeleteError(null);setDeleteConfirmUser(member);}}
                                           className="p-1 rounded text-rose-500 hover:text-rose-700 hover:bg-rose-50 transition"
                                           title="Delete User"

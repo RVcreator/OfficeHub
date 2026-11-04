@@ -1,3 +1,5 @@
+import {canViewAdministration,canManageAdministration} from '../services/administrationAccess';
+import {AdministrationAccessPanel} from './AdministrationAccessPanel';
 import React, { useState, useEffect } from 'react';
 import {
   ShieldCheck,
@@ -20,8 +22,10 @@ import { RolePermission } from '../types';
 import { UserAvatar } from './UserAvatar';
 
 export const RolesPermissionsView: React.FC = () => {
-  const { roles, staff, actions, departments } = usePortalStore(['roles', 'staff', 'departments']);
-  useEffect(()=>{let active=true;actions.getRoles().then(rows=>{if(active)setTableData('roles',rows);}).catch(console.warn);return()=>{active=false;};},[actions]);
+  const { roles, staff, actions, departments, currentUser,administrationAccess } = usePortalStore(['roles', 'staff', 'departments','currentUser','administrationAccess']);
+  const canView=canViewAdministration(administrationAccess,currentUser.id);
+  const canManage=canManageAdministration(administrationAccess,currentUser.id);
+  useEffect(()=>{if(!canView)return;let active=true;actions.getRoles().then(rows=>{if(active)setTableData('roles',rows);}).catch(console.warn);return()=>{active=false;};},[actions,canView]);
   const [selectedRoleId, setSelectedRoleId] = useState(roles[0]?.id || 'role-01');
 
   useEffect(()=>{if(!roles.some(role=>role.id===selectedRoleId))setSelectedRoleId(roles[0]?.id||'');},[roles,selectedRoleId]);
@@ -73,6 +77,7 @@ export const RolesPermissionsView: React.FC = () => {
 
   const handleSaveRole = async (e: React.FormEvent) => {
     e.preventDefault();
+    if(!canManage)return;
     if (!formData.roleTitle.trim()) {
       alert('Please provide a role title.');
       return;
@@ -105,12 +110,13 @@ export const RolesPermissionsView: React.FC = () => {
     }
   };
 
-  const handleDeleteRole = (role: RolePermission) => {
+  const handleDeleteRole = async (role: RolePermission) => {
+    if(!canManage)return;
     if (roles.length <= 1) {
       alert('You must keep at least one role in the system.');
       return;
     }
-    actions.deleteRole(role.id);
+    try{await actions.deleteRole(role.id);}catch(error){window.alert(error instanceof Error?error.message:'Role deletion failed.');return;}
     setDeleteConfirmRole(null);
     const remaining = roles.filter(r => r.id !== role.id);
     if (remaining.length > 0) {
@@ -123,14 +129,14 @@ export const RolesPermissionsView: React.FC = () => {
     field: 'view' | 'create' | 'edit' | 'approve',
     currentVal: boolean
   ) => {
-    if (!activeRole) return;
-    actions.updateRolePermission(activeRole.id, moduleName, field, !currentVal);
+    if (!activeRole||!canManage) return;
+    void actions.updateRolePermission(activeRole.id, moduleName, field, !currentVal).catch(error=>window.alert(error.message));
   };
 
-  const handleAssignUser = (e: React.FormEvent) => {
+  const handleAssignUser = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedStaffToAssign || !activeRole) return;
-    actions.updateStaffMember(selectedStaffToAssign, {
+    if (!selectedStaffToAssign || !activeRole||!canManage) return;
+    await actions.updateStaffMember(selectedStaffToAssign, {
       role: activeRole.roleTitle,
       department: (departments.some(d => d.name === activeRole.department) ? activeRole.department : undefined) as any,
     });
@@ -142,6 +148,7 @@ export const RolesPermissionsView: React.FC = () => {
     s => s.role.toLowerCase() === activeRole?.roleTitle.toLowerCase()
   );
 
+  if(!canView)return <p>Administration access is required.</p>;
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
       {/* Header Banner */}
@@ -163,7 +170,8 @@ export const RolesPermissionsView: React.FC = () => {
 
         <div className="flex items-center gap-3">
           <button
-            onClick={handleOpenAddRole}
+            disabled={!canManage}
+                onClick={handleOpenAddRole}
             className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-[#00ad1d] hover:bg-[#009218] text-white text-xs font-semibold rounded-md shadow-xs transition"
           >
             <Plus className="w-4 h-4" />
@@ -172,6 +180,8 @@ export const RolesPermissionsView: React.FC = () => {
         </div>
       </div>
 
+      <AdministrationAccessPanel />
+      {!canManage&&<p className="text-sm text-slate-500">You have viewing access. Contact an access manager to make changes.</p>}
       {/* Role Selection Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
         {roles.map((role) => {
@@ -230,6 +240,7 @@ export const RolesPermissionsView: React.FC = () => {
 
             <div className="flex items-center gap-2">
               <button
+                disabled={!canManage}
                 onClick={() => setIsAssignModalOpen(true)}
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-md border border-slate-200 transition"
               >
@@ -238,6 +249,7 @@ export const RolesPermissionsView: React.FC = () => {
               </button>
 
               <button
+                disabled={!canManage}
                 onClick={() => handleOpenEditRole(activeRole)}
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-md border border-slate-200 transition"
               >
@@ -246,6 +258,7 @@ export const RolesPermissionsView: React.FC = () => {
               </button>
 
               <button
+                disabled={!canManage}
                 onClick={() => setDeleteConfirmRole(activeRole)}
                 className="p-1.5 rounded-md text-rose-500 hover:text-rose-700 hover:bg-rose-50 border border-rose-200 transition"
                 title="Delete this role"
@@ -303,6 +316,7 @@ export const RolesPermissionsView: React.FC = () => {
                     <td className="py-3 px-4 text-center">
                       <button
                         type="button"
+                        disabled={!canManage}
                         onClick={() => handleTogglePermission(perm.module, 'view', perm.view)}
                         className={`inline-flex items-center justify-center w-7 h-7 rounded-md border transition cursor-pointer ${
                           perm.view
@@ -319,6 +333,7 @@ export const RolesPermissionsView: React.FC = () => {
                     <td className="py-3 px-4 text-center">
                       <button
                         type="button"
+                        disabled={!canManage}
                         onClick={() => handleTogglePermission(perm.module, 'create', perm.create)}
                         className={`inline-flex items-center justify-center w-7 h-7 rounded-md border transition cursor-pointer ${
                           perm.create
@@ -335,6 +350,7 @@ export const RolesPermissionsView: React.FC = () => {
                     <td className="py-3 px-4 text-center">
                       <button
                         type="button"
+                        disabled={!canManage}
                         onClick={() => handleTogglePermission(perm.module, 'edit', perm.edit)}
                         className={`inline-flex items-center justify-center w-7 h-7 rounded-md border transition cursor-pointer ${
                           perm.edit
@@ -351,6 +367,7 @@ export const RolesPermissionsView: React.FC = () => {
                     <td className="py-3 px-4 text-center">
                       <button
                         type="button"
+                        disabled={!canManage}
                         onClick={() => handleTogglePermission(perm.module, 'approve', perm.approve)}
                         className={`inline-flex items-center justify-center w-7 h-7 rounded-md border transition cursor-pointer ${
                           perm.approve
@@ -394,7 +411,7 @@ export const RolesPermissionsView: React.FC = () => {
               </button>
             </div>
 
-            <form onSubmit={handleSaveRole} className="space-y-3.5 text-xs">
+            <form onSubmit={event=>void handleSaveRole(event).catch(error=>window.alert(error.message))} className="space-y-3.5 text-xs">
               <div>
                 <label className="font-semibold text-slate-700 block mb-1">
                   Role Title <span className="text-rose-500">*</span>
@@ -481,7 +498,7 @@ export const RolesPermissionsView: React.FC = () => {
               </button>
             </div>
 
-            <form onSubmit={handleAssignUser} className="space-y-3.5 text-xs">
+            <form onSubmit={event=>void handleAssignUser(event).catch(error=>window.alert(error.message))} className="space-y-3.5 text-xs">
               <p className="text-slate-600">
                 Select a staff member to grant the <b>{activeRole.roleTitle}</b> role and its associated permissions.
               </p>

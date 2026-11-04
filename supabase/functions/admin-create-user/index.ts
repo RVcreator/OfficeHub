@@ -81,21 +81,8 @@ serve(async (req: Request) => {
       .eq('id', user.id)
       .single();
 
-    const userRole = profile?.role || (user.app_metadata?.role as string) || (user.user_metadata?.role as string) || 'Staff Member';
-    const userDept = profile?.department || (user.app_metadata?.department as string) || (user.user_metadata?.department as string) || '';
-    const userEmail = (user.email || '').toLowerCase();
-    const r = (userRole || '').toLowerCase();
-    const d = (userDept || '').toLowerCase();
-    const isAdmin = 
-      r.includes('admin') || 
-      r.includes('manager') || 
-      r.includes('director') || 
-      r.includes('system') || 
-      d.includes('it') || 
-      d.includes('executive') || 
-      userEmail.includes('admin') || 
-      userEmail.includes('rijavirani');
-    
+    const {data:permission,error:permissionError}=await supabaseAdmin.rpc('officehub_administration_manager_allowed',{p_actor:user.id});
+    const isAdmin=!permissionError&&permission===true;
     if (!isAdmin) {
       return new Response(JSON.stringify({ error: 'Unauthorized: Admin privileges required to create staff accounts' }), {
         status: 403,
