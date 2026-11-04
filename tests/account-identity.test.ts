@@ -27,5 +27,9 @@ test('the client preserves actionable server errors from failed function respons
 });
 test('profile editing cannot silently change the sign-in email',async()=>{
  setTableData('staff',[{id,email:'original@example.invalid'}] as any);
- await assert.rejects(portalStore.updateStaffMember(id,{email:'different@example.invalid'}),/Sign-in email cannot/);
+ const descriptor=Object.getOwnPropertyDescriptor(supabase,'functions'),from=supabase.from;let profileWrites=0;
+ Object.defineProperty(supabase,'functions',{configurable:true,value:{invoke:async(name:string)=>{assert.equal(name,'admin-change-user-email');return{data:{error:'Administrator verification required'},error:null};}}});
+ (supabase as any).from=()=>{profileWrites++;throw Error('Must not write profile after denied identity change');};
+ try{await assert.rejects(portalStore.updateStaffMember(id,{email:'different@example.invalid'}),/Administrator verification required/);assert.equal(profileWrites,0);}
+ finally{if(descriptor)Object.defineProperty(supabase,'functions',descriptor);else delete (supabase as any).functions;supabase.from=from;}
 });

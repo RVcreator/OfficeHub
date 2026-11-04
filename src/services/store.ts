@@ -3301,9 +3301,19 @@ export const portalStore = {
 
   updateStaffMember: async (id: string, updates: Partial<StaffUser>): Promise<void> => {
     const previous=storeState.staff.find(user=>user.id===id);
-    if(updates.email!==undefined&&updates.email.trim().toLowerCase()!==previous?.email?.trim().toLowerCase())throw new Error('Sign-in email cannot be changed through a profile edit. Contact your account administrator.');
     if(!previous||!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id))throw new Error('A verified staff account is required.');
-    const {data,error}=await supabase.from('profiles').update(mapStaffToRow(updates)).eq('id',id).select(PROFILE_SELECT_COLUMNS).single();
+    const email=updates.email?.trim().toLowerCase();
+    if(email!==undefined&&email!==previous.email.trim().toLowerCase()){
+      const {data,error}=await supabase.functions.invoke('admin-change-user-email',{body:{userId:id,expectedEmail:previous.email,email}});
+      if(error||data?.success!==true||data.userId!==id||data.email!==email){
+        let message=data?.error||'The sign-in email could not be changed.';
+        try{if(error?.context)message=(await error.context.json())?.error||message;}catch{}
+        throw new Error(message);
+      }
+    }
+    // Identity is changed only by the protected Auth service, never a profile write.
+    const {email:_email,...profileUpdates}=updates;
+    const {data,error}=await supabase.from('profiles').update(mapStaffToRow(profileUpdates)).eq('id',id).select(PROFILE_SELECT_COLUMNS).single();
     if(error||!data||data.id!==id)throw new Error(error?.message||'Member changes were not saved to Supabase.');
     const saved={...previous,...mapStaffRow(data)};
     const updatedStaff=storeState.staff.map(user=>user.id===id?saved:user);
