@@ -1,6 +1,6 @@
 import {isMeetingUpcoming} from '../utils/meetingLifecycle';
 import {useMeetingClock} from '../utils/useMeetingClock';
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useMemo } from 'react';
 import {
   CheckSquare,
   FileText,
@@ -22,7 +22,7 @@ import {
 } from 'lucide-react';
 import { usePortalStore } from '../services/store';
 import { TabId } from './Sidebar';
-import { fetchAyahOfTheDay, getAyahOfTheDaySnapshot } from '../services/quranService';
+import { useDailyAyah } from '../utils/useDailyAyah';
 import { useHijriDate } from '../utils/hijriDate';
 import { isMyPersonalOrAssignedTask } from '../utils/taskUtils';
 import { Project } from '../types';
@@ -49,14 +49,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 }) => {
   const { tasks, notices, currentUser, approvals, meetings, projects, startupSections } = usePortalStore(['tasks', 'notices', 'currentUser', 'approvals', 'meetings', 'projects', 'startupSections']);
   const meetingNow=useMeetingClock(meetings);
-  const [ayah] = useState(getAyahOfTheDaySnapshot);
+  const { ayah, error: ayahError, retry: retryAyah } = useDailyAyah();
   const hijriDate = useHijriDate();
-
-  useEffect(() => {
-    // Keep this visit's complete banner stable while warming the next visit's
-    // cache. Slow third-party content must not move the workspace.
-    void fetchAyahOfTheDay();
-  }, []);
 
   const myTasks = useMemo(()=>tasks.filter(t => {
     if (t.status === 'Cancelled') return false;
@@ -108,13 +102,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
 
         {/* Ayah of the Day */}
-        {ayah && (
-          <div className="min-w-0 border-t border-white/20 pt-4 xl:border-t-0 xl:border-l xl:pl-5 text-left font-sans space-y-2">
+          <div tabIndex={0} aria-label="Ayah of the Day" className="min-w-0 h-64 sm:h-56 overflow-y-auto border-t border-white/20 pt-4 xl:border-t-0 xl:border-l xl:pl-5 text-left font-sans space-y-2">
             <p className="text-[10px] sm:text-[11px] font-bold uppercase tracking-widest text-emerald-100/90 flex items-center gap-1 md:justify-end">
               <BookOpen className="w-3 h-3 text-emerald-200" />
               <span>Ayah of the Day</span>
             </p>
-            <p
+            {ayah ? <><p
               className="text-lg sm:text-xl font-semibold text-white/95 leading-relaxed tracking-wide font-['Amiri',serif] drop-shadow-xs"
               dir="rtl"
               style={{ fontFamily: "'Amiri', 'Scheherazade New', serif" }}
@@ -126,9 +119,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </p>
             <p className="text-[10px] sm:text-[11px] font-bold text-white/80 uppercase tracking-widest md:text-right">
               ― {ayah.citation} ({ayah.edition})
-            </p>
+            </p></> : <div role="status" className="text-sm text-white/90 pt-4">
+              {ayahError ? <>Today’s ayah could not be loaded. <button type="button" className="underline" onClick={retryAyah}>Try again</button></> : 'Loading today’s ayah…'}
+            </div>}
           </div>
-        )}
       </div>
 
       {/* Quick Actions */}

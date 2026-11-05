@@ -5,10 +5,11 @@ test('daily verse first paint is synchronous, date-scoped and resilient to unava
  const original=Object.getOwnPropertyDescriptor(globalThis,'localStorage');let cached:string|null=null;let key='';
  Object.defineProperty(globalThis,'localStorage',{configurable:true,value:{getItem:(value:string)=>{key=value;return cached;}}});
  try{
-  const fallback=getAyahOfTheDaySnapshot('2026-11-04');assert.ok(fallback.arabicText&&fallback.translation&&fallback.citation);assert.equal(key,'wipahs_ayah_v2_2026-11-04');
-  cached=JSON.stringify({...fallback,translation:'Cached translation'});assert.equal(getAyahOfTheDaySnapshot('2026-11-04').translation,'Cached translation');
-  cached='broken json';assert.deepEqual(getAyahOfTheDaySnapshot('2026-11-04'),fallback);
-  Object.defineProperty(globalThis,'localStorage',{configurable:true,get:()=>{throw Error('Unavailable');}});assert.deepEqual(getAyahOfTheDaySnapshot('2026-11-04'),fallback);
+  assert.equal(getAyahOfTheDaySnapshot('2026-11-04'),null);assert.equal(key,'wipahs_ayah_v3_2026-11-04');
+  cached=JSON.stringify({arabicText:'Old fallback',translation:'Unrelated verse',citation:'Old citation'});
+  assert.equal(getAyahOfTheDaySnapshot('2026-11-04'),null,'legacy or incomplete caches cannot substitute another verse');
+  cached='broken json';assert.equal(getAyahOfTheDaySnapshot('2026-11-04'),null);
+  Object.defineProperty(globalThis,'localStorage',{configurable:true,get:()=>{throw Error('Unavailable');}});assert.equal(getAyahOfTheDaySnapshot('2026-11-04'),null);
  }finally{if(original)Object.defineProperty(globalThis,'localStorage',original);else delete (globalThis as any).localStorage;}
 });
 test('public avatar variants respect display size, retina density and the original image limit',()=>{
