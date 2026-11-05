@@ -14,6 +14,7 @@ try {
  for(const id of [first,second]) await db.query("insert into auth.users(id,email) values($1,$2)",[id,id+'@wipahs.org']);
  await db.exec(await readFile(new URL('supabase/migrations/20261027000001_live_presence.sql',repo),'utf8'));
  await db.exec(await readFile(new URL('supabase/migrations/20261029000001_presence_protocol_v2.sql',repo),'utf8'));
+ await db.exec(await readFile(new URL('supabase/migrations/20261105000001_presence_expired_sessions.sql',repo),'utf8'));
  await db.exec("update public.profiles set status='Online';");
  const asUser=async(id,fn)=>{await db.exec(`begin;set local role authenticated;select set_config('request.jwt.claim.sub','${id}',true);`);try {await fn();await db.exec('commit;');}catch(e){await db.exec('rollback;');throw e;}};
  const snapshot=async id=>(await db.query('select * from public.officehub_presence_snapshot() where user_id=$1',[id])).rows[0];
@@ -62,5 +63,19 @@ try {
  await asUser(first,async()=>await assert.rejects(db.query('select * from officehub_private.presence_sessions'),/permission denied/));
  assert.equal((await db.query("select has_function_privilege('anon','public.officehub_presence_snapshot()','EXECUTE') allowed")).rows[0].allowed,false);
  assert.equal((await db.query("select has_function_privilege('anon','public.officehub_presence_heartbeat_v2(uuid,boolean)','EXECUTE') allowed")).rows[0].allowed,false);
- console.log('Presence PostgreSQL tests PASSED: fresh/idle/stale, multi-tab logout, office flag, identity isolation, and privileges.');
+ await db.exec('delete from officehub_private.presence_sessions');
+ await db.query(`insert into officehub_private.presence_sessions(user_id,session_id,seen_at,is_active)
+ select $1,md5(i::text)::uuid,now()-interval '121 seconds',true from generate_series(1,32) i`,[first]);
+ await asUser(first,async()=>{
+  await db.query('select public.officehub_presence_heartbeat_v2($1,true)',[tab1]);
+  assert.equal((await snapshot(first)).status,'Online','32 expired tabs must not block a new active session');
+ });
+ assert.equal((await db.query('select count(*)::int as n from officehub_private.presence_sessions where user_id=$1',[first])).rows[0].n,1);
+ await db.query(`insert into officehub_private.presence_sessions(user_id,session_id,seen_at,is_active)
+ select $1,md5(i::text)::uuid,now(),true from generate_series(1,31) i`,[first]);
+ await asUser(first,async()=>await db.query('select public.officehub_presence_heartbeat_v2($1,true)',[tab1]));
+ await assert.rejects(asUser(first,async()=>await db.query('select public.officehub_presence_heartbeat_v2($1,true)',[tab2])),/Too many presence sessions/);
+ await asUser(second,async()=>await db.query('select public.officehub_presence_heartbeat_v2($1,true)',[tab2]));
+ assert.equal((await db.query('select count(*)::int as n from officehub_private.presence_sessions where user_id=$1',[first])).rows[0].n,32,'another user cannot remove fresh sessions');
+ console.log('Presence PostgreSQL tests PASSED: expired-session recovery, active-session limit, fresh/idle/stale, multi-tab logout, office flag, identity isolation, and privileges.');
 } catch(e){console.error(e);process.exitCode=1;}finally{await db.close();}
