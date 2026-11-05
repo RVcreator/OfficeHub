@@ -102,7 +102,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
 
         {/* Ayah of the Day */}
-          <div tabIndex={0} aria-label="Ayah of the Day" className="min-w-0 h-64 sm:h-56 overflow-y-auto border-t border-white/20 pt-4 xl:border-t-0 xl:border-l xl:pl-5 text-left font-sans space-y-2">
+          <div tabIndex={0} aria-label="Ayah of the Day" className="min-w-0 min-h-32 max-h-64 sm:max-h-56 overflow-y-auto border-t border-white/20 pt-4 xl:border-t-0 xl:border-l xl:pl-5 text-left font-sans space-y-2">
             <p className="text-[10px] sm:text-[11px] font-bold uppercase tracking-widest text-emerald-100/90 flex items-center gap-1 md:justify-end">
               <BookOpen className="w-3 h-3 text-emerald-200" />
               <span>Ayah of the Day</span>
