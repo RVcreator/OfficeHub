@@ -1,0 +1,43 @@
+import {readFile} from 'node:fs/promises';import assert from 'node:assert/strict';
+const {PGlite}=await import(process.env.OFFICEHUB_PGLITE_MODULE||'@electric-sql/pglite');const db=new PGlite();
+const uid=n=>`10000000-0000-4000-8000-${String(n).padStart(12,'0')}`;
+const user=async n=>db.exec(`reset role;select set_config('request.jwt.claim.sub','${uid(n)}',false),set_config('request.jwt.claim.role','authenticated',false);set role authenticated;`);
+const owner=async()=>db.exec('reset role');
+const counts=async()=>{await owner();return(await db.query("select (select count(*)::int from notifications) alerts,(select count(*)::int from officehub_email_outbox where event_type<>'subtask') mail")).rows[0];};
+try{
+ await db.exec(await readFile(new URL('fixtures/participant-schema.sql',import.meta.url),'utf8'));
+ await db.exec('create table auth.users(id uuid primary key,email text,email_confirmed_at timestamptz,banned_until timestamptz)');
+ const base=await readFile(new URL('../supabase/migrations/20261026000000_officehub_email_outbox.sql',import.meta.url),'utf8');
+ await db.exec(base.slice(base.indexOf('create sequence officehub_private.email_event_seq;'),base.indexOf('create function officehub_private.notice_recipients')));
+ await db.exec(base.slice(base.indexOf('create function officehub_private.email_task_event()'),base.indexOf('create function officehub_private.email_notice_event()')));
+ await db.exec("create function officehub_private.email_recipient_is_current(text,text,uuid)returns boolean language sql as $$select true$$;update officehub_private.email_settings set capture_enabled=true;");
+ for(let n=1;n<=3;n++){await db.query('insert into profiles(id,name,email)values($1,$2,$3)',[uid(n),`Fixture ${n}`,`fixture${n}@wipahs.org`]);await db.query('insert into auth.users(id,email,email_confirmed_at)values($1,$2,now())',[uid(n),`fixture${n}@wipahs.org`]);}
+ await db.query("insert into officehub_email_outbox(event_key,event_type,entity_id,recipient_id,recipient_email,recipient_name,subject,body_text)values('legacy','subtask','t',$1,'fixture1@wipahs.org','Fixture 1','Legacy','Legacy')",[uid(1)]);
+ await db.exec(await readFile(new URL('../supabase/migrations/20261030000002_participant_privacy.sql',import.meta.url),'utf8'));
+ await db.exec(await readFile(new URL('../supabase/migrations/20261102000001_task_delivery_once.sql',import.meta.url),'utf8'));
+ assert.equal((await db.query("select status from officehub_email_outbox where event_key='legacy'")).rows[0].status,'cancelled');
+ assert.equal((await db.query("select officehub_private.email_recipient_is_current('subtask','t',$1) ok",[uid(1)])).rows[0].ok,false);
+ assert.equal((await db.query("select officehub_private.email_recipient_is_current('digest_week','period',$1) ok",[uid(1)])).rows[0].ok,true);
+ await db.exec(await readFile(new URL('../supabase/migrations/20261102000002_shared_task_status.sql',import.meta.url),'utf8'));
+ await db.query('insert into profiles(id,name,email,role)values($1,$2,$3,$4)',[uid(4),'Outsider','outsider@wipahs.org','Admin']);
+ await user(1);await db.query("insert into tasks(id,title,status,created_by_id,assigned_to_id,assigned_to_ids,assignment_type,pending_rating)values('shared','Shared fixture','To Do',$1,$2,array[$2::uuid::text,$3::uuid::text],'specific_people',false)",[uid(1),uid(2),uid(3)]);
+ const change=async(status,version,reopen=false)=>(await db.query('select public.officehub_set_task_status($1,$2,$3,$4) result',['shared',status,version,reopen])).rows[0].result;
+ await owner();await db.exec(await readFile(new URL('../supabase/migrations/20261106000001_task_general_update.sql',import.meta.url),'utf8'));
+ const save=async(text,expected=null)=>(await db.query('select public.officehub_save_task_update($1,$2,$3) result',['shared',text,expected])).rows[0].result;
+ const before=await counts();await user(2);const saved=await save(' First progress note ');
+ assert.equal(saved.conflict,false);assert.equal(saved.update.text,'First progress note');assert.equal(saved.update.authorId,uid(2));assert.equal(saved.update.authorName,'Fixture 2');assert.equal(saved.version,1);
+ assert.ok(!isNaN(Date.parse(saved.update.updatedAt)));
+ const retry=await save('First progress note');assert.deepEqual(retry,saved,'lost-response retry does not create a new version');
+ await user(3);const conflict=await save('Other member note');assert.equal(conflict.conflict,true);assert.deepEqual(conflict.update,saved.update);assert.equal(conflict.version,1);
+ const second=await save('Other member note',saved.update);assert.equal(second.conflict,false);assert.equal(second.version,2);
+ await user(2);const stale=await save('Stale edit',saved.update);assert.equal(stale.conflict,true);assert.deepEqual(stale.update,second.update);
+ await user(4);await assert.rejects(save('Outsider'),/Task not found or permission denied/);
+ await user(1);const removed=await save('',second.update);assert.equal(removed.update,null);assert.equal(removed.version,3);
+ assert.deepEqual(await save('',second.update),removed,'clearing is idempotent if the response is lost');
+ await assert.rejects(save('x'.repeat(20001)),/20,000/);
+ await owner();assert.deepEqual(await counts(),before,'notes must not generate assignment/completion mail or alerts');
+ const row=(await db.query("select general_update,general_update_version,status from tasks where id='shared'")).rows[0];assert.equal(row.general_update,null);assert.equal(row.general_update_version,3);assert.equal(row.status,'To Do');
+ await db.exec('set role anon');await assert.rejects(save('Anonymous'),/permission denied/);
+ await owner();assert.equal((await db.query("select prosecdef from pg_proc where oid='public.officehub_save_task_update(text,text,jsonb)'::regprocedure")).rows[0].prosecdef,false);
+ console.log('PASS: persisted general updates, server author/time, idempotent retry, concurrent conflict/replacement, versioned clearing, participant RLS, anonymous denial, length bound and no extra emails/alerts.');
+}catch(error){console.error(JSON.stringify({message:error.message,code:error.code,where:error.where,query:error.query?.slice(0,200)},null,2));process.exitCode=1;}finally{await db.close();}

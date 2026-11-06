@@ -1788,20 +1788,22 @@ export const portalStore = {
     taskId: string,
     updateText: string,
     authorId?: string,
-    authorName?: string
+    authorName?: string,
+    expectedUpdate?: Task['update'] | null
   ): Promise<void> => {
-    const currentUser = storeState.currentUser;
-    const trimmed = updateText.trim();
-    const updateObj = trimmed
-      ? {
-          text: trimmed,
-          authorId: authorId || currentUser.id,
-          authorName: authorName || currentUser.name,
-          updatedAt: new Date().toISOString(),
-        }
-      : undefined;
-
-    setTableData('tasks', storeState.tasks.map((t) => (t.id === taskId ? { ...t, update: updateObj } : t)));
+    const identity = storeState.authSession.userId;
+    const expected = expectedUpdate === undefined ? storeState.tasks.find(t => t.id === taskId)?.update || null : expectedUpdate;
+    const { data, error } = await supabase.rpc('officehub_save_task_update', {
+      p_task_id: taskId, p_text: updateText, p_expected: expected,
+    }).abortSignal(AbortSignal.timeout(15_000));
+    if (error) throw error;
+    if (!data || typeof data.conflict !== 'boolean' || !Object.hasOwn(data,'update') || !Number.isSafeInteger(data.version)) throw new Error('The server did not confirm the save. Your draft has been kept.');
+    if (identity !== storeState.authSession.userId || !storeState.authSession.isAuthenticated) throw new Error('Your session changed. Sign in again before saving.');
+    setTableData('tasks', storeState.tasks.map(t => t.id === taskId ? { ...t, update: data.update || undefined, generalUpdateVersion: data.version } : t));
+    if (data.conflict) {
+      const conflict = Object.assign(new Error('Another member saved a newer update. Your draft has been kept.'), { code: 'task_update_conflict', latestUpdate: data.update });
+      throw conflict;
+    }
   },
 
   updateSubtaskUpdate: async (

@@ -218,6 +218,12 @@ export const TasksView: React.FC<TasksViewProps> = ({
   // Main task general update editing state
   const [isEditingMainTaskUpdate, setIsEditingMainTaskUpdate] = useState(false);
   const [mainTaskUpdateText, setMainTaskUpdateText] = useState('');
+  const [mainTaskUpdateBase, setMainTaskUpdateBase] = useState<Task['update'] | null>(null);
+  const [mainTaskUpdateError, setMainTaskUpdateError] = useState<string | null>(null);
+  const [mainTaskUpdateConflict, setMainTaskUpdateConflict] = useState(false);
+  const [savingMainTaskUpdate, setSavingMainTaskUpdate] = useState(false);
+  const mainTaskSaveInFlight = useRef(false);
+  const mainTaskEditorVersion = useRef(0);
 
   // Status saving state for active tasks to provide smooth UX feedback
   const [savingTaskIds, setSavingTaskIds] = useState<Set<string>>(new Set());
@@ -232,6 +238,8 @@ export const TasksView: React.FC<TasksViewProps> = ({
   } | null>(null);
 
   const handleCloseDrawer = () => {
+    if (mainTaskSaveInFlight.current) return;
+    mainTaskEditorVersion.current++;
     setSelectedTask(null);
     setIsEditingTask(false);
     setIsReassigning(false);
@@ -262,6 +270,9 @@ export const TasksView: React.FC<TasksViewProps> = ({
 
   // Reset drawer state when selectedTask changes
   useEffect(() => {
+    mainTaskEditorVersion.current++;
+    setMainTaskUpdateError(null);
+    setMainTaskUpdateConflict(false);
     setIsReassigning(false);
     setSelectedReassigneeId('');
     setIsEditingTask(false);
@@ -299,12 +310,32 @@ export const TasksView: React.FC<TasksViewProps> = ({
     if (updated) setSelectedTask(updated);
   };
 
-  const handleSaveMainTaskUpdate = (taskId: string, text: string) => {
-    actions.updateTaskGeneralUpdate(taskId, text, currentUser.id, currentUser.name);
-    setIsEditingMainTaskUpdate(false);
-    setMainTaskUpdateText('');
-    const updated = tasks.find((t: Task) => t.id === taskId);
-    if (updated) setSelectedTask(updated);
+  const handleSaveMainTaskUpdate = async (taskId: string, text: string) => {
+    if (mainTaskSaveInFlight.current) return;
+    if (mainTaskUpdateConflict && !window.confirm('Another member saved an update while you were editing. Replace their latest update with your draft?')) return;
+    const version = mainTaskEditorVersion.current;
+    mainTaskSaveInFlight.current = true;
+    setSavingMainTaskUpdate(true);
+    setMainTaskUpdateError(null);
+    try {
+      await actions.updateTaskGeneralUpdate(taskId, text, currentUser.id, currentUser.name, mainTaskUpdateBase);
+      if (version === mainTaskEditorVersion.current) {
+        setIsEditingMainTaskUpdate(false);
+        setMainTaskUpdateText('');
+        setMainTaskUpdateConflict(false);
+      }
+    } catch (error: any) {
+      if (version === mainTaskEditorVersion.current) {
+        setMainTaskUpdateError(error?.message || 'Could not save the update. Your draft has been kept. Please try again.');
+        if (error?.code === 'task_update_conflict') {
+          setMainTaskUpdateBase(error.latestUpdate || null);
+          setMainTaskUpdateConflict(true);
+        }
+      }
+    } finally {
+      mainTaskSaveInFlight.current = false;
+      setSavingMainTaskUpdate(false);
+    }
   };
 
   const canUserReassignTask=(task:Task|null):boolean => Boolean(task&&ownsTask(task,currentUser));
@@ -1934,6 +1965,10 @@ export const TasksView: React.FC<TasksViewProps> = ({
                           <button
                             type="button"
                             onClick={() => {
+                              mainTaskEditorVersion.current++;
+                              setMainTaskUpdateBase(selectedTask.update || null);
+                              setMainTaskUpdateError(null);
+                              setMainTaskUpdateConflict(false);
                               setIsEditingMainTaskUpdate(true);
                               setMainTaskUpdateText(selectedTask.update?.text || '');
                             }}
@@ -1991,22 +2026,27 @@ export const TasksView: React.FC<TasksViewProps> = ({
                           rows={3}
                           autoFocus
                           value={mainTaskUpdateText}
+                          disabled={savingMainTaskUpdate}
+                          maxLength={20000}
                           onChange={(e) => setMainTaskUpdateText(e.target.value)}
                           onKeyDown={(e) => {
-                            if (e.key === 'Enter' && !e.shiftKey) {
+                            if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
                               e.preventDefault();
                               handleSaveMainTaskUpdate(selectedTask.id, mainTaskUpdateText);
                             } else if (e.key === 'Escape') {
-                              setIsEditingMainTaskUpdate(false);
+                              if (!mainTaskSaveInFlight.current) { mainTaskEditorVersion.current++; setIsEditingMainTaskUpdate(false); }
                             }
                           }}
                           placeholder="Type a general update or progress note on this task..."
                           className="w-full px-3.5 py-2.5 text-sm bg-white border-2 border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#00ad1d] focus:border-[#00ad1d] text-slate-900 shadow-inner"
                         />
+                        {mainTaskUpdateError && <p role="alert" className="text-sm text-red-700">{mainTaskUpdateError} You can copy your draft or try saving again.</p>}
+                        {mainTaskUpdateConflict && selectedTask.update && <div className="p-3 bg-amber-50 rounded border border-amber-200 text-sm whitespace-pre-wrap"><strong>Latest saved update by {selectedTask.update.authorName}:</strong><p>{selectedTask.update.text}</p></div>}
                         <div className="flex items-center justify-end gap-2.5">
                           <button
                             type="button"
-                            onClick={() => setIsEditingMainTaskUpdate(false)}
+                            disabled={savingMainTaskUpdate}
+                            onClick={() => { mainTaskEditorVersion.current++; setIsEditingMainTaskUpdate(false); }}
                             className="px-4 py-2 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 rounded-lg text-xs sm:text-sm font-semibold cursor-pointer transition"
                           >
                             Cancel
@@ -2014,9 +2054,10 @@ export const TasksView: React.FC<TasksViewProps> = ({
                           <button
                             type="button"
                             onClick={() => handleSaveMainTaskUpdate(selectedTask.id, mainTaskUpdateText)}
+                            disabled={savingMainTaskUpdate}
                             className="px-5 py-2 bg-[#00ad1d] hover:bg-[#008f18] text-white text-xs sm:text-sm font-bold rounded-lg cursor-pointer transition shadow-sm hover:shadow flex items-center gap-1.5"
                           >
-                            Save Update
+                            {savingMainTaskUpdate ? 'Saving…' : mainTaskUpdateConflict ? 'Save My Draft Instead' : 'Save Update'}
                           </button>
                         </div>
                       </div>

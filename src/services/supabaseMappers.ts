@@ -43,7 +43,7 @@ export function toUuidOrNull(str: string | undefined | null): string | null {
 // Explicit column lists that exclude oversized denormalized Base64 avatar columns
 // so PostgREST responses never time out or truncate mid-stream.
 export const TASK_SELECT_COLUMNS =
-  'id, title, description, status, priority, department, organisation, assigned_to_id, assigned_to_name, assigned_to_ids, created_by_id, created_by_name, due_date, project_id, sharepoint_doc_id, pending_rating, rating, completed_at, cancelled_at, created_at, assignment_type, assigned_departments, assigned_organisations, delivery_event_version';
+  'id, title, description, status, priority, department, organisation, assigned_to_id, assigned_to_name, assigned_to_ids, created_by_id, created_by_name, due_date, project_id, sharepoint_doc_id, pending_rating, rating, completed_at, cancelled_at, created_at, assignment_type, assigned_departments, assigned_organisations, delivery_event_version, general_update, general_update_version';
 
 export const NOTICE_SELECT_COLUMNS =
   'id, title, content, author_id, author_name, author_role, department, organisation, priority, created_at, pinned, expires_at, target_audience_type, target_organisations, target_departments, target_user_ids';
@@ -285,6 +285,8 @@ export function mapTaskRow(row: any, subtasks: Subtask[] = []): Task {
     rating: row.rating || undefined,
     completedAt: row.completed_at || undefined,
     cancelledAt: row.cancelled_at || undefined,
+    update: row.general_update || undefined,
+    generalUpdateVersion: Number(row.general_update_version ?? 0),
   };
 }
 

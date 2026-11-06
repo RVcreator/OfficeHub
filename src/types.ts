@@ -49,6 +49,7 @@ export interface Task {
   department: Department | string;
   status: TaskStatus;
   deliveryVersion?: number;
+  generalUpdateVersion?: number;
   priority: Priority;
   assignedToId: string;
   assignedToName: string;
