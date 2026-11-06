@@ -7,6 +7,7 @@ import { supabase } from './services/supabaseClient';
 import type { AuthChangeEvent, Session } from '@supabase/supabase-js';
 import { createDeferredAuthHandler } from './services/deferredAuth';
 import { createAuthStartupDeadline } from './services/authStartup';
+import {retryAccountRead} from './services/authVerification';
 import { AppErrorBoundary } from './components/AppErrorBoundary';
 import { Header } from './components/Header';
 import { Sidebar, TabId } from './components/Sidebar';
@@ -82,6 +83,8 @@ export default function App() {
   const [selectedApprovalId, setSelectedApprovalId] = useState<string | null>(null);
   const [authChecking, setAuthChecking] = useState(true);
   const [authError, setAuthError] = useState(false);
+  const [authRetrying,setAuthRetrying]=useState(false);
+  const retryAuth=useRef<()=>void>(()=>{});
 
   // Release Supabase's auth lock before resolving profiles or refreshing data.
   useEffect(() => {
@@ -99,26 +102,47 @@ export default function App() {
         .subscribe();
     };
     let startup: ReturnType<typeof createAuthStartupDeadline> | undefined;
+    let sessionEventRevision=0;
     const deferred = createDeferredAuthHandler<AuthChangeEvent, Session | null>(async (event, session, isCurrent) => {
       try {
         if (event === 'SIGNED_OUT') {
+          if(!isCurrent())return;
           stopWatching();
           await actions.logoutUser(false);
+          if(isCurrent())setAuthError(false);
           return;
         }
         if (!session?.user) return;
         // Both are fresh server reads. Nothing is published until Auth and the
         // matching UUID/email profile pass validation. An explicit session JWT
         // avoids holding the SDK auth lock while the profile read starts.
-        const profileRead=actions.readAuthenticatedUserProfile(session.user.id).catch(error=>({data:null,error}));
-        const { data: verified, error } = await supabase.auth.getUser(session.access_token);
+        let account;
+        try {
+          account=await retryAccountRead(async()=>{
+            const profileRead=actions.readAuthenticatedUserProfile(session.user.id).catch(error=>({data:null,error}));
+            const result=await supabase.auth.getUser(session.access_token);
+            if(result.error)throw result.error;
+            if(!result.data.user)throw new Error('Account verification failed');
+            const profile=await profileRead;
+            if(profile.error)throw profile.error;
+            return {verified:result.data,profile};
+          },isCurrent);
+        }catch(error:any){
         if(error?.status===401||error?.status===404){
           if(!isCurrent())return;
+          // A token refresh can finish while an older token is being checked.
+          const latest=await supabase.auth.getSession();
+          if(!isCurrent())return;
+          if(error.status===401&&latest.data.session&&latest.data.session.access_token!==session.access_token){
+            deferred.handle('TOKEN_REFRESHED',latest.data.session);return;
+          }
           stopWatching();await actions.logoutUser();setAuthError(false);return;
         }
-        if (error || !verified.user) throw new Error('Account verification failed');
+        throw error;
+        }
+        const {verified,profile}=account;
         if (!isCurrent()) return;
-        const resolvedUser = await actions.syncAuthenticatedUserProfile(verified.user,profileRead);
+        const resolvedUser = await actions.syncAuthenticatedUserProfile(verified.user,Promise.resolve(profile));
         if (!isCurrent()) return;
         const mustChange = actions.shouldForcePasswordChange(verified.user, resolvedUser, {
           isRecoveryEvent: event === 'PASSWORD_RECOVERY',
@@ -128,29 +152,38 @@ export default function App() {
         watchPasswordPolicy(verified.user.id);
         setAuthError(false);
       } finally {
-        if (isCurrent()) { startup?.complete(); setAuthChecking(false); }
+        if (isCurrent()) { startup?.complete(); setAuthChecking(false);setAuthRetrying(false); }
       }
     }, () => {
       startup?.complete();
       setAuthChecking(false);
       setAuthError(true);
-      console.warn('OfficeHub could not restore the current session. Please sign in again.');
-    });
-    startup=createAuthStartupDeadline(()=>{
-      deferred.dispose(); stopWatching();
-      setAuthChecking(false); setAuthError(true);
-    });
+      setAuthRetrying(false);
+      console.warn('OfficeHub account verification is unavailable. Retry when connected.');
+    },(event,session)=>session?`${session.user.id}:${session.access_token}:${event==='PASSWORD_RECOVERY'?'recovery':'account'}`:String(event));
+    const armDeadline=()=>{
+      startup?.dispose();startup=createAuthStartupDeadline(()=>{
+        deferred.cancel();stopWatching();setAuthChecking(false);setAuthError(true);setAuthRetrying(false);
+      },25_000);
+    };
+    armDeadline();
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      sessionEventRevision++;
       // Keep recovery intent even if a later auth event replaces the queued event.
       if (event === 'PASSWORD_RECOVERY' && session?.user) actions.requirePasswordRecovery(session.user.id);
       deferred.handle(event, session);
     });
     const recheck = () => {
       if (document.visibilityState === 'hidden') return;
-      void supabase.auth.getSession().then(({data}) => {
+      const version=sessionEventRevision;
+      void supabase.auth.getSession().then(({data,error}) => {
+        if(version!==sessionEventRevision)return;
+        if(error)throw error;
         if (data.session) deferred.handle('TOKEN_REFRESHED',data.session);
+        else deferred.handle('SIGNED_OUT',null);
       }).catch(() => {});
     };
+    retryAuth.current=()=>{setAuthRetrying(true);armDeadline();recheck();};
     // Realtime is a hint; the server's current Auth claims decide the gate.
     const timer=window.setInterval(recheck,30_000);
     window.addEventListener('focus',recheck);
@@ -165,10 +198,12 @@ export default function App() {
       startup?.dispose();
       deferred.dispose();
       subscription.unsubscribe();
+      retryAuth.current=()=>{};
     };
   }, []);
 
-  if (authError) return <div className="min-h-screen flex flex-col items-center justify-center gap-4"><p>OfficeHub could not finish verifying your account. Check your connection and try again. Your saved work has not been changed.</p><button onClick={() => window.location.reload()}>Try again</button></div>;
+  const verificationError=<div role="alert" className="min-h-screen flex flex-col items-center justify-center gap-4 p-6 text-center"><p>OfficeHub could not finish verifying your account. Check your connection and try again. Your saved work has not been changed.</p><button disabled={authRetrying} onClick={()=>retryAuth.current()}>{authRetrying?'Verifying…':'Try again'}</button></div>;
+  if (authError && (!authSession.isAuthenticated||authSession.mustChangePassword)) return verificationError;
 
   if (authChecking) {
     return (
@@ -271,7 +306,9 @@ export default function App() {
   };
 
   return (
-    <div className="oh-shell h-dvh overflow-hidden bg-[#f1f5f9] text-[#19232d] flex flex-col font-sans">
+    <>
+    {authError&&verificationError}
+    <div inert={authError} aria-hidden={authError||undefined} style={authError?{display:'none'}:undefined} className="oh-shell h-dvh overflow-hidden bg-[#f1f5f9] text-[#19232d] flex flex-col font-sans">
       {/* Top Header */}
       <Header
         onOpenQuickAction={() => handleOpenQuickAction('task')}
@@ -518,5 +555,6 @@ export default function App() {
       </Suspense>
       </AppErrorBoundary>
     </div>
+    </>
   );
 }
