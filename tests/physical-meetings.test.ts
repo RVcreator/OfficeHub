@@ -12,7 +12,8 @@ test('physical calendar download uses actual EAT times, venue and busy status wi
  const online=buildCalendarInvite({...meeting,meetingType:'Microsoft Teams',teamsJoinUrl:'https://teams.example.invalid/join'});assert.match(online.replace(/\r\n /g,''),/https:\/\/teams.example.invalid\/join/);
  const card=JSON.stringify(buildTeamsAdaptiveCard('meeting',meeting));assert.match(card,/Physical meeting/);assert.doesNotMatch(card,/Action.OpenUrl|Passcode|Auto-generated|teams.microsoft/);
 });
-test('physical invitations reserve pending attendees in OfficeHub conflict detection',()=>{
+test('physical invitations reserve pending attendees in OfficeHub conflict detection',(t)=>{
+ t.mock.timers.enable({apis:['Date'],now:new Date('2026-11-04T07:00:00Z')});
  const conflicts=detectMeetingConflicts(meeting.date,'10:30','11:00',['two'],[meeting],[{id:'two',name:'Invitee'} as StaffUser]);assert.equal(conflicts.length,1);
  assert.equal(detectMeetingConflicts(meeting.date,'12:00','13:00',['two'],[meeting],[]).length,0);
  assert.equal(mapMeetingRow({id:'m',meeting_type:meeting.meetingType,location:meeting.location}).location,meeting.location);assert.equal(mapMeetingToRow(meeting).location,meeting.location);
