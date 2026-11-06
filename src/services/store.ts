@@ -94,7 +94,7 @@ import {
 } from './supabaseMappers';
 
 import { playNotificationSound } from '../utils/sound';
-import { NotificationChimeTracker, visibleNotifications, persistNotification, reconcileNotificationSnapshot } from './notificationDelivery';
+import { NotificationChimeTracker, visibleNotifications, persistNotification, reconcileNotificationSnapshot, noticeDeliveryKey } from './notificationDelivery';
 import { isPersonalTask } from '../utils/taskUtils';
 import { passwordChangeRequired, retainPasswordRequirement } from './passwordPolicy';
 import { issuedPassword } from './issuedPassword';
@@ -3762,8 +3762,15 @@ export const portalStore = {
 
       const row = mapNotificationToRow(newNotif);
       const insertedNotif = await persistNotification(async () => {
-        const { data, error } = await supabase.from('notifications').insert(row)
+        let { data, error } = await supabase.from('notifications').insert(row)
           .select(NOTIFICATION_SELECT_COLUMNS).single();
+        const key=noticeDeliveryKey(newNotif);
+        if(error?.code==='23505'&&key){
+          const existing=await supabase.from('notifications').select(NOTIFICATION_SELECT_COLUMNS)
+            .eq('metadata->>noticeDeliveryKey',key).eq('target_user_id',newNotif.targetUserId)
+            .is('metadata->>duplicateOf',null).single();
+          data=existing.data;error=existing.error;
+        }
         if (error || !data) throw new Error('Notification could not be saved');
         return { ...mapNotificationRow(data), actorAvatar: newNotif.actorAvatar
           || resolveStaffAvatar(newNotif.actorId, newNotif.actorName) || undefined };
