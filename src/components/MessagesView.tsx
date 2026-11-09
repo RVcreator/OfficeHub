@@ -1,3 +1,4 @@
+import {PrivateChatAttachment} from './PrivateChatAttachment';
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { UserAvatar } from './UserAvatar';
 import { usePortalStore, setTableData } from '../services/store';
@@ -47,6 +48,7 @@ export const MessagesView: React.FC = () => {
   const [selectedConvId, setSelectedConvId] = useState<string>('');
   const [messageText, setMessageText] = useState('');
   const [attachments, setAttachments] = useState<MessageAttachment[]>([]);
+  const [filesPreparing,setFilesPreparing]=useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [inChatSearch, setInChatSearch] = useState('');
   const [showInChatSearch, setShowInChatSearch] = useState(false);
@@ -150,7 +152,7 @@ export const MessagesView: React.FC = () => {
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
-
+    setFilesPreparing(true);
     try {
       const fileArray = Array.from(files);
       const newAttachments: MessageAttachment[] = await Promise.all(
@@ -160,12 +162,15 @@ export const MessagesView: React.FC = () => {
       setAttachments(prev => [...prev, ...newAttachments]);
     } catch (err) {
       console.error('Failed to parse uploaded files:', err);
+      window.alert('The files could not be prepared. Please attach them again.');
     } finally {
+      setFilesPreparing(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
   };
 
   const handleSendMessage = () => {
+    if(filesPreparing)return;
     void runChatAction(async()=>{
     if ((!messageText.trim() && attachments.length === 0) || !conversation) return;
     
@@ -1043,6 +1048,7 @@ export const MessagesView: React.FC = () => {
                               isSelf ? 'border-white/20' : 'border-slate-100'
                             }`}>
                               {msg.attachments.map(att => {
+                                if(att.url.startsWith('storage://officehub-chat/'))return <PrivateChatAttachment key={att.id} attachment={att}/>;
                                 const isImg = isImageAttachment(att);
                                 const tabUrl = getAttachmentTabUrl(att);
 
@@ -1281,7 +1287,7 @@ export const MessagesView: React.FC = () => {
                 <button
                   type="button"
                   onClick={handleSendMessage}
-                  disabled={operationPending || (!messageText.trim() && attachments.length === 0)}
+                  disabled={operationPending || filesPreparing || (!messageText.trim() && attachments.length === 0)}
                   className="p-2 bg-purple-600 hover:bg-purple-700 disabled:bg-slate-200 text-white rounded-lg shadow-2xs transition cursor-pointer shrink-0 mb-0.5"
                   title={enterToSend ? "Send Message (Enter)" : "Send Message (Ctrl+Enter)"}
                 >
