@@ -52,7 +52,7 @@ export const MEETING_ATTENDEE_SELECT_COLUMNS =
   'meeting_id, user_id, name, email, status, proposed_date, proposed_time, proposed_end_time, proposal_note, note, comment, responded_at';
 
 export const MESSAGE_SELECT_COLUMNS =
-  'id, conversation_id, sender_id, sender_name, text, timestamp, reply_to_id, reactions';
+  'id, conversation_id, sender_id, sender_name, text, timestamp, reply_to_id, reactions, message_attachments(id,name,size,type,url)';
 
 export const NOTIFICATION_SELECT_COLUMNS =
   'id, title, message, type, meeting_id, target_user_id, created_at, read, actor_id, actor_name, priority, pushed_to_microsoft_teams, email_triggered, email_recipients, email_sent_at, email_subject, metadata';
@@ -797,6 +797,7 @@ export function mapConversationToRow(conv: Partial<ChatConversation>): Record<st
 
 export function mapMessageRow(row: any): ChatMessage {
   return {
+    attachments: Array.isArray(row.message_attachments) ? row.message_attachments.map((a:any)=>({id:a.id,name:a.name,size:a.size||'',type:a.type||'file',url:a.url||''})) : [],
     id: row.id,
     conversationId: row.conversation_id,
     senderId: row.sender_id || '',

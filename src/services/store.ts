@@ -1,3 +1,4 @@
+import {uploadChatAttachments} from './chatAttachments';
 import {emptyAdministrationAccess,administrationAccessFromServer,canViewAdministration,canManageAdministration,type AdministrationAccess,type AdministrationGrant} from './administrationAccess';
 let documentReadGeneration = 0;
 import {canRespondToMeeting} from '../utils/meetingLifecycle';
@@ -3663,7 +3664,10 @@ export const portalStore = {
       if(!storeState.conversations.some(c=>c.id===message.conversationId&&c.participantIds.includes(actor.id)))throw new Error('Only conversation members may send messages.');
       if(message.senderId!==actor.id)throw new Error('Messages must be sent as your own account.');
       const row = mapMessageToRow(message);
-      const { data, error } = await supabase.from('messages').insert(row).select(MESSAGE_SELECT_COLUMNS).single();
+      const files=message.attachments?.length?await uploadChatAttachments(message.attachments,message.conversationId,actor.id):[];
+      const {data,error}=files.length
+        ?await supabase.rpc('officehub_send_attached_message',{p_message:row,p_attachments:files})
+        :await supabase.from('messages').insert(row).select(MESSAGE_SELECT_COLUMNS).single();
       if (error || !data) throw new Error('Message could not be saved');
       const insertedMsg = { ...mapMessageRow(data), senderAvatar: message.senderAvatar };
       setTableData('messages', [...storeState.messages, insertedMsg]);
