@@ -1,3 +1,4 @@
+import {chatIdentity} from '../utils/chatIdentity';
 import {PrivateChatAttachment} from './PrivateChatAttachment';
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { UserAvatar } from './UserAvatar';
@@ -384,13 +385,10 @@ export const MessagesView: React.FC = () => {
       .filter((s): s is StaffUser => !!s);
   }, [conversation, store.staff]);
 
-  // Direct chat partner
-  const directPartner = useMemo(() => {
-    if (!conversation || conversation.type !== 'direct') return null;
-    const partnerId = conversation.participantIds.find(id => id !== store.currentUser.id);
-    return store.staff.find(s => s.id === partnerId) || null;
-  }, [conversation, store.staff, store.currentUser.id]);
-
+  // The identity and status must refer to the same other participant.
+  const activeIdentity=conversation?chatIdentity(conversation,store.currentUser.id,store.staff):null;
+  const directPartner=activeIdentity?.partner||null;
+  const conversationTitle=activeIdentity?.title||'';
   // Available staff to add to group
   const availableStaffToAdd = useMemo(() => {
     if (!conversation || conversation.type !== 'group') return [];
@@ -666,8 +664,8 @@ export const MessagesView: React.FC = () => {
 
             {filteredDirectConversations.map(conv => {
               const isSelected = conversation?.id === conv.id;
-              const partnerId = conv.participantIds.find(id => id !== store.currentUser.id);
-              const partner = store.staff.find(s => s.id === partnerId);
+              const identity=chatIdentity(conv,store.currentUser.id,store.staff);
+              const partner=identity.partner;
               const presenceColor = partner ? getPresenceColor(partner.status) : 'bg-slate-400';
 
               return (
@@ -689,13 +687,13 @@ export const MessagesView: React.FC = () => {
                 >
                   <div className="flex items-center gap-2.5 min-w-0 flex-1">
                     <div className="relative shrink-0">
-                      <UserAvatar name={conv.name} avatar={partner?.avatar || conv.avatar || store.currentUser.avatar} className="w-8 h-8" />
+                      <UserAvatar name={identity.title} avatar={partner?.avatar} className="w-8 h-8" />
                       <span className={`absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full ring-2 ring-white ${presenceColor}`}></span>
                     </div>
 
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center justify-between">
-                        <p className="font-bold truncate text-xs">{partner ? formatStaffDisplayName(partner) : conv.name}</p>
+                        <p className="font-bold truncate text-xs">{identity.title}</p>
                         <span className="text-[9px] text-slate-400 font-normal shrink-0 ml-1">{chatTime(conv.lastMessageTime)}</span>
                       </div>
                       <p className="text-[10px] text-slate-500 truncate mt-0.5">
@@ -796,13 +794,13 @@ export const MessagesView: React.FC = () => {
                   ) : (
                     <div className="relative shrink-0">
                       <UserAvatar
-                        avatar={directPartner?.avatar || conversation.avatar || store.currentUser.avatar}
-                        name={conversation.name}
+                        avatar={directPartner?.avatar}
+                        name={conversationTitle}
                         className="w-8 h-8 border border-slate-200"
                       />
                       <span
                         className={`absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full ring-2 ring-white ${
-                          directPartner ? getPresenceColor(directPartner.status) : 'bg-[#00ad1d]'
+                          directPartner ? getPresenceColor(directPartner.status) : 'bg-slate-400'
                         }`}
                       ></span>
                     </div>
@@ -810,7 +808,7 @@ export const MessagesView: React.FC = () => {
 
                   <div className="min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <h2 className="text-sm font-bold text-slate-900 truncate">{conversation.name}</h2>
+                      <h2 className="text-sm font-bold text-slate-900 truncate">{conversationTitle}</h2>
                       {conversation.type === 'group' ? (
                         <span className="text-[10px] px-2 py-0.5 rounded font-bold bg-purple-100 text-purple-800 border border-purple-200">
                           {conversation.department || 'Group Channel'}
@@ -829,7 +827,7 @@ export const MessagesView: React.FC = () => {
                         </span>
                       ) : (
                         <span>
-                          {directPartner ? `${directPartner.role} • ${formatStaffDisplayOrgDept(directPartner)}` : conversation.name}
+                          {directPartner ? `${directPartner.role} • ${formatStaffDisplayOrgDept(directPartner)}` : conversationTitle}
                         </span>
                       )}
                     </p>
@@ -892,7 +890,7 @@ export const MessagesView: React.FC = () => {
                       autoFocus
                       value={inChatSearch}
                       onChange={(e) => setInChatSearch(e.target.value)}
-                      placeholder={`Search in "${conversation.name}"...`}
+                      placeholder={`Search in "${conversationTitle}"...`}
                       className="w-full pl-8 pr-7 py-1 text-xs border border-slate-200 rounded-md focus:outline-none focus:ring-1 focus:ring-purple-600"
                     />
                     {inChatSearch && (
@@ -1260,8 +1258,8 @@ export const MessagesView: React.FC = () => {
                     onChange={(e) => setMessageText(e.target.value)}
                     placeholder={
                       conversation.type === 'group'
-                        ? `Message ${conversation.name}... (Press Enter to start a new line)`
-                        : `Direct message to ${directPartner ? formatStaffDisplayName(directPartner) : conversation.name}... (Press Enter for new line)`
+                        ? `Message ${conversationTitle}... (Press Enter to start a new line)`
+                        : `Direct message to ${directPartner ? formatStaffDisplayName(directPartner) : conversationTitle}... (Press Enter for new line)`
                     }
                     className="w-full px-3 py-2 bg-slate-50 focus:bg-white text-xs text-slate-800 placeholder-slate-400 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-600/30 focus:border-purple-600 transition resize-none leading-relaxed min-h-[38px] max-h-[140px] overflow-y-auto block"
                     onKeyDown={(e) => {
