@@ -18,6 +18,7 @@ import {
   MESSAGE_SELECT_COLUMNS,
 } from './supabaseMappers';
 import { ChatMessage, Meeting, Notice, Task, ChatConversation, AppNotification, Approval, DepartmentInfo, RolePermission, Decision } from '../types';
+import type {StaffUser} from '../types';
 
 export interface RealtimeBridge {
   getState: () => {
@@ -41,6 +42,7 @@ export interface RealtimeBridge {
   getDepartments?:()=>Promise<DepartmentInfo[]>;
   getRoles?:()=>Promise<RolePermission[]>;
   getDecisions?:()=>Promise<Decision[]>;
+  getStaff?:()=>Promise<StaffUser[]>;
 }
 
 export interface PortalBroadcastEvent {
@@ -239,6 +241,7 @@ function setupRealtimeChannel() {
 
   realtimeChannel = supabase
     .channel('wipahs_officehub_live')
+    .on('postgres_changes',{event:'*',schema:'public',table:'profiles'},()=>{void syncReferenceData();})
     // Realtime events are refresh hints, never authorized message content.
     .on('postgres_changes',{event:'*',schema:'public',table:'messages'},()=>{void triggerLiveMessageSync();})
     .on('postgres_changes',{event:'*',schema:'public',table:'conversation_participants'},()=>{void triggerLiveMessageSync();})
@@ -411,7 +414,7 @@ function syncReferenceData(){
  const bridge=activeBridge,generation=channelGeneration,identity=bridge?.getState().currentUser.id;
  if(!bridge||!isStarted||!isBridgeAuthenticated())return Promise.resolve();
  return refreshGate.run(`references-${generation}`,async()=>{
-  const entries=[['departments',bridge.getDepartments],['roles',bridge.getRoles],['decisions',bridge.getDecisions]] as const;
+  const entries=[['staff',bridge.getStaff],['departments',bridge.getDepartments],['roles',bridge.getRoles],['decisions',bridge.getDecisions]] as const;
   await Promise.allSettled(entries.map(async([table,read])=>{
    if(!read)return;const rows=await read();
    if(isStarted&&activeBridge===bridge&&generation===channelGeneration&&identity===bridge.getState().currentUser.id)bridge.setTableData(table,rows);

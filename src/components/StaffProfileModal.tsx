@@ -31,14 +31,15 @@ interface StaffProfileModalProps {
 }
 
 export const StaffProfileModal: React.FC<StaffProfileModalProps> = ({
-  staffMember,
+  staffMember: selectedMember,
   isOpen,
   onClose,
   onAssignTask,
   onSelectTask,
   onSelectMeeting
 }) => {
-  const { tasks, currentUser } = usePortalStore(['tasks', 'currentUser']);
+  const { tasks, currentUser,staff } = usePortalStore(['tasks', 'currentUser','staff']);
+  const staffMember=selectedMember?staff.find(member=>member.id===selectedMember.id)||null:null;
 
   if (!isOpen || !staffMember) return null;
 
