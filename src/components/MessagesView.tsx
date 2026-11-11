@@ -557,7 +557,6 @@ export const MessagesView: React.FC = () => {
                             />
                             <div className="min-w-0 flex-1 flex items-center justify-between">
                               <span className="font-semibold text-slate-800 truncate">{formatStaffDisplayName(person)}</span>
-                              <span className="text-[9px] text-[#008f18] ml-1 shrink-0">({person.role})</span>
                             </div>
                           </label>
                         ))}
@@ -1407,7 +1406,7 @@ export const MessagesView: React.FC = () => {
                     <option value="">Select colleague...</option>
                     {availableStaffToAdd.map(person => (
                       <option key={person.id} value={person.id}>
-                        {formatStaffDisplayName(person)} — {person.role} ({person.department})
+                        {formatStaffDisplayName(person)} ({person.department})
                       </option>
                     ))}
                   </select>

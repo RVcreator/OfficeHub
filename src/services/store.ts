@@ -537,6 +537,7 @@ export function initRealtimeSubscription(): void {
     getDepartments:()=>portalStore.getDepartments(),
     getRoles:()=>portalStore.getRoles(),
     getDecisions:()=>portalStore.getDecisions(),
+    getStaff:()=>portalStore.getStaff(true),
   });
 }
 
@@ -1079,9 +1080,8 @@ export const portalStore = {
   getStaff: async (strict=false): Promise<StaffUser[]> => {
     try {
       const res = await fetchPublicProfiles();
-      if(strict&&res.error)throw res.error;
+      if(res.error)throw res.error;
       const dbProfiles = (res.data && res.data.length > 0) ? res.data.map(mapStaffRow) : [];
-      const authoritativeSnapshot=!res.error&&Array.isArray(res.data);
 
       let localStaff: StaffUser[] = [];
       try {
@@ -1117,8 +1117,6 @@ export const portalStore = {
             avatar: existing.avatar || s.avatar,
             mustChangePassword: existing.mustChangePassword,
           });
-        } else if(!authoritativeSnapshot) {
-          combinedMap.set(s.id, { ...s, mustChangePassword: false });
         }
       });
 
@@ -1128,12 +1126,9 @@ export const portalStore = {
     } catch (err) {
       if(strict)throw err;
       console.error('getStaff exception:', err);
-      let localStaff: StaffUser[] = [];
-      try {
-        const raw = localStorage.getItem('wipahs_registered_staff');
-        if (raw) localStaff = JSON.parse(raw);
-      } catch {}
-      return localStaff.filter((s) => s && s.id !== 'usr-default' && !s.deactivated);
+      // Only retain this session's already-loaded directory on a failed read.
+      // Old browser storage must never invent or restore member designations.
+      return storeState.staff.filter(s=>!s.deactivated&&!confirmedDeletedStaffIds.has(s.id));
     }
   },
 
