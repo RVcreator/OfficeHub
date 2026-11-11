@@ -1,3 +1,4 @@
+import {confirmChatSave} from './chatSave';
 import {uploadChatAttachments} from './chatAttachments';
 import {emptyAdministrationAccess,administrationAccessFromServer,canViewAdministration,canManageAdministration,type AdministrationAccess,type AdministrationGrant} from './administrationAccess';
 let documentReadGeneration = 0;
@@ -3665,16 +3666,20 @@ export const portalStore = {
       if(message.senderId!==actor.id)throw new Error('Messages must be sent as your own account.');
       const row = mapMessageToRow(message);
       const files=message.attachments?.length?await uploadChatAttachments(message.attachments,message.conversationId,actor.id):[];
-      const {data,error}=files.length
-        ?await supabase.rpc('officehub_send_attached_message',{p_message:row,p_attachments:files})
-        :await supabase.from('messages').insert(row).select(MESSAGE_SELECT_COLUMNS).single();
-      if (error || !data) throw new Error('Message could not be saved');
+      const data=await confirmChatSave(message,
+        signal=>files.length
+          ?supabase.rpc('officehub_send_attached_message',{p_message:row,p_attachments:files}).abortSignal(signal)
+          :supabase.from('messages').insert(row).select(MESSAGE_SELECT_COLUMNS).abortSignal(signal).single(),
+        ()=>supabase.from('messages').select(MESSAGE_SELECT_COLUMNS).eq('id',message.id).maybeSingle());
+      if(storeState.currentUser.id!==actor.id)return;
       const insertedMsg = { ...mapMessageRow(data), senderAvatar: message.senderAvatar };
-      setTableData('messages', [...storeState.messages, insertedMsg]);
+      setTableData('messages', [...storeState.messages.filter(m=>m.id!==insertedMsg.id), insertedMsg]);
 
       // The database updates the preview in the same transaction as the message.
       setTableData('conversations',storeState.conversations.map(c=>c.id===message.conversationId?{...c,lastMessage:insertedMsg.text,lastMessageTime:insertedMsg.timestamp}:c));
 
+      // A confirmed message must not remain locked behind notification delivery.
+      const notifyRecipients=async()=>{try{
       // Insert notifications for every other participant in this conversation (not the sender)
       const {data:partRows,error:partError}=await supabase.from('conversation_participants').select('user_id').eq('conversation_id',message.conversationId);
       const participantIds:string[]=partError?[]:(partRows||[]).map(r=>r.user_id);
@@ -3715,7 +3720,9 @@ export const portalStore = {
         const { data: insertedNotifs, error: notifErr } = await supabase
           .from('notifications')
           .insert(notifRows)
-          .select(NOTIFICATION_SELECT_COLUMNS);
+          .select(NOTIFICATION_SELECT_COLUMNS).abortSignal(AbortSignal.timeout(15_000));
+
+        if(storeState.currentUser.id!==actor.id)return;
 
         if (notifErr) {
           setTableData('notificationError', 'The message was saved, but its notification could not be saved. Contact WIPAHS IT.');
@@ -3733,6 +3740,8 @@ export const portalStore = {
           }
         }
       }
+      }catch{setTableData('notificationError','Message saved; recipient alerts could not be confirmed.');}};
+      void notifyRecipients();
     } catch (err: any) {
       console.error('sendMessage error:', err);
       throw err;
