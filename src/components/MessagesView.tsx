@@ -43,8 +43,10 @@ export const MessagesView: React.FC = () => {
   const visibleConversations=useMemo(()=>rawStore.conversations.filter(c=>c.participantIds.includes(rawStore.currentUser.id)),[rawStore.conversations,rawStore.currentUser.id]);
   const store={...rawStore,conversations:visibleConversations};
   const [operationPending,setOperationPending]=useState(false);
+  const [chatActionError,setChatActionError]=useState('');
+  const pendingSends=useRef(new Map<string,{fingerprint:string;id:string}>());
   const operationLock=useRef(false);
-  const runChatAction=async(action:()=>Promise<void>)=>{if(operationLock.current)return;operationLock.current=true;setOperationPending(true);try{await action();}catch(error){window.alert(error instanceof Error?error.message:'Chat operation failed. Please try again.');}finally{operationLock.current=false;setOperationPending(false);}};
+  const runChatAction=async(action:()=>Promise<void>)=>{if(operationLock.current)return;operationLock.current=true;setOperationPending(true);setChatActionError('');try{await action();}catch(error){setChatActionError(error instanceof Error?error.message:'Chat operation failed. Please try again.');}finally{operationLock.current=false;setOperationPending(false);}};
   const chatTime=(value?:string)=>value&&Number.isFinite(Date.parse(value))?new Date(value).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}):value||'';
   const [selectedConvId, setSelectedConvId] = useState<string>('');
   const [messageText, setMessageText] = useState('');
@@ -163,7 +165,7 @@ export const MessagesView: React.FC = () => {
       setAttachments(prev => [...prev, ...newAttachments]);
     } catch (err) {
       console.error('Failed to parse uploaded files:', err);
-      window.alert('The files could not be prepared. Please attach them again.');
+      setChatActionError('The files could not be prepared. Please attach them again.');
     } finally {
       setFilesPreparing(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -180,8 +182,12 @@ export const MessagesView: React.FC = () => {
       ? `Shared ${attachments.length === 1 ? attachments[0].name : `${attachments.length} files`}`
       : '');
 
+    const fingerprint=JSON.stringify([fallbackText,attachments.map(a=>a.id)]);
+    const previous=pendingSends.current.get(conversation.id);
+    const id=previous?.fingerprint===fingerprint?previous.id:`msg-${crypto.randomUUID()}`;
+    pendingSends.current.set(conversation.id,{fingerprint,id});
     await store.actions.sendMessage({
-      id: `msg-${Date.now()}`,
+      id,
       conversationId: conversation.id,
       senderId: store.currentUser.id,
       senderName: store.currentUser.name,
@@ -191,8 +197,9 @@ export const MessagesView: React.FC = () => {
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       attachments: attachments.length > 0 ? attachments : undefined
     });
-    setMessageText('');
-    setAttachments([]);
+    pendingSends.current.delete(conversation.id);
+    setMessageText(current=>current===messageText?'':current);
+    setAttachments(current=>current===attachments?[]:current);
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
     }
@@ -438,6 +445,7 @@ export const MessagesView: React.FC = () => {
 
   return (
     <div className="oh-messages flex flex-col lg:flex-row h-[calc(100dvh-110px)] min-h-0 bg-white rounded-lg shadow-xs border border-slate-200 overflow-hidden text-xs relative">
+      {chatActionError&&<div role="alert" className="absolute top-2 left-2 right-2 z-20 rounded-lg border border-amber-200 bg-amber-50 text-amber-950 shadow-sm p-3 flex items-start gap-3"><p className="flex-1">{chatActionError}</p><button type="button" aria-label="Dismiss chat error" onClick={()=>setChatActionError('')}><X className="w-4 h-4"/></button></div>}
       
       {/* ========================================================================= */}
       {/* 1. SIDEBAR: CONVERSATION LIST, SEARCH, FILTERING                          */}
