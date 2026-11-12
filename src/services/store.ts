@@ -9,7 +9,7 @@ import {isApprovalArchived,isDecisionArchived,isNoticeArchived} from '../utils/w
 import {confirmedTaskSnapshot} from './taskSnapshot';
 import {createMutationGate} from './mutationGate';
 import {canViewApproval,canResolveApproval,ownsTask,canManageMeeting} from '../utils/recordPermissions';
-import {PROFILE_SELECT_COLUMNS} from './profileColumns';
+import {PROFILE_SELECT_COLUMNS,AUTH_PROFILE_SELECT_COLUMNS} from './profileColumns';
 import {departmentName} from '../utils/departmentDirectory';
 import {functionError} from './functionError';
 import {createReadQueue} from './syncPolicy';
@@ -426,7 +426,11 @@ export function setTableData<K extends TableKey>(key: K, data: StoreData[K], sou
     return { ...user, outOfOffice: row && row.officeUntil > presenceNow() ? row.outOfOffice : user.outOfOffice, status: computeUserLivePresence(user) };
   };
   if(key==='tasks')data=confirmedTaskSnapshot(data as Task[],storeState.tasks) as StoreData[K];
-  if (key === 'staff') data = (data as StaffUser[]).filter(user=>!confirmedDeletedStaffIds.has(user.id)).map(withPresence) as StoreData[K];
+  if (key === 'staff') {
+    data = (data as StaffUser[]).filter(user=>!confirmedDeletedStaffIds.has(user.id)).map(withPresence) as StoreData[K];
+    const own=(data as StaffUser[]).find(user=>user.id===storeState.authSession.userId);
+    if(own&&storeState.authSession.isAuthenticated)setTableData('currentUser',{...storeState.currentUser,avatar:own.avatar});
+  }
   if (key === 'currentUser') {
     const user = data as StaffUser;
     data = withPresence(user) as StoreData[K];
@@ -4029,7 +4033,7 @@ export const portalStore = {
   readAuthenticatedUserProfile: async (userId:string) => {
     const uid=toUuidOrNull(userId);
     if(!uid)throw new Error('A valid sign-in account is required.');
-    return await supabase.from('profiles').select(PROFILE_SELECT_COLUMNS).eq('id',uid).maybeSingle();
+    return await supabase.from('profiles').select(AUTH_PROFILE_SELECT_COLUMNS).eq('id',uid).maybeSingle();
   },
   syncAuthenticatedUserProfile: async (sbUser: any,profileRead?:Promise<{data:any;error:unknown}>): Promise<StaffUser> => {
     const uid=toUuidOrNull(sbUser?.id);
@@ -4038,6 +4042,9 @@ export const portalStore = {
     if(error)throw new Error('Your staff profile could not be loaded. Please check your connection and try again.');
     if(!row||row.id!==uid)throw new Error('This sign-in account has no matching staff profile. Please contact your administrator to repair the account.');
     const matched=mapStaffRow(row);
+    // Cached presentation cannot supply identity, permissions or password policy.
+    const photo=storeState.currentUser.id===uid?storeState.currentUser:getSavedCurrentUserProfile();
+    if(row.avatar===undefined&&photo?.id===uid)matched.avatar=photo.avatar||'';
     if(matched.email?.trim().toLowerCase()!==sbUser.email?.trim().toLowerCase())throw new Error('Your staff email and sign-in email do not match. Please contact your administrator to repair the account.');
     return {...matched,status:matched.outOfOffice?'Out of Office':'Online',mustChangePassword:passwordChangeRequired(sbUser,matched),
       app_metadata:{...matched.app_metadata,...sbUser.app_metadata}};

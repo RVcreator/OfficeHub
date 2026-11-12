@@ -19,7 +19,12 @@ const fs=require('fs'),path=require('path'),http=require('http'),assert=require(
    if(u.pathname==='/auth/v1/user'){if(stalled)await never;if(rejectAccount||transientFailures-->0)return route.fulfill({status:503,contentType:'application/json',body:JSON.stringify({message:'Temporary verification outage'})});body=user;}
    else if(u.pathname==='/auth/v1/token'){if(stalled)await never;body={user,access_token:jwt,refresh_token:'fixture',expires_in:3600,token_type:'bearer'};}
    else if(u.pathname==='/rest/v1/profiles_public')body=[profile];
-   else if(u.pathname.includes('/profiles')){profileReadStarted=true;body=profile;}
+   else if(u.pathname.includes('/profiles')){
+    profileReadStarted=true;
+    // A slow multi-megabyte photo must never be part of mandatory verification.
+    assert.ok(!u.searchParams.get('select')?.split(',').includes('avatar'),'verification excludes photo payload');
+    body={...profile};delete body.avatar;
+   }
    else if(u.pathname.includes('/rpc/officehub_presence_'))body=[];
    return route.fulfill({status:200,contentType:'application/json',body:JSON.stringify(body)}).catch(()=>{});
   });
