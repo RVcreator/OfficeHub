@@ -1,6 +1,11 @@
 import {test} from 'node:test';import assert from 'node:assert/strict';
 import {retryAccountRead,isTransientVerificationError} from '../src/services/authVerification';
 import {createDeferredAuthHandler} from '../src/services/deferredAuth';
+import {AUTH_PROFILE_SELECT_COLUMNS,PROFILE_SELECT_COLUMNS} from '../src/services/profileColumns';
+test('verification omits photos while retaining every identity and security policy field',()=>{
+ assert.deepEqual(AUTH_PROFILE_SELECT_COLUMNS.split(','),PROFILE_SELECT_COLUMNS.split(',').filter(c=>c!=='avatar'));
+ for(const field of ['id','email','role','organisation','department','must_change_password','app_metadata','out_of_office'])assert.ok(AUTH_PROFILE_SELECT_COLUMNS.split(',').includes(field));
+});
 const tick=()=>new Promise(resolve=>setTimeout(resolve,15));
 test('temporary account reads retry once; account denials and profile mismatches never retry',async()=>{
  let calls=0;assert.equal(await retryAccountRead(async()=>{if(++calls===1)throw {status:503};return 'fresh';},()=>true,async()=>{}),'fresh');assert.equal(calls,2);

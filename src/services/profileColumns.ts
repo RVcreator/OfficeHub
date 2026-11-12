@@ -1,2 +1,4 @@
 // Deliberate allowlist: never read legacy plaintext credentials with SELECT *.
 export const PROFILE_SELECT_COLUMNS='id,name,email,role,organisation,department,status,avatar,phone,activity_score,tasks_count,last_active,teams_handle,birthday,bio,location,average_rating,total_ratings_count,out_of_office,out_of_office_message,leave_type,leave_start_date,leave_end_date,backup_contact_id,must_change_password,app_metadata,created_at';
+// Keep fresh identity and policy checks independent of multi-megabyte photos.
+export const AUTH_PROFILE_SELECT_COLUMNS=PROFILE_SELECT_COLUMNS.split(',').filter(column=>column!=='avatar').join(',');
