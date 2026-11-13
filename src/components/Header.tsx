@@ -5,6 +5,7 @@ import {canRespondToMeeting,isMeetingUpcoming} from '../utils/meetingLifecycle';
 import {requiresTaskRating} from '../utils/taskRatingState';
 import {brandLogo} from '../utils/brandLogo';
 import { isNotificationForUser } from '../services/notificationDelivery';
+import {notificationTarget,type NotificationTarget} from '../services/notificationNavigation';
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { UserAvatar } from './UserAvatar';
 import {
@@ -45,6 +46,7 @@ interface HeaderProps {
   onToggleMobileMenu?: () => void;
   isNavigationOpen?: boolean;
   onSelectTask?: (taskId: string) => void;
+  onOpenNotification?: (target:NotificationTarget) => void;
   onSignOut?: () => void;
 }
 
@@ -56,6 +58,7 @@ export const Header: React.FC<HeaderProps> = ({
   onSearchSelect,
   onToggleMobileMenu,
   onSelectTask,
+  onOpenNotification,
   onSignOut,
 }) => {
   const { currentUser, staff, actions, notices, tasks, meetings, sharePointDocs, notifications } = usePortalStore(['currentUser', 'staff', 'notices', 'tasks', 'meetings', 'sharePointDocs', 'notifications']);
@@ -386,10 +389,13 @@ export const Header: React.FC<HeaderProps> = ({
                   return (
                     <div
                       key={notif.id}
+                      data-notification-id={notif.id}
                       onClick={() => {
                         if (!notif.read && !isRatingRequired) actions.markNotificationAsRead(notif.id);
+                        onOpenNotification?.(notificationTarget(notif));
+                        setNotificationsOpen(false);
                       }}
-                      className={`p-2.5 rounded-lg border transition space-y-1.5 ${
+                      className={`p-2.5 rounded-lg border transition space-y-1.5 cursor-pointer focus-within:ring-2 focus-within:ring-emerald-500 ${
                         !notif.read
                           ? isRatingRequired
                             ? 'bg-amber-50/95 border-amber-300 ring-1 ring-amber-300 shadow-2xs'
@@ -414,7 +420,7 @@ export const Header: React.FC<HeaderProps> = ({
                               M365
                             </span>
                           )}
-                          <p className="font-bold text-[11px] text-slate-900 truncate">{notif.title}</p>
+                          <button type="button" aria-label={`Open notification: ${notif.title}`} className="font-bold text-left text-[11px] text-slate-900 truncate hover:underline">{notif.title}</button>
                         </div>
                         <div className="flex items-center gap-1.5 shrink-0">
                           <span className="text-[9px] text-slate-400 font-medium">

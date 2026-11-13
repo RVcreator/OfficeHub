@@ -28,7 +28,7 @@ import { StaffPickerTree } from './StaffPickerTree';
 import {canUserViewDocument,canUserEditDocument,getDocumentSharePointUrl} from '../utils/documentAccess';
 export {canUserViewDocument,canUserEditDocument,getDocumentSharePointUrl} from '../utils/documentAccess';
 
-export const SharePointView: React.FC<{ onOpenUploadModal: () => void }> = ({ onOpenUploadModal }) => {
+export const SharePointView: React.FC<{ onOpenUploadModal: () => void;selectedDocumentId?:string|null;selectionVersion?:number;onClearSelectedDocument?:()=>void }> = ({ onOpenUploadModal,selectedDocumentId,selectionVersion,onClearSelectedDocument }) => {
   const { sharePointDocs, currentUser, actions, folderList, staff, departments } = usePortalStore(['sharePointDocs', 'currentUser', 'folderList', 'staff', 'departments']);
 
   useEffect(() => {
@@ -38,6 +38,12 @@ export const SharePointView: React.FC<{ onOpenUploadModal: () => void }> = ({ on
   const [selectedFolder, setSelectedFolder] = useState<string>('All');
   const [searchQuery, setSearchQuery] = useState('');
   const [activeDocPreview, setActiveDocPreview] = useState<SharePointDocument | null>(null);
+  useEffect(()=>{
+    if(!selectedDocumentId)return;
+    const doc=sharePointDocs.find(d=>d.id===selectedDocumentId&&canUserViewDocument(d,currentUser));
+    setActiveDocPreview(doc||null);
+  },[selectedDocumentId,selectionVersion,sharePointDocs,currentUser]);
+  const closeDocumentPreview=()=>{setActiveDocPreview(null);onClearSelectedDocument?.();};
   const [repairingLinks,setRepairingLinks]=useState(false);
   const [repairNotice,setRepairNotice]=useState('');
   const canRepairLinks=/admin|manager|director/i.test(currentUser.role||'');
@@ -340,7 +346,7 @@ export const SharePointView: React.FC<{ onOpenUploadModal: () => void }> = ({ on
       {activeDocPreview && (
         <div 
           className="oh-dialog fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto"
-          onClick={() => setActiveDocPreview(null)}
+          onClick={closeDocumentPreview}
         >
           <div 
             className="bg-white border border-slate-200 rounded-md shadow-xl max-w-xl w-full p-5 text-slate-800 my-auto"
@@ -352,7 +358,7 @@ export const SharePointView: React.FC<{ onOpenUploadModal: () => void }> = ({ on
                 <h3 className="text-base font-bold text-slate-900">{activeDocPreview.name}</h3>
               </div>
               <button
-                onClick={() => setActiveDocPreview(null)}
+                onClick={closeDocumentPreview}
                 className="text-slate-400 hover:text-slate-700 cursor-pointer"
               >
                 ✕

@@ -29,7 +29,8 @@ import { StaffPickerTree } from './StaffPickerTree';
 
 export const ApprovalsView: React.FC<{
   selectedApprovalId?: string | null;
-}> = ({ selectedApprovalId }) => {
+  selectionVersion?:number;
+}> = ({ selectedApprovalId,selectionVersion }) => {
   const { approvals, projects, staff, actions, currentUser } = usePortalStore(['approvals', 'projects', 'staff', 'currentUser']);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedStatus, setSelectedStatus] = useState<string>('All');
@@ -100,7 +101,7 @@ export const ApprovalsView: React.FC<{
       }, 4000);
       return () => clearTimeout(timer);
     }
-  }, [selectedApprovalId]);
+  }, [selectedApprovalId,selectionVersion]);
 
   const archiveNow=useWorkArchiveClock(approvals);
   const visibleApprovals=approvals.filter(a=>canViewApproval(a,currentUser)&&!isApprovalArchived(a,archiveNow));

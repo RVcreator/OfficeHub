@@ -169,6 +169,7 @@ interface TasksViewProps {
   defaultCategory?: 'my-work' | 'department' | 'all' | 'assigned-by-me';
   onCategoryChange?: (category: 'my-work' | 'department' | 'all' | 'assigned-by-me') => void;
   selectedTaskId?: string | null;
+  selectionVersion?:number;
   onClearSelectedTask?: () => void;
 }
 
@@ -183,7 +184,7 @@ export const TasksView: React.FC<TasksViewProps> = ({
   onOpenNewTaskModal,
   defaultCategory = 'my-work',
   onCategoryChange,
-  selectedTaskId,
+  selectedTaskId,selectionVersion,
   onClearSelectedTask
 }) => {
   const { tasks, staff, currentUser, actions, projects } = usePortalStore(['tasks', 'staff', 'currentUser', 'projects']);
@@ -266,7 +267,7 @@ export const TasksView: React.FC<TasksViewProps> = ({
       if(!updated){setSelectedTask(null);return;}
       if(updated!==selectedTask)setSelectedTask(updated);
     }
-  }, [selectedTaskId, tasks]);
+  }, [selectedTaskId,selectionVersion, tasks]);
 
   // Reset drawer state when selectedTask changes
   useEffect(() => {
