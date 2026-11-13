@@ -38,7 +38,7 @@ import {
 import { formatStaffDisplayName, formatStaffDisplayOrgDept, getStaffHierarchy } from '../utils/staffHierarchy';
 import { parseUploadedFile, getAttachmentTabUrl, openAttachmentInNewTab, downloadAttachment } from '../utils/fileParser';
 
-export const MessagesView: React.FC = () => {
+export const MessagesView: React.FC<{selectedConversationId?:string|null;selectionVersion?:number}> = ({selectedConversationId,selectionVersion}) => {
   const rawStore = usePortalStore();
   const visibleConversations=useMemo(()=>rawStore.conversations.filter(c=>c.participantIds.includes(rawStore.currentUser.id)),[rawStore.conversations,rawStore.currentUser.id]);
   const store={...rawStore,conversations:visibleConversations};
@@ -48,7 +48,8 @@ export const MessagesView: React.FC = () => {
   const operationLock=useRef(false);
   const runChatAction=async(action:()=>Promise<void>)=>{if(operationLock.current)return;operationLock.current=true;setOperationPending(true);setChatActionError('');try{await action();}catch(error){setChatActionError(error instanceof Error?error.message:'Chat operation failed. Please try again.');}finally{operationLock.current=false;setOperationPending(false);}};
   const chatTime=(value?:string)=>value&&Number.isFinite(Date.parse(value))?new Date(value).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}):value||'';
-  const [selectedConvId, setSelectedConvId] = useState<string>('');
+  const [selectedConvId, setSelectedConvId] = useState<string>(selectedConversationId||'');
+  useEffect(()=>{if(selectedConversationId)setSelectedConvId(selectedConversationId);},[selectedConversationId,selectionVersion]);
   const [messageText, setMessageText] = useState('');
   const [attachments, setAttachments] = useState<MessageAttachment[]>([]);
   const [filesPreparing,setFilesPreparing]=useState(false);
@@ -90,17 +91,19 @@ export const MessagesView: React.FC = () => {
     }
   }, [messageText]);
 
-  // Auto-initialize selectedConvId if empty or no longer exists
+  // A direct alert must never silently open a different conversation.
   useEffect(() => {
+    if(selectedConversationId&&!selectedConvId)return;
     if (store.conversations && store.conversations.length > 0) {
       const exists = store.conversations.some(c => c.id === selectedConvId);
+      if(selectedConversationId===selectedConvId&&!exists)return;
       if (!selectedConvId || !exists) {
         setSelectedConvId(store.conversations[0].id);
       }
-    } else {
+    } else if(!selectedConversationId) {
       setSelectedConvId('');
     }
-  }, [store.conversations, selectedConvId]);
+  }, [store.conversations, selectedConvId,selectedConversationId]);
 
   useEffect(()=>{let active=true;store.actions.getConversations().then(rows=>{if(active)setTableData('conversations',rows);}).catch(console.warn);return()=>{active=false;};},[store.actions]);
   useEffect(()=>{if(selectedConvId)void store.actions.loadConversationMessages(selectedConvId).catch(console.warn);},[selectedConvId,store.actions]);
@@ -108,8 +111,8 @@ export const MessagesView: React.FC = () => {
   // Active conversation & messages
   const conversation = useMemo(() => {
     if (!store.conversations || store.conversations.length === 0) return null;
-    return store.conversations.find(c => c.id === selectedConvId) || store.conversations[0] || null;
-  }, [store.conversations, selectedConvId]);
+    return store.conversations.find(c => c.id === selectedConvId) || (!selectedConversationId?store.conversations[0]:null) || null;
+  }, [store.conversations, selectedConvId,selectedConversationId]);
 
   const rawMessages = useMemo(() => {
     if (!conversation) return [];

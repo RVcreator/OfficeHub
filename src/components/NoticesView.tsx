@@ -39,7 +39,8 @@ import {
 export const NoticesView: React.FC<{
   onOpenNewNoticeModal: () => void;
   selectedNoticeId?: string | null;
-}> = ({ onOpenNewNoticeModal, selectedNoticeId }) => {
+  selectionVersion?:number;
+}> = ({ onOpenNewNoticeModal, selectedNoticeId,selectionVersion }) => {
   const { notices:allNotices, currentUser, staff, actions } = usePortalStore(['notices', 'currentUser', 'staff']);
   const archiveNow=useWorkArchiveClock(undefined,undefined,allNotices,currentUser.id);
   const notices=allNotices.filter(n=>!isNoticeArchived(n,currentUser.id,archiveNow));
@@ -72,7 +73,7 @@ export const NoticesView: React.FC<{
       }, 4000);
       return () => clearTimeout(timer);
     }
-  }, [selectedNoticeId]);
+  }, [selectedNoticeId,selectionVersion]);
 
   const availableOrganisations = useMemo(() => {
     const raw = Array.from(new Set(staff.map(s => s.organisation || 'WIPAHS')));

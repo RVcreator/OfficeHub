@@ -451,9 +451,10 @@ export const MeetingsTeamsView: React.FC<{
   onOpenQuickAction?: (tab: 'task' | 'meeting' | 'notice' | 'sharepoint', assignee?: StaffUser | null, date?: string) => void;
   initialMode?: 'list' | 'calendar';
   selectedMeetingId?: string | null;
+  selectionVersion?:number;
   onSelectTask?: (taskId: string) => void;
   onSelectMeeting?: (meetingId: string) => void;
-}> = ({ onOpenScheduleModal, onOpenQuickAction, initialMode = 'list', selectedMeetingId, onSelectTask, onSelectMeeting }) => {
+}> = ({ onOpenScheduleModal, onOpenQuickAction, initialMode = 'list', selectedMeetingId,selectionVersion, onSelectTask, onSelectMeeting }) => {
   const { meetings, staff, currentUser, actions, tasks, departments } = usePortalStore(['meetings', 'staff', 'currentUser', 'tasks', 'departments']);
 
   const todayStr = useMemo(() => new Date().toISOString().split('T')[0], []);
@@ -485,7 +486,7 @@ export const MeetingsTeamsView: React.FC<{
     if (selectedMeetingId) {
       setDetailMeetingId(selectedMeetingId);
     }
-  }, [selectedMeetingId]);
+  }, [selectedMeetingId,selectionVersion]);
 
   // Active live meeting sync on mount and while user views the meetings/calendar tab
   const archiveTick=useMeetingClock(meetings);

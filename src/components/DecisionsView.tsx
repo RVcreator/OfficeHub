@@ -21,9 +21,10 @@ import { Decision } from '../types';
 
 interface DecisionsViewProps {
   onOpenNewDecisionModal?: () => void;
+  selectedDecisionId?:string|null;selectionVersion?:number;
 }
 
-export const DecisionsView: React.FC<DecisionsViewProps> = () => {
+export const DecisionsView: React.FC<DecisionsViewProps> = ({selectedDecisionId,selectionVersion}) => {
   const { decisions:allDecisions, actions, currentUser } = usePortalStore(['decisions', 'currentUser']);
   const archiveNow=useWorkArchiveClock(undefined,allDecisions);
   const decisions=allDecisions.filter(d=>!isDecisionArchived(d,archiveNow));
@@ -31,6 +32,10 @@ export const DecisionsView: React.FC<DecisionsViewProps> = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedDept, setSelectedDept] = useState<string>('All');
   const [selectedStatus, setSelectedStatus] = useState<string>('All');
+  useEffect(()=>{
+    if(!selectedDecisionId)return;setSearchQuery('');setSelectedDept('All');setSelectedStatus('All');
+    const timer=setTimeout(()=>document.getElementById(`decision-${selectedDecisionId}`)?.scrollIntoView({block:'center',behavior:'smooth'}),100);return()=>clearTimeout(timer);
+  },[selectedDecisionId,selectionVersion,allDecisions]);
   const [isNewModalOpen, setIsNewModalOpen] = useState(false);
 
   // New decision form state
@@ -229,7 +234,7 @@ export const DecisionsView: React.FC<DecisionsViewProps> = () => {
         ) : (
           filteredDecisions.map((decision) => (
             <div
-              key={decision.id}
+              key={decision.id} id={`decision-${decision.id}`}
               className="bg-white p-5 rounded-lg border border-slate-200 hover:border-slate-300 transition shadow-xs"
             >
               <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">

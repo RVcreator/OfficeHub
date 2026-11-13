@@ -1,3 +1,4 @@
+import type {NotificationTarget} from './services/notificationNavigation';
 import {lazyPage} from './services/pageImport';
 import {canViewAdministration,canManageAdministration,isAdministrationTab} from './services/administrationAccess';
 import type {SettingsTabType} from './components/SettingsModal';
@@ -52,7 +53,7 @@ function warmPage(tab:TabId){
 }
 
 export default function App() {
-  const { authSession, currentUser, actions, administrationAccess } = usePortalStore(['authSession', 'currentUser','administrationAccess']);
+  const { authSession, currentUser, actions, administrationAccess,projects } = usePortalStore(['authSession', 'currentUser','administrationAccess','projects']);
   const [activeTab, setRenderedTab] = useState<TabId>('dashboard');
   const [isNavigating,startNavigation]=useTransition();
   const mainRef=useRef<HTMLElement>(null);
@@ -79,6 +80,7 @@ export default function App() {
   const [selectedProject, setSelectedProject] = useState<Project | undefined>(undefined);
   const [projectModalInitialTab, setProjectModalInitialTab] = useState<'milestones' | 'budget' | 'tasks' | 'log'>('milestones');
   const [selectedNoticeId, setSelectedNoticeId] = useState<string | null>(null);
+  const [openedNotification,setOpenedNotification]=useState<{target:NotificationTarget;version:number}|null>(null);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [selectedMeetingId, setSelectedMeetingId] = useState<string | null>(null);
   const [selectedApprovalId, setSelectedApprovalId] = useState<string | null>(null);
@@ -270,6 +272,24 @@ export default function App() {
     setActiveTab('calendar');
   };
 
+  const handleOpenNotification=(target:NotificationTarget)=>{
+    setOpenedNotification(previous=>({target,version:(previous?.version||0)+1}));
+    switch(target.kind){
+      case 'task':handleSelectTask(target.id);break;
+      case 'meeting':handleSelectMeeting(target.id);break;
+      case 'notice':handleSelectNotice(target.id);break;
+      case 'approval':handleSelectApproval(target.id);break;
+      case 'conversation':setActiveTab('messages');break;
+      case 'document':setActiveTab('documents');break;
+      case 'decision':setActiveTab('decisions');break;
+      case 'project':{
+        const project=projects.find(p=>p.id===target.id);
+        setActiveTab('projects');if(project)openProjectModal(project);break;
+      }
+      case 'section':setActiveTab(target.id);break;
+    }
+  };
+
   const handleSelectApproval = (id: string) => {
     setSelectedApprovalId(id);
     setSelectedNoticeId(null);
@@ -319,6 +339,7 @@ export default function App() {
         isNavigationOpen={isSidebarOpen}
         onSearchSelect={(tab: string) => setActiveTab(tab as TabId)}
         onSelectTask={handleSelectTask}
+        onOpenNotification={handleOpenNotification}
         onSignOut={() => actions.logoutUser()}
       />
 
@@ -329,7 +350,7 @@ export default function App() {
           currentTab={activeTab}
           onWarmTab={warmPage}
           onSelectTab={(tab: TabId) => {
-            setActiveTab(tab);
+            setActiveTab(tab);setOpenedNotification(null);
             setSelectedTaskId(null);
             setSelectedNoticeId(null);
             setSelectedMeetingId(null);
@@ -383,7 +404,7 @@ export default function App() {
               <TasksView
                 key="tasks-my-work"
                 defaultCategory="my-work"
-                selectedTaskId={selectedTaskId}
+                selectedTaskId={selectedTaskId} selectionVersion={openedNotification?.version}
                 onClearSelectedTask={() => setSelectedTaskId(null)}
                 onCategoryChange={(cat) => {
                   setSelectedTaskId(null);
@@ -401,7 +422,7 @@ export default function App() {
               <TasksView
                 key="tasks-department"
                 defaultCategory="department"
-                selectedTaskId={selectedTaskId}
+                selectedTaskId={selectedTaskId} selectionVersion={openedNotification?.version}
                 onClearSelectedTask={() => setSelectedTaskId(null)}
                 onCategoryChange={(cat) => {
                   setSelectedTaskId(null);
@@ -419,7 +440,7 @@ export default function App() {
               <TasksView
                 key="tasks-assigned-by-me"
                 defaultCategory="assigned-by-me"
-                selectedTaskId={selectedTaskId}
+                selectedTaskId={selectedTaskId} selectionVersion={openedNotification?.version}
                 onClearSelectedTask={() => setSelectedTaskId(null)}
                 onCategoryChange={(cat) => {
                   setSelectedTaskId(null);
@@ -437,7 +458,7 @@ export default function App() {
               <TasksView
                 key="tasks-all"
                 defaultCategory="all"
-                selectedTaskId={selectedTaskId}
+                selectedTaskId={selectedTaskId} selectionVersion={openedNotification?.version}
                 onClearSelectedTask={() => setSelectedTaskId(null)}
                 onCategoryChange={(cat) => {
                   setSelectedTaskId(null);
@@ -454,7 +475,7 @@ export default function App() {
             {activeTab === 'meetings' && (
               <MeetingsTeamsView
                 initialMode="list"
-                selectedMeetingId={selectedMeetingId}
+                selectedMeetingId={selectedMeetingId} selectionVersion={openedNotification?.version}
                 onOpenScheduleModal={() => handleOpenQuickAction('meeting')}
                 onOpenQuickAction={handleOpenQuickAction}
                 onSelectTask={handleSelectTask}
@@ -465,7 +486,7 @@ export default function App() {
             {activeTab === 'calendar' && (
               <MeetingsTeamsView
                 initialMode="calendar"
-                selectedMeetingId={selectedMeetingId}
+                selectedMeetingId={selectedMeetingId} selectionVersion={openedNotification?.version}
                 onOpenScheduleModal={() => handleOpenQuickAction('meeting')}
                 onOpenQuickAction={handleOpenQuickAction}
                 onSelectTask={handleSelectTask}
@@ -478,20 +499,20 @@ export default function App() {
             )}
 
             {activeTab === 'approvals' && (
-              <ApprovalsView selectedApprovalId={selectedApprovalId} />
+              <ApprovalsView selectedApprovalId={selectedApprovalId} selectionVersion={openedNotification?.version} />
             )}
 
             {activeTab === 'decisions' && (
-              <DecisionsView />
+              <DecisionsView selectedDecisionId={openedNotification?.target.kind==='decision'?openedNotification.target.id:null} selectionVersion={openedNotification?.version}/>
             )}
 
             {activeTab === 'documents' && (
-              <SharePointView onOpenUploadModal={() => handleOpenQuickAction('sharepoint')} />
+              <SharePointView onClearSelectedDocument={()=>setOpenedNotification(null)} selectedDocumentId={openedNotification?.target.kind==='document'?openedNotification.target.id:null} selectionVersion={openedNotification?.version} onOpenUploadModal={() => handleOpenQuickAction('sharepoint')} />
             )}
 
             {activeTab === 'notices' && (
               <NoticesView
-                selectedNoticeId={selectedNoticeId}
+                selectedNoticeId={selectedNoticeId} selectionVersion={openedNotification?.version}
                 onOpenNewNoticeModal={() => handleOpenQuickAction('notice')}
               />
             )}
@@ -521,7 +542,7 @@ export default function App() {
             )}
 
             {activeTab === 'messages' && (
-              <MessagesView />
+              <MessagesView selectedConversationId={openedNotification?.target.kind==='conversation'?openedNotification.target.id:null} selectionVersion={openedNotification?.version}/>
             )}
           </AppErrorBoundary></Suspense>
         </main>
