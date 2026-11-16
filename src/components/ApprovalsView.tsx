@@ -1,7 +1,8 @@
+import {RecordAttachment} from './RecordAttachment';
 import {canViewApproval,canResolveApproval} from '../utils/recordPermissions';
 import {isApprovalArchived} from '../utils/workArchive';
 import {useWorkArchiveClock} from '../utils/useWorkArchiveClock';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect,useRef } from 'react';
 import { UserAvatar } from './UserAvatar';
 import {
   ShieldCheck,
@@ -32,6 +33,7 @@ export const ApprovalsView: React.FC<{
   selectionVersion?:number;
 }> = ({ selectedApprovalId,selectionVersion }) => {
   const { approvals, projects, staff, actions, currentUser } = usePortalStore(['approvals', 'projects', 'staff', 'currentUser']);
+  const approvalSaveLock=useRef(false);const [approvalSaving,setApprovalSaving]=useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedStatus, setSelectedStatus] = useState<string>('All');
   const [isNewModalOpen, setIsNewModalOpen] = useState(false);
@@ -118,7 +120,8 @@ export const ApprovalsView: React.FC<{
 
   const handleCreateApproval = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newTitle.trim() || selectedApproverIds.length === 0) return;
+    if (approvalSaveLock.current||!newTitle.trim() || selectedApproverIds.length === 0) return;
+    approvalSaveLock.current=true;setApprovalSaving(true);
 
     try {
     await actions.addApproval({
@@ -130,12 +133,7 @@ export const ApprovalsView: React.FC<{
       requestedByAvatar: currentUser.avatar,
       notes: newNotes.trim() || undefined,
       approverIds: selectedApproverIds,
-      attachments: newAttachments.map(f => ({
-        name: f.name,
-        size: `${(f.size / 1024).toFixed(0)} KB`,
-        type: 'file',
-        url: '#', // Mock URL
-      })),
+      attachments: newAttachments.length?await Promise.all(newAttachments.map(async file=>{const {parseUploadedFile}=await import('../utils/fileParser');return parseUploadedFile(file);})):[],
     });
 
     setNewTitle('');
@@ -146,6 +144,7 @@ export const ApprovalsView: React.FC<{
     setNewAttachments([]);
     setIsNewModalOpen(false);
     }catch(error){window.alert(error instanceof Error?error.message:'Approval was not saved.');}
+    finally{approvalSaveLock.current=false;setApprovalSaving(false);}
   };
 
   const getStatusBadge = (status: Approval['status']) => {
@@ -326,10 +325,7 @@ export const ApprovalsView: React.FC<{
                   {approval.attachments && approval.attachments.length > 0 && (
                     <div className="flex flex-wrap gap-1.5 pt-1">
                       {approval.attachments.map((att, i) => (
-                        <span key={i} className="text-[10px] bg-slate-100 px-2 py-0.5 rounded text-slate-600 flex items-center gap-1">
-                          <Paperclip className="w-3 h-3 text-slate-400" />
-                          <span>{att.name}</span>
-                        </span>
+                        <RecordAttachment key={i} attachment={att}/>
                       ))}
                     </div>
                   )}
@@ -576,7 +572,7 @@ export const ApprovalsView: React.FC<{
                 </button>
                 <button
                   type="submit"
-                  disabled={!newTitle.trim() || selectedApproverIds.length === 0}
+                  disabled={approvalSaving||!newTitle.trim() || selectedApproverIds.length === 0}
                   className="px-4 py-1.5 bg-[#00ad1d] hover:bg-[#009218] disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium rounded-md shadow-xs transition"
                 >
                   Submit Request

@@ -2,6 +2,7 @@ import React,{useState,useEffect,useRef} from 'react';
 import {FileText,Download,ExternalLink} from 'lucide-react';
 import {supabase} from '../services/supabaseClient';
 import {CHAT_BUCKET,chatStoragePath} from '../services/chatAttachments';
+import {RECORD_BUCKET,recordFilePath} from '../services/recordAttachments';
 import type {MessageAttachment} from '../types';
 
 /** Fetch with the current member's session; no public or long-lived signed links. */
@@ -15,9 +16,9 @@ export function PrivateChatAttachment({attachment}:{attachment:MessageAttachment
     const tab=download?null:window.open('about:blank','_blank');
     if(tab)tab.opener=null;
     try{
-      const path=chatStoragePath(attachment.url);if(!path)throw new Error('The file link is unavailable.');
-      const {data,error}=await supabase.storage.from(CHAT_BUCKET).download(path);
-      if(error||!data)throw new Error('Could not open this file. Check your connection and conversation access, then try again.');
+      const recordPath=recordFilePath(attachment.url),path=recordPath||chatStoragePath(attachment.url);if(!path)throw new Error('The file link is unavailable.');
+      const {data,error}=await supabase.storage.from(recordPath?RECORD_BUCKET:CHAT_BUCKET).download(path);
+      if(error||!data)throw new Error('Could not open this file. Check your connection and access, then try again.');
       let url:string;
       if(!download&&['docx','xlsx'].includes(attachment.type)){
         const {parseUploadedFile,getAttachmentTabUrl}=await import('../utils/fileParser');

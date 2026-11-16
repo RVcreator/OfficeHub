@@ -1,3 +1,5 @@
+import {RecordAttachment} from './RecordAttachment';
+import {recordFilePath,isMicrosoftFileLink} from '../services/recordAttachments';
 import React, { useState, useMemo, useEffect } from 'react';
 import {isNoticeArchived} from '../utils/workArchive';
 import {useWorkArchiveClock} from '../utils/useWorkArchiveClock';
@@ -262,6 +264,7 @@ export const NoticesView: React.FC<{
                     </p>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                       {notice.attachments.map((attItem, idx) => {
+                        if(recordFilePath(attItem.url)||isMicrosoftFileLink(attItem.url))return <RecordAttachment key={attItem.id||idx} attachment={attItem}/>;
                         const att: MessageAttachment = {
                           id: (attItem as any).id || `att-${notice.id}-${idx}`,
                           name: attItem.name,

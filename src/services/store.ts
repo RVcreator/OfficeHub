@@ -1,3 +1,4 @@
+import {uploadRecordAttachments} from './recordAttachments';
 import {confirmChatSave} from './chatSave';
 import {uploadChatAttachments} from './chatAttachments';
 import {emptyAdministrationAccess,administrationAccessFromServer,canViewAdministration,canManageAdministration,type AdministrationAccess,type AdministrationGrant} from './administrationAccess';
@@ -1542,6 +1543,7 @@ export const portalStore = {
         organisation: taskData.organisation || 'WIPAHS',
       };
 
+      if(taskData.attachments?.length)taskToInsert.attachments=await uploadRecordAttachments(taskData.attachments,'task',id,currentUser.id);
       const row = mapTaskToRow(taskToInsert);
       const { data, error } = await supabase.from('tasks').insert(row).select(TASK_SELECT_COLUMNS).single();
       if (error) {
@@ -1601,6 +1603,7 @@ export const portalStore = {
         Boolean(updates.assignedToId && updates.assignedToId !== existingTask?.assignedToId) ||
         Boolean(updates.assignedToIds && updates.assignedToIds.some((id) => !existingTask?.assignedToIds?.includes(id)));
 
+      if(updates.attachments)updates={...updates,attachments:await uploadRecordAttachments(updates.attachments,'task',taskId,storeState.currentUser.id)};
       const rowUpdates = mapTaskToRow(updates);
       const { data, error } = await supabase.from('tasks').update(rowUpdates).eq('id', taskId).select(TASK_SELECT_COLUMNS).maybeSingle();
       if(error||!data)throw new Error(error?.message||'Task was not saved. Refresh and try again.');
@@ -1860,6 +1863,7 @@ export const portalStore = {
         organisation: noticeData.organisation || 'WIPAHS',
       };
 
+      if(newNotice.attachments?.length)newNotice.attachments=await uploadRecordAttachments(newNotice.attachments,'notice',id,currentUser.id);
       const row = mapNoticeToRow(newNotice);
       const { data, error } = await supabase.from('notices').insert(row).select(NOTICE_SELECT_COLUMNS).single();
       if (error) {
@@ -2909,7 +2913,8 @@ export const portalStore = {
           newMeeting.teamsJoinUrl=undefined;newMeeting.teamsMeetingId=undefined;newMeeting.teamsPasscode=undefined;
         }
 
-        const {data:result,error}=await supabase.rpc('officehub_save_meeting',{p_id:id,p_changes:mapMeetingToRow({...newMeeting,teamsJoinUrl:undefined,teamsMeetingId:undefined,teamsPasscode:undefined}),p_attendees:newMeeting.attendees.map(a=>({user_id:a.userId})),p_create:true});
+        if(newMeeting.attachments?.length)newMeeting.attachments=await uploadRecordAttachments(newMeeting.attachments,'meeting',id,currentUser.id);
+        const {data:result,error}=await supabase.rpc(newMeeting.attachments?.length?'officehub_save_meeting_files':'officehub_save_meeting',{p_id:id,p_changes:mapMeetingToRow({...newMeeting,teamsJoinUrl:undefined,teamsMeetingId:undefined,teamsPasscode:undefined}),p_attendees:newMeeting.attendees.map(a=>({user_id:a.userId})),p_create:true});
         if(error||!result?.meeting)throw new Error(error?.message||'Meeting was not saved.');
         const insertedMeeting=mapMeetingRow(result.meeting,(result.attendees||[]).map(mapMeetingAttendeeRow));
         // Ensure no duplicate exists in state before prepending
@@ -2988,7 +2993,8 @@ export const portalStore = {
   },
 
   updateMeeting: async (meetingId:string,updates:Partial<Meeting>):Promise<void> => {
-    const {data,error}=await supabase.rpc('officehub_save_meeting',{p_id:meetingId,p_changes:mapMeetingToRow(updates),p_attendees:updates.attendees?.map(a=>({user_id:a.userId}))??null,p_create:false});
+    if(updates.attachments)updates={...updates,attachments:await uploadRecordAttachments(updates.attachments,'meeting',meetingId,storeState.currentUser.id)};
+    const {data,error}=await supabase.rpc(updates.attachments!==undefined?'officehub_save_meeting_files':'officehub_save_meeting',{p_id:meetingId,p_changes:mapMeetingToRow(updates),p_attendees:updates.attendees?.map(a=>({user_id:a.userId}))??null,p_create:false});
     if(error||!data?.meeting)throw new Error(error?.message||'Meeting was not saved.');
     const saved=mapMeetingRow(data.meeting,(data.attendees||[]).map(mapMeetingAttendeeRow));
     setTableData('meetings',storeState.meetings.map(m=>m.id===meetingId?saved:m));
@@ -3542,6 +3548,7 @@ export const portalStore = {
         department: normalizeDepartmentName(approvalData.department),
       };
 
+      if(newApproval.attachments?.length)newApproval.attachments=await uploadRecordAttachments(newApproval.attachments,'approval',id,currentUser.id);
       const row = mapApprovalToRow(newApproval);
       const { data, error } = await supabase.from('approvals').insert(row).select('*').single();
       if (error) {

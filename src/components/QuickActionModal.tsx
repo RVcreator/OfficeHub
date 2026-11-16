@@ -140,6 +140,7 @@ export const QuickActionModal: React.FC<QuickActionModalProps> = ({
   const [newSubtaskInput, setNewSubtaskInput] = useState('');
   const [taskAttachments, setTaskAttachments] = useState<MessageAttachment[]>([]);
   const [isUploadingTaskFile, setIsUploadingTaskFile] = useState(false);
+  const [noticeFormError,setNoticeFormError]=useState('');
   const [taskFormError, setTaskFormError] = useState<string | null>(null);
 
   // Protect the unsaved task if browser navigation would unload the app.
@@ -511,7 +512,7 @@ export const QuickActionModal: React.FC<QuickActionModalProps> = ({
       setTaskSelectedDepartments([]);
       setTaskSelectedOrganisations(['WIPAHS']);
       onClose();
-    } finally {
+    } catch(error){setTaskFormError(error instanceof Error?error.message:'The task was not saved. Your draft is still here.');} finally {
       setIsSubmitting(false);
     }
   };
@@ -580,7 +581,7 @@ export const QuickActionModal: React.FC<QuickActionModalProps> = ({
     e.preventDefault();
     if (isSubmitting || !noticeTitle.trim()) return;
 
-    setIsSubmitting(true);
+    setNoticeFormError('');setIsSubmitting(true);
     try {
       const targetOrgsStr = noticeAudience === 'all'
         ? undefined
@@ -613,7 +614,7 @@ export const QuickActionModal: React.FC<QuickActionModalProps> = ({
 
       setNoticeAttachments([]);
       onClose();
-    } finally {
+    } catch(error){setNoticeFormError(error instanceof Error?error.message:'The notice was not saved. Your draft is still here.');} finally {
       setIsSubmitting(false);
     }
   };
@@ -1623,6 +1624,7 @@ export const QuickActionModal: React.FC<QuickActionModalProps> = ({
           {/* TAB 3: POST NOTICE */}
           {activeTab === 'notice' && (
             <form onSubmit={handleCreateNotice} className="space-y-4 text-xs">
+              {noticeFormError&&<p role="alert" className="rounded border border-rose-200 p-2 text-rose-800">{noticeFormError}</p>}
               <div>
                 <label className="font-semibold text-slate-700 block mb-1">Circular Title *</label>
                 <input

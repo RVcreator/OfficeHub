@@ -1,3 +1,5 @@
+import {RecordAttachment} from './RecordAttachment';
+import {recordFilePath,isMicrosoftFileLink} from '../services/recordAttachments';
 import {hasSavedTaskRating,requiresTaskRating} from '../utils/taskRatingState';
 import {canViewTask,ownsTask} from '../utils/recordPermissions';
 import { UserAvatar } from './UserAvatar';
@@ -965,20 +967,21 @@ export const TasksView: React.FC<TasksViewProps> = ({
       }
       const existing = task.attachments || [];
       const updatedAttachments = [...existing, ...newAttachments];
-      actions.updateTask(task.id, { attachments: updatedAttachments });
+      await actions.updateTask(task.id, { attachments: updatedAttachments });
       const updatedTask = tasks.find((t: Task) => t.id === task.id);
       if (updatedTask) setSelectedTask(updatedTask);
     } catch (err) {
       console.error('Error attaching file in task drawer:', err);
+      window.alert(err instanceof Error?err.message:'The attachment was not saved. Please retry.');
     } finally {
       e.target.value = '';
     }
   };
 
-  const handleDrawerRemoveFile = (task: Task, attachmentId: string) => {
+  const handleDrawerRemoveFile = async (task: Task, attachmentId: string) => {
     const existing = task.attachments || [];
     const updatedAttachments = existing.filter(a => a.id !== attachmentId);
-    actions.updateTask(task.id, { attachments: updatedAttachments });
+    try{await actions.updateTask(task.id, { attachments: updatedAttachments });}catch(error){window.alert(error instanceof Error?error.message:'Attachment removal failed.');return;}
     const updatedTask = tasks.find((t: Task) => t.id === task.id);
     if (updatedTask) setSelectedTask(updatedTask);
   };
@@ -2253,6 +2256,7 @@ export const TasksView: React.FC<TasksViewProps> = ({
                   {selectedTask.attachments && selectedTask.attachments.length > 0 ? (
                     <div className="space-y-2">
                       {selectedTask.attachments.map(att => {
+                        if(recordFilePath(att.url)||isMicrosoftFileLink(att.url))return <div key={att.id} className="flex items-start justify-between gap-2"><RecordAttachment attachment={att}/>{canUserEditTask(selectedTask)&&<button type="button" title="Remove attachment from task" onClick={()=>handleDrawerRemoveFile(selectedTask,att.id)}><Trash2 className="w-3.5 h-3.5"/></button>}</div>;
                         const tabUrl = getAttachmentTabUrl(att);
                         const ext = (att.name || '').split('.').pop()?.toLowerCase() || '';
                         const isPdf = att.type === 'pdf' || ext === 'pdf';

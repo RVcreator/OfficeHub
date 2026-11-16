@@ -12,12 +12,15 @@ const {chromium}=require(process.env.OFFICEHUB_PLAYWRIGHT_MODULE||'playwright');
   const approvals=[['approved-boundary','Approval boundary','Approved',boundary],['approved-old','Archived approval','Approved',old],['pending','Pending request','Pending',null],['rejected','Rejected request','Rejected',null]].map(([id,title,status,archive_ready_at])=>({id,title,status,archive_ready_at,description:'Approval record retained',requested_by_id:uid(1),requested_by_name:'Requester',approver_ids:[uid(2)],approved_by:'Approver',requested_date:old,approved_date:old,department:'IT'}));
   const decisions=[['decision-boundary','Decision boundary','Approved',boundary],['decision-old','Archived decision','Implemented',old],['decision-progress','Still implementing','In Implementation',null],['decision-review','Still under review','Under Review',null]].map(([id,title,status,archive_ready_at])=>({id,title,status,archive_ready_at,context:'Decision record retained',author_name:'Decision author',date:old,department:'IT'}));
   const notices=[...Array.from({length:26},(_,i)=>({id:'old-'+i,title:i===25?'Older notice outside startup':'Old notice '+i})),{id:'notice-boundary',title:'Notice boundary'},{id:'notice-unacked',title:'Another persons acknowledgement'},{id:'notice-recent',title:'Recent acknowledgement'}].map(n=>({...n,content:'Notice record retained',created_at:old,priority:'Normal',author_id:uid(1),author_name:'Notice author',department:'IT'}));
+  const archiveFile=(kind,id)=>({id:'file-'+id,name:kind+'-archive.txt',size:'8 B',type:'file',url:`storage://officehub-records/${kind}/${id}/${uid(1)}/original`});
+  approvals.find(a=>a.id==='approved-old').attachments=[archiveFile('approval','approved-old')];notices.find(n=>n.id==='old-0').attachments=[archiveFile('notice','old-0')];
   const acks=[...notices.filter(n=>n.id.startsWith('old-')).map(n=>({notice_id:n.id,user_id:uid(2),acknowledged_at:old})),{notice_id:'notice-boundary',user_id:uid(2),acknowledged_at:boundary},{notice_id:'notice-unacked',user_id:uid(3),acknowledged_at:old},{notice_id:'notice-recent',user_id:uid(2),acknowledged_at:'2026-11-16T08:00:00Z'}];
-  let mutations=0,backendNow=Date.parse('2026-11-17T07:59:00Z');
+  let downloads=0;let mutations=0,backendNow=Date.parse('2026-11-17T07:59:00Z');
   await context.route('**/*',route=>{
    const req=route.request(),u=new URL(req.url());
    if(u.origin===origin){const file=path.resolve(root,'.'+(u.pathname==='/'?'/index.html':u.pathname));if(!file.startsWith(root+path.sep))return route.abort();return route.fulfill({path:file,contentType:file.endsWith('.js')?'application/javascript':file.endsWith('.css')?'text/css':'text/html'});}
    if(!u.hostname.endsWith('.supabase.co'))return route.abort();let body=[];
+   if(u.pathname.startsWith('/storage/v1/object/')){assert.ok(req.headers().authorization);downloads++;return route.fulfill({contentType:'text/plain',body:'archived'});}
    if(u.pathname==='/auth/v1/user')body=user;
    else if(u.pathname==='/rest/v1/profiles_public')body=[profile];
    else if(u.pathname==='/rest/v1/profiles')body=profile;
@@ -53,6 +56,8 @@ const {chromium}=require(process.env.OFFICEHUB_PLAYWRIGHT_MODULE||'playwright');
   await page.getByText('Older notice outside startup',{exact:true}).waitFor();await page.getByText('Archived approval',{exact:true}).waitFor();await page.getByText('Approval boundary',{exact:true}).waitFor();await page.getByText('Archived decision',{exact:true}).waitFor();await page.getByText('Decision boundary',{exact:true}).waitFor();await page.getByText('Notice boundary',{exact:true}).waitFor();
   for(const id of ['notice-unacked','notice-recent','pending'])assert.equal(await page.locator(`[data-archived-work-id="${id}"]`).count(),0);
   await page.getByText('Archived approval',{exact:true}).click();await page.locator('[data-archived-work-id="approved-old"]').getByText('Approval record retained',{exact:true}).waitFor();
+  await page.getByRole('button',{name:'Download approval-archive.txt',exact:true}).click();
+  await page.getByText('Old notice 0',{exact:true}).click();await page.getByRole('button',{name:'Download notice-archive.txt',exact:true}).click();assert.equal(downloads,2);
   assert.equal(await page.getByRole('button',{name:'Clear Archived Tasks & Meetings'}).count(),0,'New archive types cannot be permanently cleared');
   await page.screenshot({path:'.auth-qa/screenshots/OfficeHub-work-archive-desktop.png',fullPage:true});
   await page.setViewportSize({width:390,height:900});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);await page.screenshot({path:'.auth-qa/screenshots/OfficeHub-work-archive-mobile.png',fullPage:true});
