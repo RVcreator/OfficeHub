@@ -4,6 +4,7 @@ import {createReadQueue,createRefreshGate,createReconnect,shouldReconcile} from 
 import {tableSnapshot,sameValue} from '../src/services/storeSnapshot';
 import {portalStore,setTableData,subscribeTable} from '../src/services/store';
 import {supabase} from '../src/services/supabaseClient';
+import {triggerLiveTaskSync,stopRealtimeEngine} from '../src/services/realtimeService';
 
 test('selected store snapshots stay stable across unrelated messages and renew when tasks change',()=>{
  const state={tasks:[{id:'a'}],messages:[] as string[]};const read=tableSnapshot(()=>state,['tasks']);const first=read();
@@ -56,8 +57,65 @@ test('task, notice and meeting child queries are limited to the loaded parent ID
 test('concurrent data consumers receive the newest trailing result without parallel requests',async()=>{
  const reads=createReadQueue();let finish!:(v:number)=>void,calls=0;
  const first=reads.run('tasks-user-A',()=>{calls++;return new Promise<number>(r=>finish=r);});
+ reads.invalidate('tasks-user-A');
  const second=reads.run('tasks-user-A',async()=>{calls++;return 2;});
  const third=reads.run('tasks-user-A',async()=>{calls++;return 3;});
  assert.equal(calls,1);finish(1);assert.deepEqual(await Promise.all([first,second,third]),[3,3,3]);assert.equal(calls,2);
  assert.equal(await reads.run('tasks-user-B',async()=>4),4);
+});
+
+
+test('ordinary concurrent readers share one result without a redundant trailing request',async()=>{
+ const reads=createReadQueue();let finish!:(value:number)=>void,calls=0;
+ const read=()=>{calls++;return new Promise<number>(r=>finish=r);};
+ const jobs=Array.from({length:20},()=>reads.run('tasks:a:[]',read));
+ assert.equal(calls,1);finish(42);
+ assert.deepEqual(await Promise.all(jobs),Array(20).fill(42));assert.equal(calls,1);
+ await assert.rejects(reads.run('tasks:a:[]',async()=>{throw Error('offline');}),/offline/);
+ assert.equal(await reads.run('tasks:a:[]',async()=>43),43,'failure releases the key');
+});
+
+test('invalidation affects all pending pages for the resource, without touching another identity',async()=>{
+ const reads=createReadQueue();let release!:()=>void,calls=0,otherCalls=0;
+ const blocker=new Promise<void>(r=>release=r);
+ const read=async()=>{const version=++calls;if(version===1)await blocker;return version;};
+ const a=reads.run('tasks:a:[25]',read),b=reads.run('tasks:b:[25]',async()=>{otherCalls++;await blocker;return 9;});
+ reads.invalidate('tasks:a:');release();
+ assert.deepEqual(await Promise.all([a,b]),[2,9]);assert.equal(calls,2);assert.equal(otherCalls,1);
+});
+
+test('a task attachment write invalidates an older in-flight snapshot before consumers publish it',async()=>{
+ const from=supabase.from;let release!:(value:any)=>void,reads=0;
+ const old={id:'queue-task',title:'Saved',attachments:[]},attachment={id:'shared-link',name:'File',type:'file',size:'1 KB',url:'https://wipahstz.sharepoint.com/sites/file'};
+ setTableData('tasks',[{...old,subtasks:[]}] as any);
+ (supabase as any).from=(table:string)=>{
+  const q:any={};for(const method of ['select','order','range','eq','in'])q[method]=()=>q;
+  q.update=()=>q;q.maybeSingle=async()=>({data:{...old,attachments:[attachment]},error:null});
+  q.then=(yes:any,no:any)=>{if(table==='task_subtasks')return Promise.resolve({data:[],error:null}).then(yes,no);
+   reads++;return (reads===1?new Promise(r=>release=r):Promise.resolve({data:[{...old,attachments:[attachment]}],error:null})).then(yes,no);};return q;
+ };
+ try{
+  const pending=portalStore.getTasks();await new Promise(r=>setImmediate(r));
+  await portalStore.updateTask(old.id,{attachments:[attachment as any]});
+  release({data:[old],error:null});const rows=await pending;
+  assert.equal(reads,2);assert.deepEqual(rows[0].attachments,[attachment]);
+ }finally{supabase.from=from;setTableData('tasks',[]);}
+});
+
+
+test('an actual realtime refresh invalidates an in-flight store read and publishes the trailing server result',async()=>{
+ const from=supabase.from,channel=supabase.channel,removeChannel=supabase.removeChannel;
+ let release!:(value:any)=>void,calls=0;
+ setTableData('currentUser',{id:'realtime-fixture',name:'Fixture'} as any);
+ const mockChannel:any={on:()=>mockChannel,subscribe:()=>mockChannel};
+ (supabase as any).channel=()=>mockChannel;(supabase as any).removeChannel=async()=> 'ok';
+ (supabase as any).from=(table:string)=>{const q:any={};for(const method of ['select','order','range','in'])q[method]=()=>q;
+ q.then=(yes:any,no:any)=>{if(table==='task_subtasks')return Promise.resolve({data:[],error:null}).then(yes,no);
+  calls++;return (calls===1?new Promise(r=>release=r):Promise.resolve({data:[{id:'live-task',title:'New server title'}],error:null})).then(yes,no);};return q;};
+ try{
+  const pending=portalStore.getTasks();await new Promise(r=>setImmediate(r));
+  portalStore.startRealtimeSync();const sync=triggerLiveTaskSync();
+  release({data:[{id:'live-task',title:'Old server title'}],error:null});await Promise.all([pending,sync]);
+  assert.equal(calls,2);assert.equal((await import('../src/services/store')).getTaskSnapshot('live-task')?.title,'New server title');
+ }finally{stopRealtimeEngine();supabase.from=from;supabase.channel=channel;supabase.removeChannel=removeChannel;setTableData('tasks',[]);}
 });

@@ -71,3 +71,32 @@ test('an in-flight response cannot republish after logout',async()=>{
  await controller.stop();release();await new Promise(resolve=>setImmediate(resolve));
  assert.equal(published,0);assert.ok(left>=1);
 });
+
+
+test('a withdrawn background tab makes no periodic requests and resumes immediately when visible',async()=>{
+ const b=browser();let beats=0,leaves=0,snapshots=0;
+ const controller=startPresence({heartbeat:async()=>{beats++;},snapshot:async()=>{snapshots++;return [];},leave:async()=>{leaves++;}},()=>{},b.env);
+ await new Promise(r=>setImmediate(r));
+ b.doc.visibilityState='hidden';b.doc.dispatchEvent(new Event('visibilitychange'));await new Promise(r=>setImmediate(r));
+ const before={beats,leaves,snapshots};assert.deepEqual(before,{beats:1,leaves:1,snapshots:2});
+ for(let i=0;i<120;i++){b.advance(30_000);b.pulse();}
+ b.win.dispatchEvent(new Event('pagehide'));await controller.sync();await new Promise(r=>setImmediate(r));
+ assert.deepEqual({beats,leaves,snapshots},before,'one hour hidden does not send another request');
+ b.doc.visibilityState='visible';b.win.dispatchEvent(new Event('pageshow'));await new Promise(r=>setImmediate(r));
+ assert.equal(beats,2);assert.equal(snapshots,3);controller.stop();
+});
+
+test('a failed hidden withdrawal stays retryable without background polling',async()=>{
+ const b=browser();b.doc.visibilityState='hidden';let attempts=0;
+ const controller=startPresence({heartbeat:async()=>{},snapshot:async()=>[],leave:async()=>{if(++attempts===1)throw Error('offline');}},()=>{},b.env);
+ await new Promise(r=>setImmediate(r));b.pulse();assert.equal(attempts,1);
+ await controller.sync();assert.equal(attempts,2);await controller.sync();assert.equal(attempts,2);controller.stop();
+});
+
+test('stalled presence cleanup cannot block local logout or publish after stop',async()=>{
+ const b=browser();let leaveStarted=0,published=0;
+ const controller=startPresence({heartbeat:async()=>{},snapshot:async()=>[],leave:()=>{leaveStarted++;return new Promise<void>(()=>{});}},()=>published++,b.env);
+ await new Promise(r=>setImmediate(r));const before=published;
+ assert.equal(controller.stop(),undefined);assert.equal(leaveStarted,1);
+ b.pulse();await controller.sync();b.win.dispatchEvent(new Event('keydown'));assert.equal(published,before);
+});

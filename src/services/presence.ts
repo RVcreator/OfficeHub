@@ -32,7 +32,7 @@ export function startPresence(
   publish: (rows: PresenceRow[] | null) => void,
   env: { window: Window; document: Document; online(): boolean; now(): number; sessionId: string },
 ) {
-  let lastInput=env.now(), stopped=false, running=false, requested=false, suspended=false, revision=0;
+  let lastInput=env.now(), stopped=false, running=false, requested=false, suspended=false, withdrawn=false, revision=0;
   const flush=async () => {
     if (stopped) return;
     if (running) { requested=true; return; }
@@ -40,9 +40,15 @@ export function startPresence(
     const current=revision;
     try {
       if (env.online()) {
-        if(suspended||env.document.visibilityState!=='visible') await transport.leave(env.sessionId);
-        else await transport.heartbeat(env.sessionId,isPresenceActive(lastInput,env.now(),true,true));
-        if (stopped) return;
+        if(suspended||env.document.visibilityState!=='visible') {
+          if(withdrawn)return;
+          await transport.leave(env.sessionId);
+          withdrawn=true;
+        } else {
+          withdrawn=false;
+          await transport.heartbeat(env.sessionId,isPresenceActive(lastInput,env.now(),true,true));
+        }
+        if (stopped||current!==revision) return;
         const rows=await transport.snapshot();
         if (!stopped&&current===revision) publish(rows);
       } else {
@@ -75,11 +81,13 @@ export function startPresence(
   env.window.addEventListener('pagehide',pageHide);
   env.window.addEventListener('pageshow',pageShow);
   env.document.addEventListener('visibilitychange',visibility);
-  const timer=env.window.setInterval(()=>{ void flush(); },PRESENCE_PULSE_MS);
+  const timer=env.window.setInterval(()=>{
+    if(!suspended&&env.document.visibilityState==='visible')void flush();
+  },PRESENCE_PULSE_MS);
   void flush();
   return {
     sync: flush,
-    async stop() {
+    stop() {
       stopped=true;
       env.window.clearInterval(timer);
       events.forEach(event=>env.window.removeEventListener(event,input));
@@ -88,7 +96,9 @@ export function startPresence(
       env.window.removeEventListener('pagehide',pageHide);
       env.window.removeEventListener('pageshow',pageShow);
       env.document.removeEventListener('visibilitychange',visibility);
-      await transport.leave(env.sessionId).catch(()=>{});
+      // Local logout must not wait for best-effort housekeeping. The server TTL
+      // still withdraws an abandoned session if this request cannot complete.
+      void transport.leave(env.sessionId).catch(()=>{});
     },
   };
 }

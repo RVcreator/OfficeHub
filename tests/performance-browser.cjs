@@ -42,7 +42,7 @@ const fs=require('fs'),path=require('path'),http=require('http'),assert=require(
   await page.screenshot({path:'.auth-qa/screenshots/performance-modal.png',fullPage:true});
   releaseGraph();
   const failurePage=await context.newPage(),failureErrors=[];failurePage.on('pageerror',e=>failureErrors.push(e.message));
-  await failurePage.route('**/QuickActionModal-*.js',r=>r.abort());
+  await failurePage.route(/\/QuickActionModal-[^/]+\.js(?:\?.*)?$/,r=>r.abort());
   await failurePage.goto(origin);await failurePage.getByRole('heading',{name:'Welcome, Performance'}).waitFor();
   await failurePage.getByRole('button',{name:'Create task Assign work and a deadline'}).click();
   await failurePage.getByRole('heading',{name:'This screen could not open',exact:true}).waitFor();
