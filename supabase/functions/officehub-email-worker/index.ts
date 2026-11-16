@@ -1,5 +1,6 @@
 import { graphRequest, processOne } from '../_shared/officehubEmailWorker.ts';
 import {processTeamsSync} from '../_shared/teamsMeetingSync.ts';
+import {revokeStaleAttachmentGrants} from '../_shared/microsoftAttachments.ts';
 
 const env = (key: string) => Deno.env.get(key) || '';
 const json = (body: unknown,status=200) => Response.json(body,{status});
@@ -72,7 +73,12 @@ export async function handler(req: Request): Promise<Response> {
         method:'POST',headers:{authorization:'Bearer '+accessToken,'content-type':message.contentType},
         body:message.body,signal:AbortSignal.timeout(15000),
       });}});
-    return json({outcome,meetingOutcome});
+    let attachmentOutcome='unavailable';
+    try{attachmentOutcome=await revokeStaleAttachmentGrants({token,list:()=>rpc('officehub_stale_attachment_grants',{p_limit:3}),remove:async g=>{
+      const response=await fetch(url+'/rest/v1/officehub_attachment_microsoft_grants?source_url=eq.'+encodeURIComponent(g.source_url)+'&user_id=eq.'+encodeURIComponent(g.user_id)+'&permission_id=eq.'+encodeURIComponent(g.permission_id),{method:'DELETE',headers:{apikey:service,authorization:'Bearer '+service},signal:AbortSignal.timeout(5000)});
+      if(!response.ok)throw new Error('Attachment grant cleanup pending');
+    }});}catch{/* Keep grant records for the next scheduled retry; do not disrupt email. */}
+    return json({outcome,meetingOutcome,attachmentOutcome});
   } catch {
     // Never log tokens, response bodies, email content, or user addresses.
     return json({error:'Email queue processing failed; inspect queue status before retrying'},500);
