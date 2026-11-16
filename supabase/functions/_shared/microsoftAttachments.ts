@@ -32,7 +32,10 @@ export async function openMicrosoftAttachment(d:{source:unknown;userId:string;em
   const response=await request(`${base}/items/${encodeURIComponent(folder.id)}:/${encodeURIComponent(hash+'-'+name)}:/content`,{method:'PUT',headers:{'Content-Type':blob.type||'application/octet-stream'},body:blob});
   if(!response.ok)throw new DocumentActionError(response.status===429?429:502,'Microsoft could not save the original file. Your OfficeHub attachment is unchanged; retry later.');
   const item=await response.json();
-  if(!item.id||!item.file||item.folder||item.deleted||item.parentReference?.driveId!==d.drive||item.size!==blob.size)throw new DocumentActionError(502,'Microsoft did not confirm the original file.');
+  // SharePoint can promote Office metadata into the file after accepting the
+  // original upload, changing its ZIP size. Identity and a valid reported size
+  // confirm the response; byte-for-byte size equality would reject valid Word files.
+  if(!item.id||!item.file||item.folder||item.deleted||item.parentReference?.driveId!==d.drive||!Number.isSafeInteger(item.size)||item.size<0)throw new DocumentActionError(502,'Microsoft did not confirm the original file.');
   binding=await d.saveBinding({source_url:source.url,drive_id:d.drive,item_id:item.id,web_url:microsoftAttachmentUrl(item.webUrl)});
  }
  // Refresh the canonical URL from the server-owned item; never accept a caller URL.
