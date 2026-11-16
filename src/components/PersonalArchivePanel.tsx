@@ -1,3 +1,4 @@
+import {RecordAttachment} from './RecordAttachment';
 import {useMeetingClock} from '../utils/useMeetingClock';
 import {isPhysicalMeeting,meetingFormatLabel} from '../utils/meetingFormat';
 import {canRespondToMeeting,isMeetingUpcoming} from '../utils/meetingLifecycle';
@@ -407,6 +408,7 @@ export const PersonalArchivePanel: React.FC<PersonalArchivePanelProps> = ({
                 </p>
               </div>
 
+              {selectedTaskDetail.attachments?.map(file=><RecordAttachment key={file.id} attachment={file}/>)}
               {/* Assigner & Assignee Info */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 space-y-1">
@@ -583,6 +585,7 @@ export const PersonalArchivePanel: React.FC<PersonalArchivePanelProps> = ({
                 )}
               </div>
 
+              {selectedMeetingDetail.attachments?.map(file=><RecordAttachment key={file.id} attachment={file}/>)}
               {/* Teams Join URL if available */}
               {!isPhysicalMeeting(selectedMeetingDetail)&&selectedMeetingDetail.teamsJoinUrl && (
                 <div className="p-3 bg-purple-50 border border-purple-200 rounded-lg flex items-center justify-between gap-3">

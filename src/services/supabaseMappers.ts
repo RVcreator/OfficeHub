@@ -43,10 +43,10 @@ export function toUuidOrNull(str: string | undefined | null): string | null {
 // Explicit column lists that exclude oversized denormalized Base64 avatar columns
 // so PostgREST responses never time out or truncate mid-stream.
 export const TASK_SELECT_COLUMNS =
-  'id, title, description, status, priority, department, organisation, assigned_to_id, assigned_to_name, assigned_to_ids, created_by_id, created_by_name, due_date, project_id, sharepoint_doc_id, pending_rating, rating, completed_at, cancelled_at, created_at, assignment_type, assigned_departments, assigned_organisations, delivery_event_version, general_update, general_update_version';
+  'id, title, description, status, priority, department, organisation, assigned_to_id, assigned_to_name, assigned_to_ids, created_by_id, created_by_name, due_date, project_id, sharepoint_doc_id, pending_rating, rating, completed_at, cancelled_at, created_at, assignment_type, assigned_departments, assigned_organisations, delivery_event_version, general_update, general_update_version, attachments';
 
 export const NOTICE_SELECT_COLUMNS =
-  'id, title, content, author_id, author_name, author_role, department, organisation, priority, created_at, pinned, expires_at, target_audience_type, target_organisations, target_departments, target_user_ids';
+  'id, title, content, author_id, author_name, author_role, department, organisation, priority, created_at, pinned, expires_at, target_audience_type, target_organisations, target_departments, target_user_ids, attachments';
 
 export const MEETING_ATTENDEE_SELECT_COLUMNS =
   'meeting_id, user_id, name, email, status, proposed_date, proposed_time, proposed_end_time, proposal_note, note, comment, responded_at';
@@ -257,6 +257,7 @@ export function mapTaskRow(row: any, subtasks: Subtask[] = []): Task {
   }
 
   return {
+    attachments: Array.isArray(row.attachments)?row.attachments:[],
     id: row.id,
     title: row.title || '',
     description: row.description || '',
@@ -292,6 +293,7 @@ export function mapTaskRow(row: any, subtasks: Subtask[] = []): Task {
 
 export function mapTaskToRow(task: Partial<Task>): Record<string, any> {
   const row: Record<string, any> = {};
+  if (task.attachments !== undefined) row.attachments = task.attachments;
   if (task.id !== undefined) row.id = task.id;
   if (task.title !== undefined) row.title = task.title;
   if (task.description !== undefined) row.description = task.description;
@@ -326,6 +328,7 @@ export function mapTaskToRow(task: Partial<Task>): Record<string, any> {
 // -------------------------------------------------------------------------
 export function mapNoticeRow(row: any, acks: string[] = [], acknowledgedAtBy:Record<string,string>={}): Notice {
   return {
+    attachments: Array.isArray(row.attachments)?row.attachments:[],
     id: row.id,
     title: row.title || '',
     content: row.content || '',
@@ -348,6 +351,7 @@ export function mapNoticeRow(row: any, acks: string[] = [], acknowledgedAtBy:Rec
 
 export function mapNoticeToRow(notice: Partial<Notice>): Record<string, any> {
   const row: Record<string, any> = {};
+  if (notice.attachments !== undefined) row.attachments = notice.attachments;
   if (notice.id !== undefined) row.id = notice.id;
   if (notice.title !== undefined) row.title = notice.title;
   if (notice.content !== undefined) row.content = notice.content;
@@ -466,6 +470,7 @@ export function mapMeetingAttendeeRow(row: any): MeetingAttendee {
 
 export function mapMeetingRow(row: any, attendees: MeetingAttendee[] = []): Meeting {
   return {
+    attachments: Array.isArray(row.attachments)?row.attachments:[],
     id: row.id,
     title: row.title || '',
     department: row.department || 'General',
@@ -497,6 +502,7 @@ export function mapMeetingRow(row: any, attendees: MeetingAttendee[] = []): Meet
 
 export function mapMeetingToRow(meeting: Partial<Meeting>): Record<string, any> {
   const row: Record<string, any> = {};
+  if (meeting.attachments !== undefined) row.attachments = meeting.attachments;
   if (meeting.id !== undefined) row.id = meeting.id;
   if (meeting.title !== undefined) row.title = meeting.title;
   if (meeting.department !== undefined) row.department = meeting.department;
@@ -670,6 +676,7 @@ export function mapDecisionToRow(dec: Partial<Decision>): Record<string, any> {
 // -------------------------------------------------------------------------
 export function mapApprovalRow(row: any): Approval {
   return {
+    attachments: Array.isArray(row.attachments)?row.attachments:[],
     id: row.id,
     title: row.title || '',
     description: row.description || '',
@@ -692,6 +699,7 @@ export function mapApprovalRow(row: any): Approval {
 
 export function mapApprovalToRow(app: Partial<Approval>): Record<string, any> {
   const row: Record<string, any> = {};
+  if (app.attachments !== undefined) row.attachments = app.attachments;
   if (app.id !== undefined) row.id = app.id;
   if (app.title !== undefined) row.title = app.title;
   if (app.description !== undefined) row.description = app.description;

@@ -1,3 +1,5 @@
+import {RecordAttachment} from './RecordAttachment';
+import {recordFilePath,isMicrosoftFileLink} from '../services/recordAttachments';
 import {newMeetingDefaults} from '../utils/newMeetingSchedule';
 import {isPhysicalMeeting,meetingFormatLabel} from '../utils/meetingFormat';
 import {canRespondToMeeting,isMeetingDormant,canEditMeetingSchedule} from '../utils/meetingLifecycle';
@@ -345,6 +347,7 @@ const renderMeetingAttachments = (
       </div>
       <div className="flex flex-wrap gap-1.5">
         {attachments.map(att => {
+          if(recordFilePath(att.url)||isMicrosoftFileLink(att.url))return <div key={att.id} className="flex items-start gap-2"><RecordAttachment attachment={att}/>{options?.canDelete&&options.onDelete&&<button type="button" title="Remove attachment" onClick={()=>options.onDelete!(att.id)}><X className="w-3 h-3"/></button>}</div>;
           const tabUrl = getAttachmentTabUrl(att);
           const ext = (att.name || '').split('.').pop()?.toLowerCase() || '';
           const isPdf = att.type === 'pdf' || ext === 'pdf';
@@ -1122,18 +1125,18 @@ export const MeetingsTeamsView: React.FC<{
       }
       const existing = meeting.attachments || [];
       const updated = [...existing, ...parsedList];
-      actions.updateMeeting(meeting.id, { attachments: updated });
+      await actions.updateMeeting(meeting.id, { attachments: updated });
     } catch (err) {
-      console.error('Error attaching file to meeting:', err);
+      console.error('Error attaching file to meeting:', err);window.alert(err instanceof Error?err.message:'The attachment was not saved.');
     } finally {
       e.target.value = '';
     }
   };
 
-  const handleDetailRemoveFile = (meeting: Meeting, attachmentId: string) => {
+  const handleDetailRemoveFile = async (meeting: Meeting, attachmentId: string) => {
     const existing = meeting.attachments || [];
     const updated = existing.filter(a => a.id !== attachmentId);
-    actions.updateMeeting(meeting.id, { attachments: updated });
+    try{await actions.updateMeeting(meeting.id, { attachments: updated });}catch(error){window.alert(error instanceof Error?error.message:'Attachment removal failed.');}
   };
 
   // Dynamic conflict detection during edit
