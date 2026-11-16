@@ -31,6 +31,9 @@ try{
  await user(2);for(const kind of ['task','approval','meeting','notice'])assert.equal(await visible(kind),1,'recipient file access '+kind);
  await assert.rejects(db.query("update tasks set attachments=$1 where id='task'",[JSON.stringify([file('task','task',3)])]),/another uploader/);
  await assert.rejects(db.query("update approvals set attachments='[]' where id='approval'"),/Only the requester/);
+ await db.exec(`reset role;update profiles set app_metadata='{"deactivated":true}' where id='${uid(2)}'`);
+ await user(2);for(const kind of ['task','approval','meeting','notice'])assert.equal(await visible(kind),0,'deactivated recipient denied '+kind);
+ await db.exec(`reset role;update profiles set app_metadata='{}' where id='${uid(2)}'`);
  await user(3);for(const kind of ['task','approval','meeting','notice'])assert.equal(await visible(kind),0,'outsider/admin denied '+kind);
  await assert.rejects(db.query("insert into storage.objects values('spoof','officehub-records',$1,'{\"size\":5}')",[`task/task/${uid(1)}/spoof`]),/row-level security/);
  await user(1);
@@ -39,6 +42,8 @@ try{
  assert.equal((await db.query("delete from storage.objects where bucket_id='officehub-records' returning id")).rows.length,0,'files cannot disappear behind committed records');
  await db.query("update tasks set assigned_to_id=null,assigned_to_ids='{}' where id='task'");
  await user(2);assert.equal(await visible('task'),0,'reassignment revokes download immediately');
+ await user(1);await db.exec(`update approvals set approver_ids=array['${uid(1)}'] where id='approval';delete from meeting_attendees where meeting_id='meeting';update notices set department='Finance' where id='notice'`);
+ await user(2);for(const kind of ['approval','meeting','notice'])assert.equal(await visible(kind),0,'recipient removal revokes '+kind);
  await user(1);await db.exec("update tasks set attachments='[]' where id='task'");assert.equal(await visible('task'),0,'unlinking revokes even the uploader');
  await db.exec("reset role;insert into storage.objects values('other','other-bucket','other/file','{}');set role anon");
  assert.equal((await db.query("select id from storage.objects where bucket_id='officehub-records'")).rows.length,0);
