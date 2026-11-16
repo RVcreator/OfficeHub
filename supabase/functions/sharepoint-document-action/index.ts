@@ -1,4 +1,5 @@
 import {readMicrosoftLibraryIdentities,reconcileLegacyDocuments} from '../_shared/documentReconciliation.ts';
+import {attachmentSource,openMicrosoftAttachment} from '../_shared/microsoftAttachments.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { getMsGraphAppToken } from '../_shared/msGraphToken.ts';
 import { DocumentActionError, inspectMicrosoftFile, recycleMicrosoftFile, deleteConfirmedDocument, createMicrosoftFolder } from '../_shared/documentActions.ts';
@@ -16,6 +17,33 @@ Deno.serve(async req => {
     const { data: profile } = await caller.from('profiles').select('id,app_metadata').eq('id',user.id).single();
     if (!profile || profile.app_metadata?.deactivated === true || user.app_metadata?.deactivated === true) return reply(403, { error: 'An active staff account is required' });
     const body = await req.json();
+    if(body.action==='open_attachment'){
+      if(Object.keys(body).some(k=>!['action','attachmentUrl'].includes(k)))return reply(400,{error:'Invalid attachment action'});
+      if(!user.email_confirmed_at||user.app_metadata?.must_change_password===true)return reply(403,{error:'Complete sign-in with your organisation account first.'});
+      const source=attachmentSource(body.attachmentUrl),drive=Deno.env.get('MS_DRIVE_ID');
+      if(!drive)return reply(503,{error:'Microsoft document storage is not configured.'});
+      const admin=createClient(url,Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,{auth:{persistSession:false}});
+      const canRead=async()=>{
+        if(source.bucket==='officehub-records'){const {data,error}=await caller.rpc('officehub_can_read_record_file',{p_path:source.path});return !error&&data===true;}
+        const {data,error}=await caller.from('message_attachments').select('id').eq('url',source.url).limit(1);return !error&&data?.length===1;
+      };
+      const result=await openMicrosoftAttachment({source:source.url,userId:user.id,email:user.email||'',drive,fetcher:fetch,token:getMsGraphAppToken,stillAuthorized:canRead,
+        authorize:async()=>{
+          if(!await canRead())throw new DocumentActionError(403,'You do not have access to this attachment.');
+          let file;
+          if(source.bucket==='officehub-records'){
+            const [kind,id]=source.path.split('/'),table={task:'tasks',approval:'approvals',meeting:'meetings',notice:'notices'}[kind]!;
+            const {data,error}=await caller.from(table).select('attachments').eq('id',id).single();
+            if(!error)file=data?.attachments?.find((a:{url:string})=>a.url===source.url);
+          }else{const {data,error}=await caller.from('message_attachments').select('name,url').eq('url',source.url).limit(1);if(!error)file=data?.[0];}
+          if(!file?.name)throw new DocumentActionError(403,'This attachment is no longer available.');
+          return {name:file.name,download:async()=>{const {data,error}=await caller.storage.from(source.bucket).download(source.path);if(error||!data)throw new DocumentActionError(403,'The original file is unavailable or access has changed.');return data;}};
+        },
+        readBinding:async()=>{const {data,error}=await admin.from('officehub_attachment_microsoft_files').select('*').eq('source_url',source.url).maybeSingle();if(error)throw new DocumentActionError(503,'Microsoft attachment setup is not ready.');return data;},
+        saveBinding:async(binding)=>{const {error}=await admin.from('officehub_attachment_microsoft_files').upsert(binding,{onConflict:'source_url',ignoreDuplicates:true});if(error)throw new DocumentActionError(503,'Microsoft saved the file but OfficeHub could not confirm it. Retry the same attachment.');const {data,error:readError}=await admin.from('officehub_attachment_microsoft_files').select('*').eq('source_url',source.url).single();if(readError)throw new DocumentActionError(503,'Microsoft attachment identity could not be read.');return data;},
+        saveGrant:async(permissionId)=>{const {error}=await admin.from('officehub_attachment_microsoft_grants').upsert({source_url:source.url,user_id:user.id,permission_id:permissionId});if(error)throw error;}
+      });return reply(200,result);
+    }
     if (!['delete','sync','create_folder','reconcile'].includes(body.action) || Object.keys(body).some(k => !['action','documentId','folderName'].includes(k))) return reply(400, { error: 'Invalid document action' });
     const admin = createClient(url, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, { auth: { persistSession: false } });
     const drive = Deno.env.get('MS_DRIVE_ID');

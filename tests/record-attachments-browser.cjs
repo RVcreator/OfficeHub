@@ -3,7 +3,7 @@ const {chromium}=require(process.env.OFFICEHUB_PLAYWRIGHT_MODULE||'playwright');
 const fs=require('fs'),path=require('path'),http=require('http'),assert=require('assert/strict');
 (async()=>{
  process.chdir(path.resolve(__dirname,'..'));
- const root=path.resolve('dist'),requests=[],errors=[];let downloads=0;
+ const root=path.resolve('dist'),requests=[],errors=[];let downloads=0,opens=0,denyOpenOnce=true;
  const origin='https://officehub-fixture.invalid';
  const browser=await chromium.launch({headless:true,executablePath:process.env.OFFICEHUB_BROWSER_EXECUTABLE});
  try{
@@ -30,8 +30,10 @@ const fs=require('fs'),path=require('path'),http=require('http'),assert=require(
   let releaseGraph,graphStarted=false;const graphWait=new Promise(r=>releaseGraph=r);
   await context.route('**/*',async route=>{
    const u=new URL(route.request().url());if(u.origin===origin){requests.push(u.pathname);const file=path.resolve(root,'.'+(u.pathname==='/'?'/index.html':u.pathname));if(!file.startsWith(root+path.sep))return route.abort();return route.fulfill({contentType:file.endsWith('.js')?'application/javascript':file.endsWith('.css')?'text/css':'text/html',body:fs.readFileSync(file)});}
+   if(u.hostname==='wipahstz.sharepoint.com')return route.fulfill({contentType:'text/html',body:'<h1>Microsoft file fixture</h1>'});
    if(!u.hostname.endsWith('.supabase.co'))return route.abort();
    requests.push(u.pathname+u.search);let body=[];
+   if(u.pathname.endsWith('/sharepoint-document-action')){const body=route.request().postDataJSON();assert.equal(body.action,'open_attachment');assert.match(body.attachmentUrl,/^storage:\/\/officehub-records\//);opens++;if(denyOpenOnce){denyOpenOnce=false;return route.fulfill({status:403,json:{error:'Fixture Microsoft access unavailable'}});}return route.fulfill({json:{success:true,webUrl:'https://wipahstz.sharepoint.com/sites/OfficeHub/file?web=1'}});}
    if(u.pathname.startsWith('/storage/v1/object/')){
     assert.ok(route.request().headers().authorization,'Recipient download must be authenticated');assert.equal(route.request().method(),'GET');downloads++;
     return route.fulfill({contentType:'text/plain',body:'original bytes'});
@@ -58,9 +60,11 @@ const fs=require('fs'),path=require('path'),http=require('http'),assert=require(
   await page.goto(origin);await page.getByRole('heading',{name:'Welcome, Performance'}).waitFor();releaseGraph();
   const openAlert=async(id,keyboard=false)=>{console.log('Opening alert',id);await page.getByRole('button',{name:'Notifications',exact:true}).click();const button=page.getByRole('button',{name:'Open notification: Alert '+id,exact:true});if(keyboard)await button.press('Enter');else await button.click();};
   const checkFile=async(kind)=>{
-   const popupPromise=page.waitForEvent('popup');await page.getByRole('button',{name:'Open file',exact:true}).first().click();const popup=await popupPromise;
-   await popup.waitForURL('blob:**');assert.match(await popup.frameLocator('iframe').locator('body').innerText(),/original bytes/);assert.equal(await popup.locator('iframe').getAttribute('sandbox'),'');await popup.close();
-   await page.getByRole('button',{name:'Download '+kind+'-original.txt',exact:true}).waitFor();
+   if(kind==='task'){const failedPopup=page.waitForEvent('popup');await page.getByRole('button',{name:'Open in SharePoint',exact:true}).first().click();const failed=await failedPopup;await page.getByRole('alert').filter({hasText:'Fixture Microsoft access unavailable'}).waitFor();assert.equal(failed.isClosed(),true,'failed Microsoft request closes the temporary tab and retains the record');}
+
+   const popupPromise=page.waitForEvent('popup');await page.getByRole('button',{name:'Open in SharePoint',exact:true}).first().click();const popup=await popupPromise;
+   await popup.waitForURL('https://wipahstz.sharepoint.com/**');await popup.getByRole('heading',{name:'Microsoft file fixture'}).waitFor();await popup.close();
+   await page.getByRole('button',{name:'Download '+kind+'-original.txt',exact:true}).click();await page.waitForFunction(()=>!Array.from(document.querySelectorAll('button')).some(b=>b.textContent==='Opening…'));
   };
   await openAlert('task');await page.getByRole('heading',{name:'Exact task',exact:true}).waitFor();await checkFile('task');
   await page.getByRole('button',{name:'Close task details drawer',exact:true}).click();
@@ -68,8 +72,8 @@ const fs=require('fs'),path=require('path'),http=require('http'),assert=require(
   await page.getByRole('button',{name:'Close',exact:true}).click();
   await openAlert('notice');await page.locator('#notice-notice-target').waitFor();await checkFile('notice');
   await openAlert('approval');await page.locator('#approval-approval-target').waitFor();await checkFile('approval');
-  assert.equal(downloads,4);assert.deepEqual(errors,[]);
-  await page.screenshot({path:'../../outputs/OfficeHub-record-files-recipient.png',fullPage:true});
-  console.log('PASS: a fresh recipient browser opens persisted original task, approval, meeting and notice bytes using authenticated downloads, without sender IndexedDB; sandboxed previews; no browser errors.');
+  assert.equal(downloads,4);assert.equal(opens,5);assert.deepEqual(errors,[]);
+  await page.screenshot({path:'../../outputs/OfficeHub-microsoft-record-files.png',fullPage:true});
+  console.log('PASS: a fresh recipient browser opens persisted original task, approval, meeting and notice bytes using authenticated downloads, without sender IndexedDB; confirmed Microsoft SharePoint navigation; no browser errors.');
  }finally{await browser.close();}
 })().catch(e=>{console.error(e);process.exitCode=1;});

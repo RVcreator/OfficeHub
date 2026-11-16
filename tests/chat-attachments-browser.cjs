@@ -17,11 +17,13 @@ const fs=require('fs'),path=require('path'),assert=require('assert/strict');
   await context.route('**/*',async route=>{
    const req=route.request(),u=new URL(req.url());
    if(u.origin===origin){const file=path.resolve(root,'.'+(u.pathname==='/'?'/index.html':u.pathname));if(!file.startsWith(root+path.sep))return route.abort();return route.fulfill({contentType:file.endsWith('.js')?'application/javascript':file.endsWith('.css')?'text/css':'text/html',body:fs.readFileSync(file)});}
+   if(u.hostname==='wipahstz.sharepoint.com')return route.fulfill({contentType:'text/html',body:'<h1>Microsoft file fixture</h1>'});
    if(!u.hostname.endsWith('.supabase.co'))return route.abort();let body=[];
    if(u.pathname==='/auth/v1/user')body=user;
    else if(u.pathname==='/rest/v1/profiles_public')body=[profile];
    else if(u.pathname.includes('/profiles'))body=u.searchParams.has('id')?profile:[profile];
    // Deliberately overbroad fixture responses exercise client defense as well as RLS tests.
+   else if(u.pathname.endsWith('/sharepoint-document-action')){assert.equal(req.postDataJSON().action,'open_attachment');return route.fulfill({json:{success:true,webUrl:'https://wipahstz.sharepoint.com/sites/OfficeHub/file?web=1'}});}
    else if(u.pathname.startsWith('/storage/v1/object/')){
     assert.ok(req.headers().authorization,'File requests must carry member authentication');
     if(req.method()==='POST'){uploads++;return route.fulfill({json:{Key:'fixture',Id:'fixture'}});}
@@ -47,12 +49,12 @@ const fs=require('fs'),path=require('path'),assert=require('assert/strict');
    await page.locator('input[type=file]').setInputFiles({name:'Example.txt',mimeType:'text/plain',buffer:Buffer.from('Original fixture file bytes')});
    await page.getByText('Ready to send (1):',{exact:true}).waitFor();
    await page.locator('textarea').press('Control+Enter');
-   await page.getByRole('button',{name:'Open file',exact:true}).waitFor();assert.equal(uploads,1);
+   await page.getByRole('button',{name:'Open in SharePoint',exact:true}).waitFor();assert.equal(uploads,1);
    await page.reload();await page.getByRole('heading',{name:'Welcome, Chat',exact:true}).waitFor();
    await page.getByRole('button',{name:'Toggle navigation menu'}).click();await page.getByRole('button',{name:/^Messages/}).click();
-   await page.getByRole('button',{name:'Open file',exact:true}).waitFor();
-   const popupPromise=page.waitForEvent('popup');await page.getByRole('button',{name:'Open file',exact:true}).click();const popup=await popupPromise;
-   await popup.waitForURL('blob:**');assert.match(await popup.frameLocator('iframe').locator('body').innerText(),/Original fixture file bytes/);assert.equal(await popup.locator('iframe').getAttribute('sandbox'),'');await popup.close();assert.equal(downloads,1);
+   await page.getByRole('button',{name:'Open in SharePoint',exact:true}).waitFor();
+   const popupPromise=page.waitForEvent('popup');await page.getByRole('button',{name:'Open in SharePoint',exact:true}).click();const popup=await popupPromise;
+   await popup.waitForURL('https://wipahstz.sharepoint.com/**');await popup.getByRole('heading',{name:'Microsoft file fixture'}).waitFor();await popup.close();await page.getByRole('button',{name:'Download Example.txt',exact:true}).click();await page.getByRole('button',{name:'Open in SharePoint',exact:true}).waitFor();assert.equal(downloads,1);
    await page.screenshot({path:'../../outputs/OfficeHub-chat-file-recovery.png',fullPage:true});
    const composer=page.locator('textarea');await composer.fill('Confirmed private send');await composer.press('Control+Enter');await page.locator('p.whitespace-pre-wrap').filter({hasText:'Confirmed private send'}).waitFor();assert.equal(sent,2);
   }else{assert.equal(await page.getByText('Member group',{exact:true}).count(),0);assert.equal(await page.getByText('Visible member message',{exact:true}).count(),0);}

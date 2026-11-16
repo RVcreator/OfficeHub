@@ -96,5 +96,8 @@ test('HTTP worker rejects browser credentials and defaults to a read-only dry ru
   const schedulerHeaders={authorization:'Bearer public-anon-test-jwt','x-officehub-worker-key':'scheduler-test-secret'};
   assert.equal((await handler(new Request('https://example/worker',{method:'POST',headers:schedulerHeaders,body:'{}'}))).status,200);
   assert.equal((await handler(new Request('https://example/worker',{method:'POST',headers:{...schedulerHeaders,'x-officehub-worker-key':'wrong-secret'},body:'{}'}))).status,401);
+  globalThis.fetch=async(url)=>String(url).endsWith('/officehub_email_authorize')?Response.json(true):String(url).includes('officehub_stale_attachment_grants')?Response.json({error:'unavailable'},{status:503}):Response.json([]);
+  const isolation=await handler(new Request('https://example/worker',{method:'POST',headers,body:'{"dryRun":false}'}));assert.equal(isolation.status,200);
+  const isolated=await isolation.json();assert.equal(isolated.outcome,'idle');assert.equal(isolated.attachmentOutcome,'unavailable','attachment cleanup cannot fail normal email processing');
   } finally {globalThis.fetch=originalFetch;}
 });
