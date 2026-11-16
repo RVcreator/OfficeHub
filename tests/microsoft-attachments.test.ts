@@ -28,6 +28,11 @@ test('all parent types and chat use saved references only; arbitrary URLs and ma
  for(const bad of ['https://evil.invalid','blob:local','storage://officehub-records/task/a/../b','storage://officehub-records/task/a/user/file/extra','storage://officehub-records/unknown/a/user/file'])assert.throws(()=>attachmentSource(bad));
  for(const url of ['javascript:alert(1)','https://wipahstz.sharepoint.com.evil.invalid/file','https://user@wipahstz.sharepoint.com/file'])assert.throws(()=>microsoftAttachmentUrl(url));
 });
+test('SharePoint Office metadata promotion may change stored size without changing upload identity',async()=>{
+ const f=fixture(),request=f.deps.fetcher;f.deps.fetcher=async(input,init)=>{const response=await request(input,init);if(init?.method==='PUT'){const item=await response.json();return Response.json({...item,size:9129});}return response;};
+ const result=await openMicrosoftAttachment(f.deps);assert.equal(result.success,true);assert.equal(f.saved.length,1);
+ for(const size of [null,-1,'14']){const invalid=fixture(),request=invalid.deps.fetcher;invalid.deps.fetcher=async(input,init)=>{const response=await request(input,init);if(init?.method==='PUT')return Response.json({...await response.json(),size});return response;};await assert.rejects(openMicrosoftAttachment(invalid.deps),/confirm the original/);}
+});
 test('denied or revoked record access never grants Microsoft access or exposes a URL',async()=>{
  const denied=fixture({authorize:async()=>{throw Error('No membership');}});await assert.rejects(openMicrosoftAttachment(denied.deps),/No membership/);assert.equal(denied.calls.length,0);
  const revoked=fixture({stillAuthorized:async()=>false});await assert.rejects(openMicrosoftAttachment(revoked.deps),/no longer/);assert.equal(revoked.calls.some(c=>c.path?.endsWith('/invite')),false);
