@@ -25,8 +25,14 @@ export async function uploadRecordAttachments(files:FileInput[],kind:RecordFileK
   return {file,blob};
  }));
  if(staged.reduce((n,x)=>n+(x.blob?.size||0),0)>20*1024*1024)throw new Error('Attach no more than 20 MB at a time.');
- const result:MessageAttachment[]=[];
- for(const {file,blob} of staged){
+ const result:MessageAttachment[]=new Array(staged.length);
+ let next=0,failed=false;
+ let failure:unknown;
+ // Bound network pressure while independent files upload together. Drain every
+ // started upload on failure before allowing a retry or publishing metadata.
+ async function worker(){while(!failed&&next<staged.length){
+  const index=next++,{file,blob}=staged[index];
+  try{
   let url=file.url;
   if(blob){
    const path=`${kind}/${recordId}/${userId}/${crypto.randomUUID()}`;
@@ -34,7 +40,10 @@ export async function uploadRecordAttachments(files:FileInput[],kind:RecordFileK
    if(error)throw new Error(`Could not upload ${file.name}. The record has not been saved; please try again.`);
    url=`storage://${RECORD_BUCKET}/${path}`;
   }
-  result.push({id:file.id||crypto.randomUUID(),name:file.name,size:file.size,type:file.type,url});
- }
+  result[index]={id:file.id||crypto.randomUUID(),name:file.name,size:file.size,type:file.type,url};
+  }catch(error){if(!failed){failure=error;failed=true;}}
+ }}
+ await Promise.all(Array.from({length:Math.min(3,staged.length)},()=>worker()));
+ if(failed)throw failure;
  return result;
 }

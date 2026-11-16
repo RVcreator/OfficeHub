@@ -23,12 +23,14 @@ export function createReconnect(schedule:(run:()=>void,ms:number)=>unknown,cance
  };
 }
 
-/** Concurrent consumers share the final result, including a trailing invalidation. */
+/** Readers share one request. Only an explicit invalidation needs a trailing read. */
 export function createReadQueue(){
  const pending=new Map<string,{dirty:boolean;next:()=>Promise<any>;promise:Promise<any>}>();
- return {run<T>(key:string,read:()=>Promise<T>):Promise<T>{
+ return {
+ invalidate(prefix=''){for(const [key,entry] of pending)if(key.startsWith(prefix))entry.dirty=true;},
+ run<T>(key:string,read:()=>Promise<T>):Promise<T>{
   const existing=pending.get(key);
-  if(existing){existing.dirty=true;existing.next=read;return existing.promise;}
+  if(existing){existing.next=read;return existing.promise;}
   const entry={dirty:false,next:read,promise:Promise.resolve(undefined as any)};
   pending.set(key,entry);
   entry.promise=(async()=>{try{let result:T;do{entry.dirty=false;result=await entry.next();}while(entry.dirty);return result;}finally{pending.delete(key);}})();

@@ -532,17 +532,17 @@ export function initRealtimeSubscription(): void {
     setTableData: (key: string, data: any) => {
       setTableData(key as TableKey, data);
     },
-    getMeetings: () => portalStore.getMeetings(),
-    getMessages: (convId?: string) => portalStore.getMessages(convId),
-    getConversations: () => portalStore.getConversations(),
-    getNotices: () => portalStore.getNotices(),
-    getTasks: () => portalStore.getTasks(),
-    getNotifications: (userId?: string) => portalStore.getNotifications(userId || storeState.currentUser?.id),
-    getApprovals: () => portalStore.getApprovals(),
-    getDepartments:()=>portalStore.getDepartments(),
-    getRoles:()=>portalStore.getRoles(),
-    getDecisions:()=>portalStore.getDecisions(),
-    getStaff:()=>portalStore.getStaff(true),
+    getMeetings: () => refreshStoreRead('getMeetings'),
+    getMessages: (convId?: string) => refreshStoreRead('getMessages',convId),
+    getConversations: () => refreshStoreRead('getConversations'),
+    getNotices: () => refreshStoreRead('getNotices'),
+    getTasks: () => refreshStoreRead('getTasks'),
+    getNotifications: (userId?: string) => refreshStoreRead('getNotifications',userId || storeState.currentUser?.id),
+    getApprovals: () => refreshStoreRead('getApprovals'),
+    getDepartments:()=>refreshStoreRead('getDepartments'),
+    getRoles:()=>refreshStoreRead('getRoles'),
+    getDecisions:()=>refreshStoreRead('getDecisions'),
+    getStaff:()=>refreshStoreRead('getStaff',true),
   });
 }
 
@@ -1336,7 +1336,7 @@ export const portalStore = {
     const {data,error}=await supabase.rpc('officehub_set_administration_access',{p_user:userId,p_enabled:enabled});
     if(error||data?.success!==true||data.user_id!==userId||data.enabled!==enabled)throw new Error(error?.message||'Administration assignment was not confirmed.');
     await portalStore.getAdministrationGrants();
-    await portalStore.getAdministrationAccess();
+    await refreshStoreRead('getAdministrationAccess');
   },
 
   getRoles: async (): Promise<RolePermission[]> => {
@@ -1588,7 +1588,7 @@ export const portalStore = {
       setTableData('tasks', [newTask, ...storeState.tasks]);
 
       // Read the saved self-confirmation immediately; other recipients use realtime.
-      void portalStore.getNotifications().then(rows=>{if(storeState.currentUser.id===currentUser.id)setTableData('notifications',rows);}).catch(console.warn);
+      void refreshStoreRead('getNotifications').then(rows=>{if(storeState.currentUser.id===currentUser.id)setTableData('notifications',rows);}).catch(console.warn);
       return newTask;
     } catch (err: any) {
       console.error('addTask error:', err);
@@ -1778,7 +1778,7 @@ export const portalStore = {
       }));
 
       // Server retires the rating action; clients may change only an alert's read state.
-      const refreshedAlerts=await portalStore.getNotifications();
+      const refreshedAlerts=await refreshStoreRead('getNotifications');
       setTableData('notifications',refreshedAlerts);
 
       // The database emits the rating notification only for a changed rating.
@@ -3006,7 +3006,7 @@ export const portalStore = {
     try{
       const {error}=await supabase.functions.invoke('teams-meeting-sync',{body:{meetingId,...(retry?{retry:true}:{})}});
       if(error)throw error;
-      const meetings=await portalStore.getMeetings();
+      const meetings=await refreshStoreRead('getMeetings');
       if(identity===storeState.authSession.userId)setTableData('meetings',meetings);
     }catch{
       if(identity!==storeState.authSession.userId)return;
@@ -3190,7 +3190,7 @@ export const portalStore = {
   },
 
   getProjectSharePointDocs: async (projectId: string): Promise<SharePointDocument[]> => {
-    return (await portalStore.getSharePointDocs()).filter(d=>d.projectId===projectId);
+    return (await refreshStoreRead('getSharePointDocs')).filter(d=>d.projectId===projectId);
   },
 
   updateSharePointDocument: async (docId: string, updates: Partial<SharePointDocument>): Promise<void> => {
@@ -3216,7 +3216,7 @@ export const portalStore = {
     if(error&&!message){try{message=(await error.context.json()).error;}catch{}}
     if(error||!data?.success)throw new Error(message||'Microsoft links could not be inspected.');
     documentReadGeneration++;
-    try{await portalStore.getSharePointDocs();}catch{console.warn('Confirmed Microsoft links saved; refresh the library to view them.');}
+    try{await refreshStoreRead('getSharePointDocs');}catch{console.warn('Confirmed Microsoft links saved; refresh the library to view them.');}
     return {repaired:data.repaired,unresolved:data.unresolved};
   },
 
@@ -3231,7 +3231,7 @@ export const portalStore = {
     portalStore.logAudit('sharepoint_doc_deleted','Deleted a document from OfficeHub and the Microsoft drive','blue');
     setTableData('sharePointDocs',storeState.sharePointDocs.filter(d=>d.id!==docId));
     saveDocumentsToLocalStorage([]);
-    try{await portalStore.getSharePointDocs();}catch{console.warn('Microsoft confirmed deletion; refresh to update duplicate entries.');}
+    try{await refreshStoreRead('getSharePointDocs');}catch{console.warn('Microsoft confirmed deletion; refresh to update duplicate entries.');}
   },
 
   syncSharePointDocument: async (docId: string): Promise<void> => {
@@ -4255,11 +4255,48 @@ export const portalStore = {
   actions: null as any,
 };
 
-// Deduplicate independent view, realtime and focus consumers per identity and page.
+// Readers join one request; realtime hints and writes explicitly invalidate.
+const readMethods=['getTasks','getNotices','getMeetings','getStaff','getDepartments','getRoles','getDecisions','getMessages','getApprovals','getConversations','getSharePointDocs','getNotifications','getAdministrationAccess'] as const;
+type StoreReadMethod=(typeof readMethods)[number];
 const reads=createReadQueue();
-for(const method of ['getTasks','getNotices','getMeetings','getStaff','getDepartments','getRoles','getDecisions','getMessages','getApprovals','getConversations','getSharePointDocs','getNotifications','getAdministrationAccess'] as const){
+function readPrefix(method:string){return `${method}:${storeState.authSession.userId}:`;}
+function refreshStoreRead<K extends StoreReadMethod>(method:K,...args:Parameters<(typeof portalStore)[K]>):ReturnType<(typeof portalStore)[K]>{
+ reads.invalidate(readPrefix(method));
+ return (portalStore[method] as (...args:any[])=>any)(...args);
+}
+for(const method of readMethods){
  const read=portalStore[method] as (...args:any[])=>Promise<any>;
- (portalStore as any)[method]=(...args:any[])=>reads.run(JSON.stringify([method,storeState.authSession.userId,...args]),()=>read(...args));
+ (portalStore as any)[method]=(...args:any[])=>reads.run(readPrefix(method)+JSON.stringify(args),()=>read(...args));
+}
+
+// Departments and notification inserts already reconcile mutations within their
+// read methods; do not force another trailing request after that reconciliation.
+// Invalidate other affected resources, including ambiguous failures. Never refetch
+// unrelated tables merely because a write completed.
+const mutationReads:Partial<Record<keyof typeof portalStore,StoreReadMethod[]>>={
+ deleteTask:['getTasks','getNotifications'],updateTaskGeneralUpdate:['getTasks'],updateSubtaskUpdate:['getTasks'],
+ addTask:['getTasks','getNotifications'],updateTask:['getTasks','getNotifications'],
+ updateTaskStatus:['getTasks','getNotifications'],rateTask:['getTasks','getNotifications'],
+ toggleSubtask:['getTasks'],addSubtask:['getTasks'],
+ togglePinNotice:['getNotices'],deleteNotice:['getNotices','getNotifications'],
+ addNotice:['getNotices','getNotifications'],acknowledgeNotice:['getNotices','getNotifications'],
+ addApproval:['getApprovals','getNotifications'],approveApproval:['getApprovals','getNotifications'],rejectApproval:['getApprovals','getNotifications'],
+ updateMeeting:['getMeetings'],deleteMeeting:['getMeetings','getNotifications'],syncMeetingMicrosoft:['getMeetings'],acceptProposedMeetingTime:['getMeetings'],
+ addMeeting:['getMeetings','getNotifications'],respondToMeeting:['getMeetings','getNotifications'],
+ addSharePointDocument:['getSharePointDocs'],updateSharePointDocument:['getSharePointDocs'],toggleDocumentCollaboration:['getSharePointDocs'],
+ addStaffMember:['getStaff'],updateStaffMember:['getStaff'],removeStaffMember:['getStaff'],syncStaffFromSupabase:['getStaff'],updateCurrentUserProfile:['getStaff'],
+ addDecision:['getDecisions','getNotifications'],updateDecisionStatus:['getDecisions','getNotifications'],
+ addRole:['getRoles'],updateRole:['getRoles'],deleteRole:['getRoles'],updateRolePermission:['getRoles'],setAdministrationGrant:['getAdministrationAccess'],
+ addConversation:['getConversations'],updateConversation:['getConversations'],deleteConversation:['getConversations','getMessages'],sendMessage:['getMessages','getConversations','getNotifications'],
+ markNotificationAsRead:['getNotifications'],markAllNotificationsAsRead:['getNotifications'],deleteNotification:['getNotifications'],clearNotifications:['getNotifications'],clearUserArchive:['getTasks','getMeetings','getApprovals','getDecisions','getNotices'],
+ deleteSharePointDocument:['getSharePointDocs'],syncSharePointDocument:['getSharePointDocs'],addFolder:['getSharePointDocs'],reconcileSharePointDocuments:['getSharePointDocs'],
+};
+for(const [method,resources] of Object.entries(mutationReads)){
+ const write=(portalStore as any)[method] as (...args:any[])=>Promise<any>;
+ (portalStore as any)[method]=async(...args:any[])=>{
+  const identity=storeState.authSession.userId;
+  try{return await write(...args);}finally{for(const resource of resources)reads.invalidate(`${resource}:${identity}:`);}
+ };
 }
 
 // Identical concurrent button actions share one write; failures remain retryable.

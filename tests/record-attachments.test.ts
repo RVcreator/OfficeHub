@@ -53,3 +53,31 @@ test('original bytes upload before publication for every record kind; failures c
   assert.equal(isMicrosoftFileLink('https://user@wipahstz.sharepoint.com/file'),false);
  }finally{supabase.storage.from=from;}
 });
+
+
+test('uploads use at most three concurrent requests, retain selection order and finish before metadata publication',async()=>{
+ const original=supabase.storage.from;let active=0,max=0,started=0;
+ const releases:Array<()=>void>=[];
+ (supabase.storage as any).from=()=>({upload:async()=>{started++;active++;max=Math.max(max,active);await new Promise<void>(r=>releases.push(r));active--;return {error:null};}});
+ const files=Array.from({length:6},(_,i)=>({id:'parallel-'+i,name:i+'.txt',size:'5 B',type:'file',url:'data:text/plain;base64,aGVsbG8='} as any));
+ try{
+  let done=false;const result=uploadRecordAttachments(files,'task','parallel','member').then(rows=>{done=true;return rows;});
+  await new Promise(r=>setImmediate(r));assert.equal(started,3);assert.equal(done,false);
+  releases.splice(0).forEach(r=>r());await new Promise(r=>setImmediate(r));assert.equal(started,6);assert.equal(done,false);
+  releases.splice(0).forEach(r=>r());const rows=await result;
+  assert.equal(max,3);assert.equal(active,0);assert.deepEqual(rows.map(r=>r.id),files.map(f=>f.id));
+ }finally{supabase.storage.from=original;}
+});
+
+test('a failed upload stops queued files and drains in-flight requests before permitting a retry',async()=>{
+ const original=supabase.storage.from;let started=0;const releases:Array<()=>void>=[];
+ (supabase.storage as any).from=()=>({upload:async()=>{const i=started++;if(i===0)return {error:Error('offline')};await new Promise<void>(r=>releases.push(r));return {error:null};}});
+ // A failure in the first wave must not launch any queued files.
+ const files=Array.from({length:6},(_,i)=>({id:'drain-'+i,name:i+'.txt',size:'5 B',type:'file',url:'data:text/plain;base64,aGVsbG8='} as any));
+ try{
+  let settled=false;const job=uploadRecordAttachments(files,'task','drain','member');
+  const rejected=assert.rejects(job,/record has not been saved/).then(()=>{settled=true;});
+  await new Promise(r=>setImmediate(r));assert.equal(started,3);assert.equal(settled,false);releases.forEach(r=>r());await rejected;assert.equal(started,3);assert.equal(settled,true);
+  (supabase.storage as any).from=()=>({upload:async()=>({error:null})});assert.equal((await uploadRecordAttachments(files,'task','drain','member')).length,6);
+ }finally{supabase.storage.from=original;}
+});
