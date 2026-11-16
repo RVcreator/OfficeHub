@@ -40,7 +40,7 @@ begin
  when 'notice' then
   select * into n from public.notices where id=k;
   select * into p from public.profiles where id=p_user;
-  if n.id is null or not ((officehub_private.administration_can_manage(p_user) and officehub_private.administration_legacy_privilege(p_user)) or n.department=p.department or n.department='All Departments') then return false;end if;
+  if n.id is null or not coalesce((officehub_private.administration_can_manage(p_user) and officehub_private.administration_legacy_privilege(p_user)) or n.department=p.department or n.department='All Departments',false) then return false;end if;
   files:=n.attachments;
  else return false;
  end case;

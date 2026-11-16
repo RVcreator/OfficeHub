@@ -46,6 +46,7 @@ try{
   assert.equal((await db.query('select officehub_private.attachment_member($1,$2) allowed',[url,uid(2)])).rows[0].allowed,true);
  }
  assert.equal((await db.query('select * from officehub_stale_attachment_grants(3)')).rows.length,0);
+ await db.query('update public.profiles set department=null where id=$1',[uid(2)]);assert.equal((await db.query('select officehub_private.attachment_member($1,$2) allowed',[file('notice','notice').url,uid(2)])).rows[0].allowed,false,'missing department cannot retain a notice grant');await db.query("update public.profiles set department='IT' where id=$1",[uid(2)]);
  await user(1);await assert.rejects(db.query('select * from officehub_attachment_microsoft_files'),/permission denied/);await assert.rejects(db.query('select * from officehub_stale_attachment_grants(3)'),/permission denied/);
  for(const kind of ['task','approval','meeting','notice'])assert.equal(await visible(kind),1,'owner file access '+kind);
  await user(2);for(const kind of ['task','approval','meeting','notice'])assert.equal(await visible(kind),1,'recipient file access '+kind);
