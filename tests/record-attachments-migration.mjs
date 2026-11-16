@@ -40,6 +40,15 @@ try{
  await assert.rejects(db.query("update tasks set attachments=$1 where id='task'",[JSON.stringify([file('approval','approval')])]),/another record/);
  await assert.rejects(db.query("update tasks set attachments=$1 where id='task'",[JSON.stringify([{...file('task','task'),url:'blob:sender-only'}])]),/original attachment/);
  assert.equal((await db.query("delete from storage.objects where bucket_id='officehub-records' returning id")).rows.length,0,'files cannot disappear behind committed records');
+ // The edit form saves attachments and assignees together under existing guards.
+ await db.query("insert into storage.objects values('task-extra','officehub-records',$1,'{\"size\":5}')",[`task/task/${uid(1)}/extra`]);
+ const extra={...file('task','task'),id:'extra',name:'Added.txt',url:`storage://officehub-records/task/task/${uid(1)}/extra`};
+ await db.query("update tasks set assigned_to_ids=array[$1::text,$2::text],assignment_type='specific_people',attachments=$3 where id='task'",[uid(2),uid(3),JSON.stringify([file('task','task'),extra])]);
+ await user(3);assert.equal((await db.query("select id from tasks where id='task'")).rows.length,1,'new assignee receives the task');assert.equal(await visible('task'),2,'new assignee receives both files');
+ await assert.rejects(db.query("update tasks set assigned_to_ids=array[$1::text] where id='task'",[uid(3)]),/Only the creator/);
+ await user(1);await db.query("update tasks set assigned_to_ids=array[$1::text],attachments=$2 where id='task'",[uid(2),JSON.stringify([file('task','task')])]);
+ await user(3);assert.equal((await db.query("select id from tasks where id='task'")).rows.length,0,'removed assignee loses the task');assert.equal(await visible('task'),0,'removed assignee loses file access');
+ await user(2);assert.equal(await visible('task'),1,'remaining assignee sees only the linked file');await user(1);
  await db.query("update tasks set assigned_to_id=null,assigned_to_ids='{}' where id='task'");
  await user(2);assert.equal(await visible('task'),0,'reassignment revokes download immediately');
  await user(1);await db.exec(`update approvals set approver_ids=array['${uid(1)}'] where id='approval';delete from meeting_attendees where meeting_id='meeting';update notices set department='Finance' where id='notice'`);

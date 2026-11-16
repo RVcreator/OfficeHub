@@ -1,3 +1,4 @@
+import {TaskEditor} from './TaskEditor';
 import {RecordAttachment} from './RecordAttachment';
 import {recordFilePath,isMicrosoftFileLink} from '../services/recordAttachments';
 import {hasSavedTaskRating,requiresTaskRating} from '../utils/taskRatingState';
@@ -46,7 +47,7 @@ import {
   MessageSquare
 } from 'lucide-react';
 import { Priority, Task, TaskStatus, StaffUser, MessageAttachment } from '../types';
-import { usePortalStore, normalizeDepartmentName } from '../services/store';
+import { usePortalStore, normalizeDepartmentName, getTaskSnapshot } from '../services/store';
 import { getAttachmentTabUrl, openAttachmentInNewTab, downloadAttachment, parseUploadedFile } from '../utils/fileParser';
 import { UserRatingDisplay } from './UserRatingDisplay';
 import { TaskRatingPrompt } from './TaskRatingPrompt';
@@ -209,10 +210,10 @@ export const TasksView: React.FC<TasksViewProps> = ({
 
   // Editing Task details state
   const [isEditingTask, setIsEditingTask] = useState(false);
-  const [editTitle, setEditTitle] = useState('');
-  const [editDescription, setEditDescription] = useState('');
-  const [editPriority, setEditPriority] = useState<Priority>('High');
-  const [editDueDate, setEditDueDate] = useState('');
+  const taskEditBusy=useRef(false);
+  const attachmentBusy=useRef(false);
+  const [savingAttachments,setSavingAttachments]=useState(false);
+  const [attachmentError,setAttachmentError]=useState<string|null>(null);
 
   // Subtask update editing state
   const [editingSubtaskId, setEditingSubtaskId] = useState<string | null>(null);
@@ -241,7 +242,7 @@ export const TasksView: React.FC<TasksViewProps> = ({
   } | null>(null);
 
   const handleCloseDrawer = () => {
-    if (mainTaskSaveInFlight.current) return;
+    if (mainTaskSaveInFlight.current||taskEditBusy.current||attachmentBusy.current) return;
     mainTaskEditorVersion.current++;
     setSelectedTask(null);
     setIsEditingTask(false);
@@ -279,6 +280,7 @@ export const TasksView: React.FC<TasksViewProps> = ({
     setIsReassigning(false);
     setSelectedReassigneeId('');
     setIsEditingTask(false);
+    setAttachmentError(null);
     setReassignSuccessMsg(null);
     setEditingSubtaskId(null);
     setSubtaskUpdateText('');
@@ -343,36 +345,7 @@ export const TasksView: React.FC<TasksViewProps> = ({
 
   const canUserReassignTask=(task:Task|null):boolean => Boolean(task&&ownsTask(task,currentUser));
 
-  const handleStartEditTask = (task: Task) => {
-    setEditTitle(task.title);
-    setEditDescription(task.description || '');
-    setEditPriority(task.priority);
-    setEditDueDate(task.dueDate || '');
-    setIsEditingTask(true);
-  };
-
-  const handleSaveTaskEdit = () => {
-    if (!selectedTask) return;
-    if (!editTitle.trim()) {
-      setBannerMessage('Task title cannot be empty.');
-      return;
-    }
-    if (!editDueDate || !editDueDate.trim()) {
-      setBannerMessage('Due date is compulsory when updating a task.');
-      return;
-    }
-
-    actions.updateTask(selectedTask.id, {
-      title: editTitle.trim(),
-      description: editDescription.trim(),
-      priority: editPriority,
-      dueDate: editDueDate,
-    });
-
-    const updated = tasks.find((t: Task) => t.id === selectedTask.id);
-    if (updated) setSelectedTask(updated);
-    setIsEditingTask(false);
-  };
+  const handleStartEditTask = (_task:Task) => {if(!attachmentBusy.current)setIsEditingTask(true);};
 
   const handleConfirmReassign = async () => {
     if (!selectedTask || !selectedReassigneeId) return;
@@ -398,7 +371,7 @@ export const TasksView: React.FC<TasksViewProps> = ({
     });
 
     // One server-side task event owns the recipient alert.
-    const updated = tasks.find((t: Task) => t.id === selectedTask.id);
+    const updated = getTaskSnapshot(selectedTask.id);
     if (updated) setSelectedTask(updated);
     setIsReassigning(false);
     setSelectedReassigneeId('');
@@ -956,34 +929,26 @@ export const TasksView: React.FC<TasksViewProps> = ({
     if (updated) setSelectedTask(updated);
   };
 
-  const handleDrawerAttachFile = async (e: React.ChangeEvent<HTMLInputElement>, task: Task) => {
-    if (!e.target.files || e.target.files.length === 0) return;
-    try {
-      const files = Array.from(e.target.files);
-      const newAttachments: MessageAttachment[] = [];
-      for (const file of files) {
-        const att = await parseUploadedFile(file);
-        newAttachments.push(att);
-      }
-      const existing = task.attachments || [];
-      const updatedAttachments = [...existing, ...newAttachments];
-      await actions.updateTask(task.id, { attachments: updatedAttachments });
-      const updatedTask = tasks.find((t: Task) => t.id === task.id);
-      if (updatedTask) setSelectedTask(updatedTask);
-    } catch (err) {
-      console.error('Error attaching file in task drawer:', err);
-      window.alert(err instanceof Error?err.message:'The attachment was not saved. Please retry.');
-    } finally {
-      e.target.value = '';
-    }
+  const handleDrawerAttachFile = async (e:React.ChangeEvent<HTMLInputElement>,task:Task) => {
+    const input=e.currentTarget,files=Array.from(input.files||[]);input.value='';
+    if(!files.length||attachmentBusy.current)return;
+    attachmentBusy.current=true;setSavingAttachments(true);setAttachmentError(null);
+    try{
+      const fresh=getTaskSnapshot(task.id)||task;
+      if((fresh.attachments?.length||0)+files.length>10)throw new Error('Attach up to 10 files.');
+      if(files.some(file=>file.size>10*1024*1024))throw new Error('Each attachment must be 10 MB or smaller.');
+      const added:MessageAttachment[]=[];for(const file of files)added.push(await parseUploadedFile(file));
+      const latest=getTaskSnapshot(task.id)||fresh;
+      await actions.updateTask(task.id,{attachments:[...(latest.attachments||[]),...added]});
+    }catch(error){setAttachmentError(error instanceof Error?error.message:'The attachment was not saved. Please retry.');}
+    finally{attachmentBusy.current=false;setSavingAttachments(false);}
   };
-
-  const handleDrawerRemoveFile = async (task: Task, attachmentId: string) => {
-    const existing = task.attachments || [];
-    const updatedAttachments = existing.filter(a => a.id !== attachmentId);
-    try{await actions.updateTask(task.id, { attachments: updatedAttachments });}catch(error){window.alert(error instanceof Error?error.message:'Attachment removal failed.');return;}
-    const updatedTask = tasks.find((t: Task) => t.id === task.id);
-    if (updatedTask) setSelectedTask(updatedTask);
+  const handleDrawerRemoveFile = async(task:Task,attachmentId:string) => {
+    if(attachmentBusy.current)return;
+    attachmentBusy.current=true;setSavingAttachments(true);setAttachmentError(null);
+    try{const fresh=getTaskSnapshot(task.id)||task;await actions.updateTask(task.id,{attachments:(fresh.attachments||[]).filter(a=>a.id!==attachmentId)});}
+    catch(error){setAttachmentError(error instanceof Error?error.message:'Attachment removal failed. Please retry.');}
+    finally{attachmentBusy.current=false;setSavingAttachments(false);}
   };
 
   // Individual task row component with responsive layout (stacked on mobile without truncation)
@@ -1632,78 +1597,10 @@ export const TasksView: React.FC<TasksViewProps> = ({
 
             {/* Body */}
             {isEditingTask ? (
-              <div className="p-5 overflow-y-auto space-y-4 text-xs flex-1 bg-slate-50/50">
-                <div className="p-3 bg-teal-50 border border-teal-200 rounded-lg">
-                  <p className="font-bold text-teal-900 text-xs">Editing Task Details</p>
-                  <p className="text-[11px] text-teal-700 mt-0.5">Due date is compulsory when updating tasks.</p>
-                </div>
-
-                <div>
-                  <label className="font-bold text-slate-700 block mb-1">Task Title *</label>
-                  <input
-                    type="text"
-                    value={editTitle}
-                    onChange={(e) => setEditTitle(e.target.value)}
-                    className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-1 focus:ring-[#00ad1d] font-semibold text-xs text-slate-900"
-                  />
-                </div>
-
-                <div>
-                  <label className="font-bold text-slate-700 block mb-1">Description</label>
-                  <textarea
-                    rows={3}
-                    value={editDescription}
-                    onChange={(e) => setEditDescription(e.target.value)}
-                    className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-1 focus:ring-[#00ad1d] text-xs text-slate-800"
-                  />
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="font-bold text-slate-700 block mb-1">Priority</label>
-                    <select
-                      value={editPriority}
-                      onChange={(e) => setEditPriority(e.target.value as Priority)}
-                      className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-1 focus:ring-[#00ad1d] text-xs font-medium"
-                    >
-                      <option value="Urgent">Urgent</option>
-                      <option value="High">High</option>
-                      <option value="Medium">Medium</option>
-                      <option value="Low">Low</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="font-bold text-slate-700 block mb-1">
-                      Due Date <span className="text-rose-500 font-bold">*</span>
-                    </label>
-                    <input
-                      type="date"
-                      required
-                      value={editDueDate}
-                      onChange={(e) => setEditDueDate(e.target.value)}
-                      className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-1 focus:ring-[#00ad1d] text-xs font-medium"
-                    />
-                  </div>
-                </div>
-
-                <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-200">
-                  <button
-                    type="button"
-                    onClick={() => setIsEditingTask(false)}
-                    className="px-3.5 py-1.5 bg-white hover:bg-slate-100 text-slate-600 border border-slate-300 rounded text-xs font-medium cursor-pointer"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleSaveTaskEdit}
-                    className="px-4 py-1.5 bg-[#00ad1d] hover:bg-[#008f18] text-white rounded text-xs font-bold shadow-2xs cursor-pointer"
-                  >
-                    Save Changes
-                  </button>
-                </div>
-              </div>
+              <TaskEditor key={selectedTask.id} task={selectedTask} staff={staff} currentUser={currentUser}
+                onBusyChange={busy=>{taskEditBusy.current=busy;}}
+                onCancel={()=>setIsEditingTask(false)}
+                onSave={async updates=>{await actions.updateTask(selectedTask.id,updates);setIsEditingTask(false);}}/>
             ) : (
               <div className="p-5 overflow-y-auto space-y-4 text-xs flex-1">
                 {/* Persistent Task Completion Performance Rating Banner / Form */}
@@ -2241,10 +2138,12 @@ export const TasksView: React.FC<TasksViewProps> = ({
                     {canUserEditTask(selectedTask) && (
                       <label className="inline-flex items-center gap-1 px-2 py-0.5 bg-emerald-50 hover:bg-emerald-100 text-[#008f18] rounded border border-emerald-200 text-[11px] font-semibold cursor-pointer transition">
                         <Plus className="w-3 h-3" />
-                        <span>Attach Document</span>
+                        <span>{savingAttachments?'Saving…':'Attach Document'}</span>
                         <input
                           type="file"
                           multiple
+                          disabled={savingAttachments}
+                          aria-label="Attach document to task"
                           onChange={(e) => handleDrawerAttachFile(e, selectedTask)}
                           className="hidden"
                           accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.png,.jpg,.jpeg,.webp,.svg,.gif"
@@ -2253,10 +2152,12 @@ export const TasksView: React.FC<TasksViewProps> = ({
                     )}
                   </div>
 
+                  {savingAttachments&&<p role="status" className="text-xs text-emerald-700">Saving attachments…</p>}
+                  {attachmentError&&<p role="alert" className="text-xs text-rose-700">{attachmentError}</p>}
                   {selectedTask.attachments && selectedTask.attachments.length > 0 ? (
                     <div className="space-y-2">
                       {selectedTask.attachments.map(att => {
-                        if(recordFilePath(att.url)||isMicrosoftFileLink(att.url))return <div key={att.id} className="flex items-start justify-between gap-2"><RecordAttachment attachment={att}/>{canUserEditTask(selectedTask)&&<button type="button" title="Remove attachment from task" onClick={()=>handleDrawerRemoveFile(selectedTask,att.id)}><Trash2 className="w-3.5 h-3.5"/></button>}</div>;
+                        if(recordFilePath(att.url)||isMicrosoftFileLink(att.url))return <div key={att.id} className="flex items-start justify-between gap-2"><RecordAttachment attachment={att}/>{canUserEditTask(selectedTask)&&<button type="button" className="p-2 shrink-0 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded transition disabled:opacity-50" title="Remove attachment from task" disabled={savingAttachments} aria-label={'Remove attachment '+att.name} onClick={()=>handleDrawerRemoveFile(selectedTask,att.id)}><Trash2 className="w-3.5 h-3.5"/></button>}</div>;
                         const tabUrl = getAttachmentTabUrl(att);
                         const ext = (att.name || '').split('.').pop()?.toLowerCase() || '';
                         const isPdf = att.type === 'pdf' || ext === 'pdf';
@@ -2323,7 +2224,7 @@ export const TasksView: React.FC<TasksViewProps> = ({
                                   type="button"
                                   onClick={() => handleDrawerRemoveFile(selectedTask, att.id)}
                                   className="p-1 text-slate-400 hover:text-rose-600 rounded transition cursor-pointer"
-                                  title="Remove attachment from task"
+                                  title="Remove attachment from task" disabled={savingAttachments} aria-label={'Remove attachment '+att.name}
                                 >
                                   <Trash2 className="w-3.5 h-3.5" />
                                 </button>
@@ -2383,7 +2284,7 @@ export const TasksView: React.FC<TasksViewProps> = ({
             )}
 
             {/* Footer */}
-            <div className="px-5 py-3 border-t border-slate-200 bg-slate-50 flex items-center justify-between">
+            {!isEditingTask&&<div className="px-5 py-3 border-t border-slate-200 bg-slate-50 flex items-center justify-between">
               <span className="text-xs text-slate-500 font-semibold">
                 Due: <span className="text-slate-800">{selectedTask.dueDate}</span>
               </span>
@@ -2427,7 +2328,7 @@ export const TasksView: React.FC<TasksViewProps> = ({
                   Close
                 </button>
               </div>
-            </div>
+            </div>}
           </div>
         </div>
       )}
