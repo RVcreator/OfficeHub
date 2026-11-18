@@ -2,11 +2,13 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {transformSync} from 'esbuild';
-async function handlerFor(path:string,client:any){
+async function handlerFor(path:string,client:any,verification?:any){
  const source=(await readFile(new URL('../supabase/functions/'+path+'/index.ts',import.meta.url),'utf8')).replace(/^import .*;$/gm,'');
  let handler:any;const compiled=transformSync(source,{loader:'ts',target:'es2022',format:'cjs'}).code;
  const verifiedClient={rpc:async()=>({data:true,error:null}),...client};
- new Function('createClient','serve','Deno',compiled)(()=>verifiedClient,(fn:any)=>{handler=fn;},{env:{get:(k:string)=>k==='SUPABASE_URL'?'https://example.supabase.co':k==='SUPABASE_SERVICE_ROLE_KEY'?'test-key':''}});
+ let clients=0;
+ const verificationClient=verification||{auth:{signInWithPassword:async()=>({data:{user:{id:'target'},session:{access_token:'fixture-only',user:{id:'target'}}},error:null}),signOut:async()=>({error:null})}};
+ new Function('createClient','serve','Deno',compiled)(()=>++clients===1?verifiedClient:verificationClient,(fn:any)=>{handler=fn;},{env:{get:(k:string)=>k==='SUPABASE_URL'?'https://example.supabase.co':k==='SUPABASE_SERVICE_ROLE_KEY'?'test-key':''}});
  return handler;
 }
 const request=(body:any)=>new Request('https://example/reset',{method:'POST',headers:{authorization:'Bearer user-token'},body:JSON.stringify(body)});
@@ -35,5 +37,27 @@ test('mismatched sign-in email or missing profile cannot change a real Auth pass
    const n=++queries,q:any={select:()=>q,eq:()=>q,single:async()=>({data:n===1?{role:'Admin',department:'IT'}:missing?null:{id:'target',email:'display@example.invalid'},error:null})};return q;}};
   const handler=await handlerFor('admin-reset-password',client),r=await handler(request({userId:'target',expectedEmail:'display@example.invalid'}));
   assert.equal(r.status,409);assert.equal(writes,0);
+ }
+});
+
+
+function successfulResetClient(){
+ return {auth:{getUser:async()=>({data:{user:{id:'admin'}},error:null}),admin:{getUserById:async()=>({data:{user:{id:'target',email:'fixture@example.invalid',app_metadata:{}}},error:null}),updateUserById:async()=>({error:null})}},from:()=>{const q:any={select:()=>q,eq:()=>q,update:()=>q,single:async()=>({data:{id:'target',email:'fixture@example.invalid',app_metadata:{}},error:null})};return q;}};
+}
+test('reset returns the issued password only after a matching-user sign-in and local cleanup',async()=>{
+ const order:string[]=[];const password='Synthetic-verification-only!';
+ const verifier={auth:{signInWithPassword:async(body:any)=>{assert.deepEqual(body,{email:'fixture@example.invalid',password});order.push('sign-in');return {data:{user:{id:'target'},session:{access_token:'fixture-only',user:{id:'target'}}},error:null};},signOut:async(options:any)=>{assert.deepEqual(options,{scope:'local'});order.push('local-sign-out');return {error:null};}}};
+ const run=await handlerFor('admin-reset-password',successfulResetClient(),verifier),response=await run(request({userId:'target',customPassword:password}));
+ assert.equal(response.status,200);assert.deepEqual(order,['sign-in','local-sign-out']);assert.equal((await response.json()).message,password);
+});
+test('reset verification failures never disclose a password or claim success',async()=>{
+ for(const mode of ['invalid-password','wrong-account','missing-token','network','cleanup-failed']){
+  let cleanups=0;const password='Synthetic-mismatch-only!';
+  const verifier={auth:{signInWithPassword:async()=>{
+   if(mode==='network')throw Error('unavailable');
+   return {error:mode==='invalid-password'?Error('invalid credentials'):null,data:{user:{id:mode==='wrong-account'?'other':'target'},session:mode==='invalid-password'||mode==='missing-token'?null:{access_token:'fixture-only',user:{id:mode==='wrong-account'?'other':'target'}}}};
+  },signOut:async(options:any)=>{assert.deepEqual(options,{scope:'local'});cleanups++;return {error:mode==='cleanup-failed'?Error('offline'):null};}}};
+  const run=await handlerFor('admin-reset-password',successfulResetClient(),verifier),response=await run(request({userId:'target',customPassword:password}));
+  assert.equal(response.status,503,mode);const text=await response.text();assert.ok(!text.includes(password));assert.ok(!text.includes('fixture-only'));assert.equal(JSON.parse(text).success,undefined);assert.equal(cleanups,['wrong-account','cleanup-failed'].includes(mode)?1:0);
  }
 });

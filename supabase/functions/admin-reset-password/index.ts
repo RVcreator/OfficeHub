@@ -3,8 +3,8 @@
 // 1. Verifies caller is an admin.
 // 2. Generates a secure random temporary password.
 // 3. Calls supabase.auth.admin.updateUserById to update auth password and set app_metadata.must_change_password = true.
-// 4. Updates public.profiles table (must_change_password = true, temporary_password = tempPassword).
-// 5. Returns the generated temporary password.
+// 4. Updates the matching profile and removes any stored temporary credential.
+// 5. Verifies the issued password through Auth before returning it to the caller.
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
@@ -155,6 +155,34 @@ serve(async (req: Request) => {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
+
+    // A successful Admin update alone does not prove the returned credential
+    // authenticates the intended account. Use a separate, non-persistent client
+    // so verification cannot replace the administrator's session.
+    const verifier = createClient(supabaseUrl, supabaseServiceKey, {
+      auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+    });
+    let verified = false;
+    let verificationSession = false;
+    try {
+      const result = await verifier.auth.signInWithPassword({email: canonicalEmail, password: tempPassword});
+      verificationSession = Boolean(result.data?.session?.access_token);
+      verified = !result.error && verificationSession && result.data?.user?.id === targetUserId
+        && result.data?.session?.user?.id === targetUserId;
+    } catch {
+      verified = false;
+    } finally {
+      if (verificationSession) {
+        try {
+          // Close only the verification session, never the person's other devices.
+          const result = await verifier.auth.signOut({scope: 'local'});
+          if (result.error) verified = false;
+        } catch { verified = false; }
+      }
+    }
+    if (!verified) return new Response(JSON.stringify({
+      error: 'The reset was applied, but the new password could not be verified for this account. Do not use a password from an earlier reset. Retry Reset Password before sharing a credential.',
+    }), {status: 503, headers: {...corsHeaders, 'Content-Type': 'application/json'}});
 
     return new Response(
       JSON.stringify({
