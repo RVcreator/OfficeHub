@@ -1,3 +1,4 @@
+import {meetingsOnDate,meetingOccursOn} from '../utils/meetingRecurrence';
 import {RecordAttachment} from './RecordAttachment';
 import {recordFilePath,isMicrosoftFileLink} from '../services/recordAttachments';
 import {newMeetingDefaults} from '../utils/newMeetingSchedule';
@@ -884,7 +885,7 @@ export const MeetingsTeamsView: React.FC<{
     return Array.from({ length: 7 }, (_, i) => {
       const d = new Date(start.getFullYear(), start.getMonth(), start.getDate() + i);
       const dateStr = `${d.getFullYear()}-${(d.getMonth() + 1).toString().padStart(2, '0')}-${d.getDate().toString().padStart(2, '0')}`;
-      const dayMeetings = filteredMeetings.filter(m => m.date === dateStr);
+      const dayMeetings = meetingsOnDate(filteredMeetings,dateStr);
       const dayTasks = tasks.filter(t => t.dueDate === dateStr && (
         t.assignedToId === currentUser.id || 
         t.createdById === currentUser.id || 
@@ -922,7 +923,7 @@ export const MeetingsTeamsView: React.FC<{
       }
       for (let d = 1; d <= daysCount; d++) {
         const dateStr = `${currentYear}-${(monthIdx + 1).toString().padStart(2, '0')}-${d.toString().padStart(2, '0')}`;
-        const dayMeetings = filteredMeetings.filter(m => m.date === dateStr);
+        const dayMeetings = meetingsOnDate(filteredMeetings,dateStr);
         const dayTasks = tasks.filter(t => t.dueDate === dateStr && (
           t.assignedToId === currentUser.id || 
           t.createdById === currentUser.id || 
@@ -966,7 +967,7 @@ export const MeetingsTeamsView: React.FC<{
   const yearStats = useMemo(() => {
     const currentYear = currentDate.getFullYear();
     const yearPrefix = `${currentYear}-`;
-    const yearMeetings = filteredMeetings.filter(m => m.date && m.date.startsWith(yearPrefix)).length;
+    const yearMeetings = Array.from({length:366},(_,i)=>new Date(Date.UTC(currentYear,0,1+i)).toISOString().slice(0,10)).filter(date=>date.startsWith(yearPrefix)).reduce((sum,date)=>sum+meetingsOnDate(filteredMeetings,date).length,0);
     const yearTasks = tasks.filter(t => t.dueDate && t.dueDate.startsWith(yearPrefix)).length;
     const yearBirthdays = staff.filter(s => s.birthday).length;
     return { yearMeetings, yearTasks, yearBirthdays };
@@ -1249,7 +1250,7 @@ export const MeetingsTeamsView: React.FC<{
   const prevMonthOverlapDays = Array.from({ length: firstDayOfMonth }, (_, i) => {
     const dayNum = daysInPrevMonth - firstDayOfMonth + 1 + i;
     const dateStr = `${prevMonthYear}-${prevMonthNum.toString().padStart(2, '0')}-${dayNum.toString().padStart(2, '0')}`;
-    const dayMeetings = filteredMeetings.filter(m => m.date === dateStr);
+    const dayMeetings = meetingsOnDate(filteredMeetings,dateStr);
     const dayTasks = tasks.filter(t => t.dueDate === dateStr && (
       t.assignedToId === currentUser.id || 
       t.createdById === currentUser.id || 
@@ -1272,7 +1273,7 @@ export const MeetingsTeamsView: React.FC<{
   const currentMonthDays = Array.from({ length: daysInMonth }, (_, i) => {
     const dayNum = i + 1;
     const dateStr = `${year}-${(month + 1).toString().padStart(2, '0')}-${dayNum.toString().padStart(2, '0')}`;
-    const dayMeetings = filteredMeetings.filter(m => m.date === dateStr);
+    const dayMeetings = meetingsOnDate(filteredMeetings,dateStr);
     const dayTasks = tasks.filter(t => t.dueDate === dateStr && (
       t.assignedToId === currentUser.id || 
       t.createdById === currentUser.id || 
@@ -1301,7 +1302,7 @@ export const MeetingsTeamsView: React.FC<{
   const nextMonthOverlapDays = Array.from({ length: nextMonthDaysCount }, (_, i) => {
     const dayNum = i + 1;
     const dateStr = `${nextMonthYear}-${nextMonthNum.toString().padStart(2, '0')}-${dayNum.toString().padStart(2, '0')}`;
-    const dayMeetings = filteredMeetings.filter(m => m.date === dateStr);
+    const dayMeetings = meetingsOnDate(filteredMeetings,dateStr);
     const dayTasks = tasks.filter(t => t.dueDate === dateStr && (
       t.assignedToId === currentUser.id || 
       t.createdById === currentUser.id || 
@@ -1520,7 +1521,7 @@ export const MeetingsTeamsView: React.FC<{
                         {currentDate.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
                       </h3>
                       <p className="text-xs text-slate-500">
-                        {filteredMeetings.filter(m => m.date === selectedCalendarDate).length} meetings scheduled • {userTasksDueOnSelectedDate.length} tasks due
+                        {meetingsOnDate(filteredMeetings,selectedCalendarDate).length} meetings scheduled • {userTasksDueOnSelectedDate.length} tasks due
                       </p>
                     </div>
                   </div>
@@ -1597,7 +1598,7 @@ export const MeetingsTeamsView: React.FC<{
                 <div className="border border-slate-200 rounded-lg overflow-hidden bg-white divide-y divide-slate-100">
                   {timeSlots.map(hour => {
                     const slotMeetings = filteredMeetings.filter(m => {
-                      if (m.date !== selectedCalendarDate) return false;
+                      if (!meetingOccursOn(m,selectedCalendarDate)) return false;
                       const h = getHourFromTimeString(m.startTime || m.time);
                       return h === hour;
                     });
@@ -1820,7 +1821,7 @@ export const MeetingsTeamsView: React.FC<{
                                 onMouseLeave={() => setHoveredActivity(null)}
                                 className="p-1.5 rounded bg-purple-100/90 hover:bg-purple-200 text-purple-900 border border-purple-300 text-[10px] font-bold shadow-2xs space-y-0.5 cursor-pointer"
                               >
-                                <p className="truncate leading-tight">{m.title}</p>
+                                <p className="truncate leading-tight">{m.title}{m.recurrence && m.recurrence !== 'None' && <RotateCcw aria-label={'Repeats '+m.recurrence.toLowerCase()} className="inline-block w-3 h-3 ml-1"/>}</p>
                                 <p className="text-[9px] text-purple-700 font-mono font-medium">{m.startTime || m.time}</p>
                               </div>
                             ))}
@@ -1932,7 +1933,7 @@ export const MeetingsTeamsView: React.FC<{
                                 onMouseLeave={() => setHoveredActivity(null)}
                                 className="p-1 rounded bg-purple-100/90 hover:bg-purple-200 text-purple-900 border border-purple-300/80 truncate font-bold text-[9px] flex items-center justify-between gap-1 shadow-2xs hover:scale-[1.02] transition cursor-pointer"
                               >
-                                <span className="truncate">{m.title}</span>
+                                <span className="truncate">{m.title}{m.recurrence && m.recurrence !== 'None' && <RotateCcw aria-label={'Repeats '+m.recurrence.toLowerCase()} className="inline-block w-3 h-3 ml-1"/>}</span>
                                 <span className="text-[8px] text-purple-700 shrink-0 font-mono">{m.startTime || m.time}</span>
                               </div>
                             ))}
@@ -2147,7 +2148,7 @@ export const MeetingsTeamsView: React.FC<{
                 <CalendarDays className="w-4 h-4 text-[#00ad1d]" />
                 <span>Schedule & Due Tasks on {selectedCalendarDate}</span>
                 <span className="text-xs text-slate-400 font-normal">
-                  ({filteredMeetings.filter(m => m.date === selectedCalendarDate).length} meetings, {userTasksDueOnSelectedDate.length} tasks due)
+                  ({meetingsOnDate(filteredMeetings,selectedCalendarDate).length} meetings, {userTasksDueOnSelectedDate.length} tasks due)
                 </span>
               </span>
             </h3>
@@ -2198,11 +2199,11 @@ export const MeetingsTeamsView: React.FC<{
             {/* Meetings */}
             <div>
               <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">Scheduled Meetings</h4>
-              {filteredMeetings.filter(m => m.date === selectedCalendarDate).length === 0 ? (
+              {meetingsOnDate(filteredMeetings,selectedCalendarDate).length === 0 ? (
                 <p className="text-xs text-slate-400 italic py-1">No meetings scheduled on this date.</p>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {filteredMeetings.filter(m => m.date === selectedCalendarDate).map(m => {
+                  {meetingsOnDate(filteredMeetings,selectedCalendarDate).map(m => {
                     const summary = getRsvpSummary(m);
                     const isCreator = m.organizerId === currentUser.id;
                     const userAttendee = m.attendees.find(a => a.userId === currentUser.id && a.userId !== m.organizerId);
@@ -2494,6 +2495,7 @@ export const MeetingsTeamsView: React.FC<{
                         <span>{meeting.startTime || meeting.time} {meeting.endTime ? `– ${meeting.endTime}` : ''}</span>
                       </div>
 
+                      {meeting.recurrence && meeting.recurrence !== 'None' && <div className="text-purple-700 font-semibold">Repeats {meeting.recurrence.toLowerCase()} · Series starts {meeting.date} · EAT</div>}
                       {chairName && (
                         <div className="flex items-center gap-2 text-[11px] text-purple-900 pt-0.5">
                           <UserCheck className="w-3.5 h-3.5 text-purple-700 shrink-0" />
@@ -2823,6 +2825,7 @@ export const MeetingsTeamsView: React.FC<{
                   )}
                 </div>
                 <h2 className="text-base font-bold text-slate-900">{selectedDetailMeeting.title}</h2>
+                <p className="text-xs text-purple-700 mt-1">Repeats: {selectedDetailMeeting.recurrence || 'None'}{selectedDetailMeeting.recurrence && selectedDetailMeeting.recurrence !== 'None' ? ' · Series starts '+selectedDetailMeeting.date+' · Tanzania time (EAT)' : ''}</p>
               </div>
               <div className="flex items-center gap-1">
                 {selectedDetailMeeting.organizerId === currentUser.id && (
@@ -3224,6 +3227,14 @@ export const MeetingsTeamsView: React.FC<{
                   onChange={(e) => setEditDescription(e.target.value)}
                   className="w-full px-3 py-2 rounded-md border border-slate-200 text-xs focus:outline-none focus:ring-1 focus:ring-purple-500"
                 />
+              </div>
+
+              <div>
+                <label htmlFor="edit-meeting-recurrence" className="font-bold text-slate-700 block mb-1">Recurrence</label>
+                <select id="edit-meeting-recurrence" value={editRecurrence} onChange={e=>setEditRecurrence(e.target.value as NonNullable<Meeting['recurrence']>)} className="w-full px-3 py-2 rounded-md border border-slate-200 bg-white text-xs">
+                  {['None','Daily','Weekly','Monthly'].map(value=><option key={value}>{value}</option>)}
+                </select>
+                <p className="text-xs text-slate-500 mt-1">Changes apply to the entire series. Cancel the meeting to stop future occurrences.</p>
               </div>
 
               {/* Edit Meeting Attachments */}

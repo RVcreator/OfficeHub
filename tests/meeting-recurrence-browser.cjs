@@ -1,0 +1,64 @@
+const {chromium}=require(process.env.OFFICEHUB_PLAYWRIGHT_MODULE||'playwright');const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict');
+(async()=>{const browser=await chromium.launch({headless:true,executablePath:process.env.OFFICEHUB_BROWSER_EXECUTABLE});
+try{
+ const root=path.resolve(__dirname,'../dist'),origin='https://officehub-fixture.invalid',uid=n=>`10000000-0000-4000-8000-${String(n).padStart(12,'0')}`;
+ const profiles=[2,3].map(n=>({id:uid(n),name:n===2?'Physical Fixture':'Invitee Fixture',email:`fixture${n}@example.invalid`,role:'Staff',department:'IT',organisation:'WIPAHS'}));
+ const meetings=[],attendees=[],errors=[];let teamsCalls=0,saves=0;
+ const setup=async n=>{
+  const context=await browser.newContext({viewport:{width:1440,height:1000}}),profile=profiles.find(p=>p.id===uid(n)),user={...profile,role:'authenticated',aud:'authenticated',app_metadata:{must_change_password:false},user_metadata:{name:profile.name}};
+  const jwt=[{alg:'HS256',typ:'JWT'},{sub:user.id,exp:4070908800,aud:'authenticated',role:'authenticated'},'fixture'].map(v=>typeof v==='string'?v:Buffer.from(JSON.stringify(v)).toString('base64url')).join('.');
+  await context.addInitScript(({user,jwt})=>localStorage.setItem('wipahs_supabase_auth_session',JSON.stringify({access_token:jwt,refresh_token:'fixture',expires_at:4070908800,expires_in:99999999,token_type:'bearer',user})),{user,jwt});
+  await context.route('**/*',route=>{
+   const req=route.request(),u=new URL(req.url());if(u.origin===origin){const file=path.resolve(root,'.'+(u.pathname==='/'?'/index.html':u.pathname));if(!file.startsWith(root+path.sep))return route.abort();return route.fulfill({path:file,contentType:file.endsWith('.js')?'application/javascript':file.endsWith('.css')?'text/css':'text/html'});}
+   if(!u.hostname.endsWith('.supabase.co'))return route.abort();let body=[];
+   if(u.pathname==='/auth/v1/user')body=user;
+   else if(u.pathname==='/rest/v1/profiles_public')body=profiles;
+   else if(u.pathname==='/rest/v1/profiles')body=profile;
+   else if(u.pathname==='/rest/v1/meetings')body=meetings.filter(m=>m.organizer_id===uid(n)||attendees.some(a=>a.meeting_id===m.id&&a.user_id===uid(n)));
+   else if(u.pathname==='/rest/v1/meeting_attendees')body=attendees;
+   else if(u.pathname==='/functions/v1/teams-meeting-create')throw Error('Retired creation endpoint must never be used');
+   else if(u.pathname==='/functions/v1/teams-meeting-sync'){teamsCalls++;const input=req.postDataJSON(),m=meetings.find(m=>m.id===input.meetingId);assert.ok(m,'Microsoft sync starts only after the meeting is saved');assert.ok(attendees.some(a=>a.meeting_id===m.id),'Canonical attendees committed before sync');m.teams_join_url='https://teams.example.invalid/online-control';m.teams_meeting_id='online-id';m.microsoft_sync_status='synced';body={outcome:'synced'};}
+   else if(['/rest/v1/rpc/officehub_save_meeting','/rest/v1/rpc/officehub_save_meeting_files'].includes(u.pathname)){
+    const args=req.postDataJSON();assert.equal(args.p_changes.teams_join_url,undefined);assert.equal(args.p_changes.teams_meeting_id,undefined);saves++;let m=meetings.find(m=>m.id===args.p_id);
+    if(args.p_create){m={id:args.p_id,organizer_id:uid(n),organizer_name:profile.name,status:'Scheduled',...args.p_changes};meetings.push(m);}else Object.assign(m,args.p_changes);
+    if(args.p_attendees){for(let i=attendees.length-1;i>=0;i--)if(attendees[i].meeting_id===m.id)attendees.splice(i,1);for(const id of new Set([uid(n),...args.p_attendees.map(a=>a.user_id)])){const p=profiles.find(p=>p.id===id);attendees.push({meeting_id:m.id,user_id:id,name:p.name,email:p.email,status:id===m.organizer_id?'Accepted':'Pending'});}}
+    body={meeting:m,attendees:attendees.filter(a=>a.meeting_id===m.id)};
+   }else if(u.pathname==='/rest/v1/notifications'&&req.method()==='POST')body=req.postDataJSON();
+   else if(u.pathname.includes('/rpc/officehub_presence_'))body=null;
+   else if(u.pathname.endsWith('/sharepoint-list'))body={documents:[]};
+   return route.fulfill({status:200,contentType:'application/json',body:JSON.stringify(body)});
+  });await context.routeWebSocket('**/*',ws=>ws.close());const page=await context.newPage();page.on('pageerror',e=>errors.push(e.message));return {context,page};
+ };
+ const {page}=await setup(2);page.on('dialog',async dialog=>{errors.push('Unexpected dialog: '+dialog.message());await dialog.dismiss();});await page.clock.install({time:new Date('2026-11-03T12:07:00Z')});await page.goto(origin);await page.getByRole('heading',{name:'Welcome, Physical',exact:true}).waitFor();
+ await page.getByRole('button',{name:'Schedule meeting Invite staff and set an agenda'}).click();
+ await page.getByLabel('Meeting format',{exact:true}).selectOption('In-Person Boardroom');await page.getByLabel('Venue *',{exact:true}).fill('Demo boardroom');await page.getByPlaceholder('e.g. Q3 Healthcare Dispensary Strategy Review').fill('Physical browser fixture');
+  assert.equal(await page.locator('form input[type=time]').first().inputValue(),'15:15');
+  const sizes=await page.evaluate(()=>['new-meeting-format','new-meeting-venue'].map(id=>{const e=document.getElementById(id),title=document.querySelector('input[placeholder="e.g. Q3 Healthcare Dispensary Strategy Review"]'),box=e.getBoundingClientRect(),parent=e.closest('form').getBoundingClientRect();return {sameFont:getComputedStyle(e).fontSize===getComputedStyle(title).fontSize,inside:box.left>=parent.left&&box.right<=parent.right+1,height:box.height,titleHeight:title.getBoundingClientRect().height};}));assert.ok(sizes.every(s=>s.sameFont&&s.inside&&Math.abs(s.height-s.titleHeight)<=2));
+  await page.locator('form input[type=time]').first().fill('10:00');await page.locator('form input[type=time]').last().fill('11:00');await page.getByRole('button',{name:'Schedule Physical Meeting',exact:true}).click();await page.getByRole('alert').filter({hasText:'already ended in Tanzania'}).waitFor();assert.equal(saves,0);assert.equal(teamsCalls,0);assert.equal(await page.getByLabel('Venue *',{exact:true}).inputValue(),'Demo boardroom');
+ await page.locator('form select').filter({has:page.locator('option[value=Daily]')}).selectOption('Daily');await page.locator('form input[type=date]').fill('2026-11-04');await page.locator('form p').getByText('Invitee Fixture — Staff',{exact:true}).click();
+  await page.setViewportSize({width:390,height:900});assert.equal(await page.evaluate(()=>{const form=document.querySelector('#new-meeting-format').closest('form').getBoundingClientRect();return ['new-meeting-format','new-meeting-venue'].every(id=>{const box=document.getElementById(id).getBoundingClientRect();return box.left>=form.left&&box.right<=form.right+1;});}),true);await page.screenshot({path:'.auth-qa/screenshots/OfficeHub-meeting-form-mobile-fixed.png',fullPage:true});await page.setViewportSize({width:1440,height:1000});
+ await page.screenshot({path:'.auth-qa/screenshots/OfficeHub-physical-meeting-form.png',fullPage:true});
+ await page.getByRole('button',{name:'Schedule Physical Meeting',exact:true}).click();await page.getByLabel('Meeting format',{exact:true}).waitFor({state:'hidden'});assert.equal(teamsCalls,0);assert.equal(saves,1);
+ const physical=meetings.find(m=>m.title==='Physical browser fixture');assert.equal(physical.recurrence,'Daily');assert.equal(physical.meeting_type,'In-Person Boardroom');assert.equal(physical.location,'Demo boardroom');assert.ok(!physical.teams_join_url);assert.ok(attendees.some(a=>a.meeting_id===physical.id&&a.user_id===uid(3)));
+ const nav=async(target,name)=>{await target.getByRole('button',{name:'Toggle navigation menu'}).click();await target.getByRole('button',{name,exact:true}).click();};
+ await nav(page,'Meetings 1');const card=page.locator(`[data-meeting-id="${physical.id}"]`);await card.waitFor();assert.equal(await card.locator('a[href*="teams"]').count(),0);assert.equal(await card.getByTitle('Copy Teams Link').count(),0);
+ await card.getByTitle('Edit Meeting Details').click();await page.getByLabel('Venue *',{exact:true}).fill('Updated demo boardroom');await page.getByLabel('Recurrence',{exact:true}).selectOption('Weekly');await page.getByRole('button',{name:'Save Changes',exact:true}).click();await page.getByLabel('Venue *',{exact:true}).waitFor({state:'hidden'});assert.equal(physical.location,'Updated demo boardroom');assert.equal(teamsCalls,0);
+
+ assert.equal(physical.recurrence,'Weekly');await card.getByText('Repeats weekly',{exact:false}).waitFor();
+ // Freeze a later date past the original allocation: the same series must remain active.
+ await page.clock.setFixedTime(new Date('2026-11-11T06:00:00Z'));await page.reload();await page.getByRole('heading',{name:'Welcome, Physical',exact:true}).waitFor();
+ await nav(page,'Office Calendar');
+ // Original and next weekly occurrence both appear in this month.
+ await page.getByText('Physical browser fixture',{exact:true}).first().waitFor();
+ await page.getByRole('heading',{name:'Office Calendar & Sessions',exact:true}).waitFor();
+ await page.screenshot({path:'.auth-qa/screenshots/recurring-calendar.png',fullPage:true});
+ assert.ok(await page.getByText('Physical browser fixture',{exact:true}).count()>=4);
+ await page.getByText('Physical browser fixture',{exact:true}).first().click();
+ await page.getByText('Repeats: Weekly',{exact:false}).waitFor();
+ for(const width of [1440,390]){
+  await page.setViewportSize({width,height:1000});
+  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
+  await page.screenshot({path:'.auth-qa/screenshots/recurring-meeting-'+width+'.png',fullPage:true});
+ }
+ assert.deepEqual(errors,[]);console.log('PASS: create recurring series, edit repeat rule, preserve attendees and venue, future weekly calendar occurrences, recurrence in meeting details, desktop/mobile fit, no browser errors or external traffic.');
+}finally{await browser.close();}})().catch(error=>{console.error(error);process.exitCode=1;});

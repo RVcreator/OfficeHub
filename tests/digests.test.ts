@@ -16,3 +16,8 @@ test('large digest includes all rows without a silent item limit',()=>{
  const tasks=Array.from({length:150},(_,i)=>({...digest.tasks[0],id:String(i),title:'Task '+i}));
  const html=renderDigest({...digest,tasks},'Staff');assert.match(html,/Task 149/);assert.match(html,/\(150\)/);
 });
+
+test('recurring meeting details are visible in planning email and escaped',()=>{
+ const html=renderDigest({...digest,meetings:[{...digest.meetings[0],recurrence:'Weekly <unsafe>'}]},'Staff');
+ assert.match(html,/Repeats Weekly &lt;unsafe&gt;/);assert.doesNotMatch(html,/<unsafe>/);
+});

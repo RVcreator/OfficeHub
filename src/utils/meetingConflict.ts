@@ -1,3 +1,4 @@
+import {meetingOccursOn} from './meetingRecurrence';
 import { Meeting, StaffUser } from '../types';
 import { isMeetingArchived } from './archiveUtils';
 
@@ -133,7 +134,7 @@ export function detectMeetingConflicts(
       // Ignore the meeting itself when editing, and ignore cancelled or archived meetings
       if (excludeMeetingId && meeting.id === excludeMeetingId) continue;
       if (meeting.status === 'Cancelled' || isMeetingArchived(meeting)) continue;
-      if (meeting.date !== targetDate) continue;
+      if (!meetingOccursOn(meeting,targetDate)) continue;
 
       // Check if user is in this meeting as organizer or attendee
       const isOrganizer = meeting.organizerId === userId;
@@ -156,7 +157,7 @@ export function detectMeetingConflicts(
           userAvatar,
           conflictingMeetingId: meeting.id,
           conflictingMeetingTitle: meeting.title,
-          date: meeting.date,
+          date: targetDate,
           startTime: meeting.startTime || meeting.time || '10:00 AM',
           endTime: meeting.endTime || '11:00 AM',
         });

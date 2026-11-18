@@ -1,3 +1,4 @@
+import {isRecurringMeeting} from './meetingRecurrence';
 import { Task, Meeting } from '../types';
 
 export const TWO_DAYS_MS = 2 * 24 * 60 * 60 * 1000;
@@ -129,6 +130,7 @@ export function isMeetingArchived(
 ): boolean {
   if (!meeting) return false;
 
+  if(isRecurringMeeting(meeting) && !meeting.recurrenceEndDate && !meeting.recurrence_end_date)return false;
   const nowMs = resolveNowMs(options);
   const scheduledMs = getMeetingScheduledTimestamp(meeting);
 

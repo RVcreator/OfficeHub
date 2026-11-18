@@ -1,3 +1,4 @@
+import {graphRecurrence,sameRecurrence} from './meetingRecurrence.ts';
 export class TeamsSyncError extends Error {
  constructor(message:string,public blocked=false){super(message);}
 }
@@ -5,7 +6,7 @@ export interface TeamsJob {
  meeting_id:string;revision:number;lease_token:string;transaction_id:string;
  event_id:string|null;owner_id:string|null;online_id:string|null;applied_hash:string|null;
  legacy_event_id:string|null;legacy_join_url:string|null;
- payload:{cancelled:boolean;title:string;description:string;start:string;end:string;organizer_email:string;chair_email:string;attendees:{email:string;name:string}[]};
+ payload:{recurrence?:'None'|'Daily'|'Weekly'|'Monthly';cancelled:boolean;title:string;description:string;start:string;end:string;organizer_email:string;chair_email:string;attendees:{email:string;name:string}[]};
 }
 type Rpc=(name:string,args?:Record<string,unknown>)=>Promise<any>;
 const escapeHtml=(value:string)=>value.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]!));
@@ -16,7 +17,7 @@ export function eventFields(job:TeamsJob){
  if(!Number.isFinite(Date.parse(p.start))||!Number.isFinite(Date.parse(p.end))||Date.parse(p.end)<=Date.parse(p.start))throw new TeamsSyncError('The meeting needs a valid start and end time.',true);
  const organizer=email(p.organizer_email);
  const attendees=[...new Map(p.attendees.map(a=>[email(a.email),{emailAddress:{address:email(a.email),name:a.name},type:'required'}])).values()].filter(a=>a.emailAddress.address!==organizer).sort((a,b)=>a.emailAddress.address.localeCompare(b.emailAddress.address));
- return {subject:p.title,body:{contentType:'HTML',content:`<div data-officehub-details="true"><p>${escapeHtml(p.description||'OfficeHub meeting').replace(/\n/g,'<br>')}</p></div>`},start:{dateTime:new Date(p.start).toISOString(),timeZone:'UTC'},end:{dateTime:new Date(p.end).toISOString(),timeZone:'UTC'},attendees};
+ return {recurrence:graphRecurrence(p.recurrence,p.start),subject:p.title,body:{contentType:'HTML',content:`<div data-officehub-details="true"><p>${escapeHtml((p.description||'OfficeHub meeting')+'\nRepeats: '+(p.recurrence||'None')).replace(/\n/g,'<br>')}</p></div>`},start:{dateTime:new Date(p.start).toISOString(),timeZone:'UTC'},end:{dateTime:new Date(p.end).toISOString(),timeZone:'UTC'},attendees};
 }
 const same=(a:unknown,b:unknown)=>JSON.stringify(a)===JSON.stringify(b);
 const addresses=(list:any[]=[])=>list.map(a=>String(a.emailAddress?.address||'').toLowerCase()).sort();
@@ -48,7 +49,7 @@ export async function syncTeamsJob(job:TeamsJob,dependencies:{request:typeof fet
  }
  const fields=eventFields(job),hash=await fingerprint({...fields,chair:email(p.chair_email)});
  if(!p.attendees.some(a=>email(a.email)===email(p.chair_email)))throw new TeamsSyncError('The selected host must be in the saved attendee list.',true);
- if(Date.parse(p.end)<=Date.now())throw new TeamsSyncError('This meeting has ended. OfficeHub will not send new Microsoft invitations for it.',true);
+ if(!fields.recurrence&&Date.parse(p.end)<=Date.now())throw new TeamsSyncError('This meeting has ended. OfficeHub will not send new Microsoft invitations for it.',true);
  if(!owner){const user=await graph('/users/'+encodeURIComponent(email(p.organizer_email))+'?$select=id');if(!user?.id)throw new TeamsSyncError('The organizer has no Microsoft account.',true);owner=user.id;}
  let event:any;
  if(!eventId&&job.legacy_event_id){
@@ -68,6 +69,7 @@ export async function syncTeamsJob(job:TeamsJob,dependencies:{request:typeof fet
   if(event.isCancelled)throw new TeamsSyncError('This meeting was cancelled in Microsoft. Create a new meeting to schedule it again.',true);
   if(job.applied_hash!==hash){
    const patch:any={};
+   if(!sameRecurrence(event.recurrence,fields.recurrence))patch.recurrence=fields.recurrence;
    if(event.subject!==fields.subject)patch.subject=fields.subject;
    const microsoftUtc=(v:any)=>Date.parse(v?.dateTime+(v?.timeZone==='UTC'&&!/[zZ]|[+-]\d\d:\d\d$/.test(v.dateTime)?'Z':''));
    if(microsoftUtc(event.start)!==Date.parse(p.start)||microsoftUtc(event.end)!==Date.parse(p.end)){patch.start=fields.start;patch.end=fields.end;}
@@ -99,7 +101,8 @@ export async function syncTeamsJob(job:TeamsJob,dependencies:{request:typeof fet
  })));
  const canonical=(values:any[]=[])=>values.map(a=>({id:a.identity?.user?.id,role:a.role||'attendee'})).sort((a,b)=>String(a.id).localeCompare(String(b.id)));
  if(!same(canonical(online.participants?.attendees),canonical(people)))await graph(meetingPath,'PATCH',{participants:{attendees:people}});
- const verified=await graph(base+encodeURIComponent(eventId)+'?$select=id,attendees,onlineMeeting,organizer');
+ const verified=await graph(base+encodeURIComponent(eventId)+'?$select=id,attendees,onlineMeeting,organizer,recurrence');
+ if(!sameRecurrence(verified.recurrence,fields.recurrence))throw new TeamsSyncError('Microsoft has not confirmed the repeat schedule yet. OfficeHub will retry.');
  if(!same(addresses(verified.attendees),addresses(fields.attendees))||verified.onlineMeeting?.joinUrl!==join)throw new TeamsSyncError('Microsoft has not confirmed the full invitation list yet. OfficeHub will retry.');
  const verifiedOnline=await graph(meetingPath);
  if(!same(canonical(verifiedOnline.participants?.attendees),canonical(people)))throw new TeamsSyncError('Microsoft has not confirmed the host roles yet. OfficeHub will retry.');

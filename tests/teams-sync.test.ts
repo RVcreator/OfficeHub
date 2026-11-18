@@ -18,6 +18,16 @@ function microsoft(){
  };
  return {request,calls,get event(){return event;},set event(value){event=value;},get online(){return online;}};
 }
+
+test('recurring Teams series persist one event through create, retry, repeat edits and cancellation',async()=>{
+ const ms=microsoft(),job=fixture();job.payload.recurrence='Weekly';
+ Object.assign(job,await syncTeamsJob(job,{request:ms.request,token:'token',checkpoint:async()=>{}}));
+ assert.equal(ms.event.recurrence.pattern.type,'weekly');assert.match(ms.event.body.content,/Repeats: Weekly/);
+ ms.calls.length=0;await syncTeamsJob(job,{request:ms.request,token:'token',checkpoint:async()=>{}});assert.equal(ms.calls.filter(c=>c.method==='POST'||c.method==='PATCH').length,0);
+ job.payload.recurrence='Daily';Object.assign(job,await syncTeamsJob(job,{request:ms.request,token:'token',checkpoint:async()=>{}}));assert.equal(ms.event.recurrence.pattern.type,'daily');
+ job.payload.recurrence='None';Object.assign(job,await syncTeamsJob(job,{request:ms.request,token:'token',checkpoint:async()=>{}}));assert.equal(ms.event.recurrence,null);
+ job.payload.cancelled=true;await syncTeamsJob(job,{request:ms.request,token:'token',checkpoint:async()=>{}});assert.equal(ms.event.isCancelled,true);
+});
 test('a slow sync stops remote operations before its database lease can expire',async t=>{
  let clock=0,calls=0;t.mock.method(Date,'now',()=>{clock+=50000;return clock;});
  await assert.rejects(()=>syncTeamsJob(fixture(),{token:'token',checkpoint:async()=>{},request:async()=>{calls++;return Response.json({id:'owner-id'});}}),/took too long/);

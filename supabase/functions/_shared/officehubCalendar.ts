@@ -1,4 +1,5 @@
 export interface CalendarPayload {
+ recurrence?:'None'|'Daily'|'Weekly'|'Monthly';
  version:1;id:string;title:string;description:string;location:string;start:string;end:string;
  sequence:number;method:'REQUEST'|'CANCEL'|'PUBLISH';organizerName:string;
 }
@@ -8,8 +9,13 @@ function fold(line:string){let result='',size=0;for(const char of line){const by
 export function calendarIcs(event:CalendarPayload,recipient?:string,stamp=new Date().toISOString()){
  if(event.version!==1||!['REQUEST','CANCEL','PUBLISH'].includes(event.method)||!Number.isInteger(event.sequence)||event.sequence<0||Date.parse(event.end)<=Date.parse(event.start))throw new Error('Invalid calendar invitation');
  if(recipient&&!/^[a-z0-9._%+-]+@wipahs\.org$/i.test(recipient))throw new Error('Invalid calendar recipient');
- return ['BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//WIPAHS//OfficeHub//EN','CALSCALE:GREGORIAN',`METHOD:${event.method}`,'BEGIN:VEVENT',
-  `UID:officehub-${encodeURIComponent(event.id)}@wipahs.org`,`SEQUENCE:${event.sequence}`,`DTSTAMP:${utc(stamp)}`,`DTSTART:${utc(event.start)}`,`DTEND:${utc(event.end)}`,
+ const recurring=['Daily','Weekly','Monthly'].includes(event.recurrence||'');
+ const calendarTime=(value:string)=>utc(new Date(Date.parse(value)+10800000).toISOString()).replace(/Z$/,'');
+ return ['BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//WIPAHS//OfficeHub//EN','CALSCALE:GREGORIAN',`METHOD:${event.method}`,
+  ...(recurring?['BEGIN:VTIMEZONE','TZID:Africa/Dar_es_Salaam','BEGIN:STANDARD','DTSTART:19700101T000000','TZOFFSETFROM:+0300','TZOFFSETTO:+0300','TZNAME:EAT','END:STANDARD','END:VTIMEZONE']:[]),'BEGIN:VEVENT',
+  `UID:officehub-${encodeURIComponent(event.id)}@wipahs.org`,`SEQUENCE:${event.sequence}`,`DTSTAMP:${utc(stamp)}`,
+  ...(recurring?[`DTSTART;TZID=Africa/Dar_es_Salaam:${calendarTime(event.start)}`,`DTEND;TZID=Africa/Dar_es_Salaam:${calendarTime(event.end)}`]:[`DTSTART:${utc(event.start)}`,`DTEND:${utc(event.end)}`]),
+  ...(['Daily','Weekly','Monthly'].includes(event.recurrence||'')?[`RRULE:FREQ=${event.recurrence!.toUpperCase()};INTERVAL=1`]:[]),
   `SUMMARY:${safeText(event.title)}`,`DESCRIPTION:${safeText(event.description)}`,`LOCATION:${safeText(event.location)}`,
   'ORGANIZER;CN=WIPAHS OfficeHub:mailto:officehub@wipahs.org',
   ...(recipient?[`ATTENDEE;ROLE=REQ-PARTICIPANT${event.method==='REQUEST'?';PARTSTAT=NEEDS-ACTION;RSVP=TRUE':''}:mailto:${recipient.toLowerCase()}`]:[]),
