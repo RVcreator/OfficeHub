@@ -44,7 +44,7 @@ export function buildCalendarInvite(meeting:Meeting){
  const beginning=Date.parse(meeting.date+'T00:00:00+03:00')+(start.hours*3600+start.minutes*60+start.seconds)*1000;
  return calendarIcs({version:1,id:meeting.id,title:meeting.title,description:(meeting.description||'')+'\nOrganizer: '+meeting.organizerName+(!isPhysicalMeeting(meeting)&&meeting.teamsJoinUrl?'\nJoin: '+meeting.teamsJoinUrl:''),
   location:isPhysicalMeeting(meeting)?meeting.location||'Physical meeting':meeting.meetingType||'Microsoft Teams',
-  start:new Date(beginning).toISOString(),end:new Date(end).toISOString(),sequence:0,method:meeting.status==='Cancelled'?'CANCEL':'PUBLISH',organizerName:meeting.organizerName});
+  recurrence:meeting.recurrence,start:new Date(beginning).toISOString(),end:new Date(end).toISOString(),sequence:0,method:meeting.status==='Cancelled'?'CANCEL':'PUBLISH',organizerName:meeting.organizerName});
 }
 export function downloadCalendarInvite(meeting: Meeting) {
   const icsContent=buildCalendarInvite(meeting);

@@ -123,7 +123,7 @@ test('48-hour boundary, overnight meetings, missing endTime, and recurrence', ()
 
   const nowMs = new Date(2026, 9, 27, 12, 0, 0, 0).getTime();
   const weeklySingle = makeMeeting('weekly', { date: '2026-10-24', recurrence: 'Weekly' });
-  assert.equal(isMeetingArchived(weeklySingle, { nowMs }), true);
+  assert.equal(isMeetingArchived(weeklySingle, { nowMs }), false);
 
   const weeklyFutureSeries = Object.assign(makeMeeting('weekly-series', { date: '2026-10-24', recurrence: 'Weekly' }), {
     recurrenceEndDate: '2026-11-15',

@@ -27,7 +27,7 @@ export function escapeHtml(value: string): string {
 export interface PlanningDigest {
   version: number; kind: 'week' | 'month'; start: string; end: string; timezone: string;
   tasks: {id: string; title: string; date: string | null; status: string; priority: string; overdue: boolean}[];
-  meetings: {id: string; title: string; date: string; time: string; endTime: string; type: string}[];
+  meetings: {id: string; title: string; date: string; time: string; endTime: string; type: string; recurrence?:string}[];
   projects: {id: string; title: string; date: string | null; status: string; progress: number; overdue: boolean}[];
 }
 const text = (value: unknown) => escapeHtml(String(value ?? ''));
@@ -43,10 +43,10 @@ export function renderDigest(d: PlanningDigest, name: string): string {
     +'<p style="color:#0f766e;font-size:12px;letter-spacing:1px;font-weight:bold">WIPAHS OFFICEHUB</p><h1 style="font-size:26px;color:#0f172a;margin-bottom:8px">Your '+(d.kind==='week'?'week':'month')+' ahead</h1>'
     +'<p style="font-size:14px;color:#64748b">'+text(dateLabel(d.start))+' – '+text(dateLabel(d.end))+' · Tanzania time (EAT)</p><p>Dear '+text(name)+',</p><p style="font-size:14px">Here is your personal plan for the '+(d.kind==='week'?'week':'month')+'.</p>'
     +section('Tasks', ['Task','Due','Priority / status'], taskRows(d.tasks.filter(t=>!t.overdue)), 'No tasks scheduled. Undated open tasks are shown here when present.')
-    +section('Meetings', ['Meeting','When (EAT)','Format'], d.meetings.map(m=>[text(m.title),text(dateLabel(m.date))+'<br>'+text(m.time)+(m.endTime?' – '+text(m.endTime):''),text(m.type)]), 'No meetings scheduled.')
+    +section('Meetings', ['Meeting','When (EAT)','Format'], d.meetings.map(m=>[text(m.title),text(dateLabel(m.date))+'<br>'+text(m.time)+(m.endTime?' – '+text(m.endTime):''),text(m.type)+(m.recurrence&&m.recurrence!=='None'?'<br>Repeats '+text(m.recurrence):'')]), 'No meetings scheduled.')
     +section('Projects', ['Project','Target','Progress / status'], d.projects.filter(p=>!p.overdue).map(p=>[text(p.title),text(dateLabel(p.date)),text(Math.max(0,Math.min(100,Number(p.progress)||0)))+'%<br>'+text(p.status)]), 'No active projects for this period.')
     +section('Overdue work', ['Item','Due / target','Status'], [...taskRows(d.tasks.filter(t=>t.overdue)).map(r=>['Task: '+r[0],r[1],r[2]]),...d.projects.filter(p=>p.overdue).map(p=>['Project: '+text(p.title),text(dateLabel(p.date)),text(p.status)])], 'No overdue tasks or projects.')
-    +'<p style="border-top:1px solid #e2e8f0;padding-top:18px;font-size:12px;color:#64748b">This is a planning snapshot. Open OfficeHub for current assignments, meeting links and updates. Undated tasks and ongoing projects remain visible until completed. Only stored meeting occurrences are included.</p></div></body></html>';
+    +'<p style="border-top:1px solid #e2e8f0;padding-top:18px;font-size:12px;color:#64748b">This is a planning snapshot. Open OfficeHub for current assignments, meeting links and updates. Undated tasks and ongoing projects remain visible until completed. Recurring meetings include each occurrence in this period.</p></div></body></html>';
 }
 
 export function graphMessage(job: EmailJob) {
